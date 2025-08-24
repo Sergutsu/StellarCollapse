@@ -100,27 +100,198 @@
             display: grid;
             grid-template-columns: repeat(10, 1fr);
             grid-template-rows: repeat(20, 1fr);
-            gap: 1px;
+            gap: 2px;
             width: 300px;
             height: 600px;
-            border: 2px solid #2d3748;
-            background: rgba(0, 0, 0, 0.3);
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            border: 3px solid #00d4ff;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(255, 0, 128, 0.1) 0%, transparent 50%),
+                linear-gradient(135deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 20, 40, 0.9) 100%);
+            box-shadow: 
+                0 0 30px rgba(0, 212, 255, 0.5),
+                inset 0 0 20px rgba(0, 212, 255, 0.1),
+                0 0 60px rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+            position: relative;
+        }
+        
+        .game-grid::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                repeating-linear-gradient(
+                    0deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.03) 1px,
+                    transparent 2px
+                ),
+                repeating-linear-gradient(
+                    90deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.03) 1px,
+                    transparent 2px
+                );
+            pointer-events: none;
+            border-radius: 6px;
+            animation: gridPulse 4s ease-in-out infinite;
+        }
+        
+        .game-grid::after {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: 
+                linear-gradient(45deg, transparent 0%, rgba(0, 212, 255, 0.1) 50%, transparent 100%);
+            border-radius: 10px;
+            animation: hologramSweep 6s linear infinite;
+            pointer-events: none;
+        }
+        
+        @keyframes gridPulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+        
+        @keyframes hologramSweep {
+            0% {
+                background: linear-gradient(45deg, transparent 0%, rgba(0, 212, 255, 0.1) 5%, transparent 10%);
+            }
+            50% {
+                background: linear-gradient(45deg, transparent 40%, rgba(0, 212, 255, 0.1) 50%, transparent 60%);
+            }
+            100% {
+                background: linear-gradient(45deg, transparent 90%, rgba(0, 212, 255, 0.1) 95%, transparent 100%);
+            }
         }
         
         .cell {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(0, 212, 255, 0.02);
+            border: 1px solid rgba(0, 212, 255, 0.1);
+            border-radius: 2px;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+        
+        .cell:hover {
+            background: rgba(0, 212, 255, 0.05);
         }
         
         .cell.filled {
-            border: 1px solid rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(0, 0, 0, 0.3);
+            box-shadow: 
+                inset 2px 2px 4px rgba(255, 255, 255, 0.2),
+                inset -2px -2px 4px rgba(0, 0, 0, 0.5),
+                0 2px 8px rgba(0, 0, 0, 0.3);
         }
         
-        .cell.red { background: linear-gradient(135deg, #ff4d4d, #ff0000); }
-        .cell.blue { background: linear-gradient(135deg, #4d79ff, #0040ff); }
-        .cell.green { background: linear-gradient(135deg, #4dff4d, #00b300); }
-        .cell.yellow { background: linear-gradient(135deg, #ffff4d, #ffd700); }
+        /* Asteroid-like block styles */
+        .cell.red { 
+            background: 
+                radial-gradient(circle at 30% 30%, #ff6b4a, #cc2200),
+                radial-gradient(circle at 70% 80%, #aa1100, #660000),
+                linear-gradient(135deg, #ff4400, #aa0000);
+            box-shadow: 
+                inset 3px 3px 6px rgba(255, 150, 100, 0.3),
+                inset -3px -3px 6px rgba(80, 0, 0, 0.7),
+                0 3px 12px rgba(255, 68, 0, 0.4);
+        }
+        
+        .cell.red::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 25% 25%, rgba(255, 180, 150, 0.4) 20%, transparent 40%),
+                radial-gradient(circle at 75% 70%, rgba(120, 20, 0, 0.6) 15%, transparent 35%),
+                radial-gradient(circle at 60% 30%, rgba(200, 50, 20, 0.3) 10%, transparent 25%);
+            border-radius: 2px;
+        }
+        
+        .cell.blue { 
+            background: 
+                radial-gradient(circle at 35% 25%, #4a9eff, #0055cc),
+                radial-gradient(circle at 65% 75%, #0044aa, #002266),
+                linear-gradient(145deg, #3388ff, #0044aa);
+            box-shadow: 
+                inset 3px 3px 6px rgba(150, 200, 255, 0.3),
+                inset -3px -3px 6px rgba(0, 30, 80, 0.7),
+                0 3px 12px rgba(68, 136, 255, 0.4);
+        }
+        
+        .cell.blue::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 40%, rgba(150, 220, 255, 0.4) 20%, transparent 40%),
+                radial-gradient(circle at 80% 60%, rgba(0, 50, 120, 0.6) 15%, transparent 35%),
+                radial-gradient(circle at 45% 20%, rgba(50, 150, 200, 0.3) 10%, transparent 25%);
+            border-radius: 2px;
+        }
+        
+        .cell.green { 
+            background: 
+                radial-gradient(circle at 40% 30%, #4aff6b, #00cc22),
+                radial-gradient(circle at 60% 80%, #00aa11, #006600),
+                linear-gradient(125deg, #44ff00, #00aa44);
+            box-shadow: 
+                inset 3px 3px 6px rgba(150, 255, 180, 0.3),
+                inset -3px -3px 6px rgba(0, 80, 30, 0.7),
+                0 3px 12px rgba(68, 255, 100, 0.4);
+        }
+        
+        .cell.green::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 30% 30%, rgba(180, 255, 200, 0.4) 20%, transparent 40%),
+                radial-gradient(circle at 70% 80%, rgba(20, 120, 40, 0.6) 15%, transparent 35%),
+                radial-gradient(circle at 50% 60%, rgba(80, 200, 100, 0.3) 10%, transparent 25%);
+            border-radius: 2px;
+        }
+        
+        .cell.yellow { 
+            background: 
+                radial-gradient(circle at 30% 40%, #ffeb4a, #cc9900),
+                radial-gradient(circle at 70% 70%, #aa7700, #664400),
+                linear-gradient(155deg, #ffdd00, #aa7700);
+            box-shadow: 
+                inset 3px 3px 6px rgba(255, 240, 150, 0.3),
+                inset -3px -3px 6px rgba(80, 60, 0, 0.7),
+                0 3px 12px rgba(255, 221, 0, 0.4);
+        }
+        
+        .cell.yellow::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 35% 25%, rgba(255, 250, 180, 0.4) 20%, transparent 40%),
+                radial-gradient(circle at 75% 75%, rgba(120, 80, 0, 0.6) 15%, transparent 35%),
+                radial-gradient(circle at 55% 45%, rgba(200, 160, 50, 0.3) 10%, transparent 25%);
+            border-radius: 2px;
+        }
         
         .preview {
             display: grid;
@@ -128,14 +299,46 @@
             grid-template-rows: repeat(4, 1fr);
             width: 120px;
             height: 120px;
-            border: 2px solid #2d3748;
-            background: rgba(0, 0, 0, 0.3);
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            border: 2px solid #00d4ff;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
+                linear-gradient(135deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 20, 40, 0.9) 100%);
+            box-shadow: 
+                0 0 20px rgba(0, 212, 255, 0.4),
+                inset 0 0 15px rgba(0, 212, 255, 0.1);
+            border-radius: 6px;
+            position: relative;
+        }
+        
+        .preview::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                repeating-linear-gradient(
+                    0deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.03) 1px,
+                    transparent 2px
+                ),
+                repeating-linear-gradient(
+                    90deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.03) 1px,
+                    transparent 2px
+                );
+            pointer-events: none;
+            border-radius: 4px;
         }
         
         .preview-cell {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(0, 212, 255, 0.02);
+            border: 1px solid rgba(0, 212, 255, 0.08);
+            border-radius: 2px;
+            transition: all 0.2s ease;
         }
         
         .screen {
@@ -177,14 +380,129 @@
         }
         
         .highlight {
-            box-shadow: 0 0 15px 5px rgba(255, 255, 255, 0.7);
+            box-shadow: 
+                0 0 25px 8px rgba(255, 255, 255, 0.9),
+                0 0 35px 12px rgba(0, 212, 255, 0.7),
+                0 0 45px 16px rgba(255, 0, 128, 0.5);
             z-index: 10;
+            animation: asteroidExplode 0.6s ease-in-out;
+            transform: scale(1.1);
+        }
+        
+        @keyframes asteroidExplode {
+            0% { 
+                transform: scale(1);
+                box-shadow: 
+                    0 0 5px 2px rgba(255, 255, 255, 0.3),
+                    0 0 10px 4px rgba(0, 212, 255, 0.2);
+            }
+            50% { 
+                transform: scale(1.15) rotate(5deg);
+                box-shadow: 
+                    0 0 30px 10px rgba(255, 255, 255, 1),
+                    0 0 40px 15px rgba(0, 212, 255, 0.8),
+                    0 0 50px 20px rgba(255, 0, 128, 0.6);
+            }
+            100% { 
+                transform: scale(1.1) rotate(-2deg);
+                box-shadow: 
+                    0 0 25px 8px rgba(255, 255, 255, 0.9),
+                    0 0 35px 12px rgba(0, 212, 255, 0.7),
+                    0 0 45px 16px rgba(255, 0, 128, 0.5);
+            }
+        }
+        
+        /* Special effect for filled cells */
+        .cell.filled::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            right: 2px;
+            bottom: 2px;
+            background: 
+                radial-gradient(circle at 70% 30%, rgba(255, 255, 255, 0.1) 0%, transparent 60%),
+                radial-gradient(circle at 30% 70%, rgba(255, 255, 255, 0.05) 0%, transparent 40%);
+            border-radius: 1px;
+            pointer-events: none;
+        }
+        
+        /* Asteroid surface texture animation */
+        @keyframes asteroidSurface {
+            0%, 100% { 
+                background-position: 0% 0%;
+            }
+            50% { 
+                background-position: 100% 100%;
+            }
+        }
+        
+        .cell.filled {
+            animation: asteroidSurface 8s ease-in-out infinite;
         }
         
         .instructions {
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: 
+                linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(255, 0, 128, 0.1) 100%),
+                rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            box-shadow: 
+                0 0 20px rgba(0, 212, 255, 0.2),
+                inset 0 0 20px rgba(0, 212, 255, 0.05);
+            border-radius: 8px;
+        }
+        
+        /* Holographic effects for UI panels */
+        .hologram-panel {
+            background: 
+                linear-gradient(135deg, rgba(0, 212, 255, 0.05) 0%, rgba(255, 0, 128, 0.05) 100%),
+                rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            box-shadow: 
+                0 0 15px rgba(0, 212, 255, 0.1),
+                inset 0 0 15px rgba(0, 212, 255, 0.03);
+            border-radius: 6px;
+            position: relative;
+        }
+        
+        .hologram-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                repeating-linear-gradient(
+                    90deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.02) 1px,
+                    transparent 2px
+                );
+            pointer-events: none;
+            border-radius: 5px;
+        }
+        
+        /* Enhanced score display */
+        .score-display {
+            color: #00d4ff;
+            text-shadow: 
+                0 0 10px rgba(0, 212, 255, 0.8),
+                0 0 20px rgba(0, 212, 255, 0.5),
+                0 0 30px rgba(0, 212, 255, 0.3);
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+        }
+        
+        /* Glowing text for headers */
+        .glow-text {
+            text-shadow: 
+                0 0 5px currentColor,
+                0 0 10px currentColor,
+                0 0 15px currentColor,
+                0 0 20px currentColor;
         }
     </style>
 </head>
@@ -258,25 +576,25 @@
         
         <div class="flex flex-col items-center">
             <div class="flex justify-between w-full max-w-2xl mb-4">
-                <div class="text-center">
-                    <h2 class="text-2xl font-bold">SCORE</h2>
-                    <div id="score" class="text-4xl font-bold text-yellow-300">0</div>
+                <div class="text-center hologram-panel p-4">
+                    <h2 class="text-2xl font-bold glow-text text-yellow-300">SCORE</h2>
+                    <div id="score" class="text-4xl font-bold score-display">0</div>
                 </div>
                 
-                <div class="text-center">
-                    <h2 class="text-2xl font-bold">LEVEL</h2>
-                    <div id="level" class="text-4xl font-bold text-blue-300">1</div>
+                <div class="text-center hologram-panel p-4">
+                    <h2 class="text-2xl font-bold glow-text text-blue-300">LEVEL</h2>
+                    <div id="level" class="text-4xl font-bold score-display">1</div>
                 </div>
                 
-                <div class="text-center">
-                    <h2 class="text-2xl font-bold">LINES</h2>
-                    <div id="lines" class="text-4xl font-bold text-green-300">0</div>
+                <div class="text-center hologram-panel p-4">
+                    <h2 class="text-2xl font-bold glow-text text-green-300">LINES</h2>
+                    <div id="lines" class="text-4xl font-bold score-display">0</div>
                 </div>
             </div>
             
             <div class="flex gap-8">
-                <div>
-                    <h3 class="text-center mb-2 font-bold">NEXT</h3>
+                <div class="hologram-panel p-4">
+                    <h3 class="text-center mb-2 font-bold glow-text text-cyan-300">NEXT</h3>
                     <div class="preview" id="nextPiece"></div>
                 </div>
                 
@@ -290,15 +608,15 @@
                     </div>
                 </div>
                 
-                <div>
-                    <h3 class="text-center mb-2 font-bold">CONTROLS</h3>
-                    <div class="bg-black bg-opacity-30 p-4 rounded-lg">
-                        <p class="mb-2"><i class="fas fa-arrow-up text-yellow-300 mr-2"></i> Rotate</p>
-                        <p class="mb-2"><i class="fas fa-arrow-left text-yellow-300 mr-2"></i> Move Left</p>
-                        <p class="mb-2"><i class="fas fa-arrow-right text-yellow-300 mr-2"></i> Move Right</p>
-                        <p class="mb-2"><i class="fas fa-arrow-down text-yellow-300 mr-2"></i> Move Down</p>
-                        <p class="mb-2"><i class="fas fa-spacebar text-yellow-300 mr-2"></i> Drop</p>
-                        <p class="mb-2"><i class="fas fa-mouse-pointer text-yellow-300 mr-2"></i> Match 4 Colors (H/V)</p>
+                <div class="hologram-panel p-4">
+                    <h3 class="text-center mb-2 font-bold glow-text text-cyan-300">CONTROLS</h3>
+                    <div class="space-y-2 text-sm">
+                        <p class="flex items-center"><i class="fas fa-arrow-up text-yellow-300 mr-2 w-4"></i> Rotate</p>
+                        <p class="flex items-center"><i class="fas fa-arrow-left text-yellow-300 mr-2 w-4"></i> Move Left</p>
+                        <p class="flex items-center"><i class="fas fa-arrow-right text-yellow-300 mr-2 w-4"></i> Move Right</p>
+                        <p class="flex items-center"><i class="fas fa-arrow-down text-yellow-300 mr-2 w-4"></i> Move Down</p>
+                        <p class="flex items-center"><i class="fas fa-space-shuttle text-yellow-300 mr-2 w-4"></i> Drop</p>
+                        <p class="flex items-center"><i class="fas fa-mouse-pointer text-yellow-300 mr-2 w-4"></i> Match 4+ Colors</p>
                     </div>
                 </div>
             </div>
