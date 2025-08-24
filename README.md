@@ -48,6 +48,7 @@ Stellar Collapse is an innovative space-themed puzzle game that combines the cla
 - **Gradient Backgrounds**: Deep space nebula effects with radial gradients
 - **Smooth Animations**: Fluid piece movements and satisfying visual feedback
 - **Particle Effects**: Glowing fragments and stellar highlights
+- **Immersive Audio**: Space-themed sound effects and cosmic audio feedback using Web Audio API
 
 ### 🏆 Progression System
 - **Dynamic Scoring**: Points scale with level and combo multipliers
@@ -99,6 +100,7 @@ open index.html
 | `↑` | Rotate piece clockwise |
 | `SPACE` | Hard drop (instant fall) |
 | `Mouse Click` | Trigger color matches |
+| `Sound Toggle` | Enable/disable audio effects |
 
 ### 🎮 Gameplay Mechanics
 
@@ -187,6 +189,7 @@ Bomb Explosion: 25 × Blocks × Level
 - **HTML5**: Semantic structure and game layout
 - **CSS3**: Advanced animations, gradients, and responsive design
 - **JavaScript ES6+**: Game logic, event handling, and state management
+- **Web Audio API**: Real-time sound generation and space-themed audio effects
 - **TailwindCSS**: Utility-first styling framework
 - **Font Awesome**: Vector icons for enhanced UI
 

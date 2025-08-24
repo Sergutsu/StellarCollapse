@@ -1050,7 +1050,10 @@
     <!-- Game Screen -->
     <div id="gameScreen" class="screen absolute inset-0 flex flex-col items-center justify-center opacity-0 pointer-events-none">
         <!-- End Game Button -->
-        <div class="absolute top-4 right-4">
+        <div class="absolute top-4 right-4 flex gap-2">
+            <button id="soundToggleBtn" class="btn bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-full transition-colors">
+                <i id="soundToggleIcon" class="fas fa-volume-up mr-2"></i><span id="soundToggleText">Sound ON</span>
+            </button>
             <button id="endGameBtn" class="btn bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-full transition-colors">
                 <i class="fas fa-sign-out-alt mr-2"></i>Exit Mission
             </button>
@@ -1245,6 +1248,25 @@
         let lastTime = 0;
         let highScores = [];
         
+        // Sound system
+        let audioContext = null;
+        let soundEnabled = true;
+        let masterVolume = 0.3;
+        const soundLibrary = {
+            // Sound effect definitions with frequencies and patterns
+            pieceDrop: { type: 'tone', frequency: 220, duration: 0.1, volume: 0.2 },
+            pieceMove: { type: 'click', frequency: 800, duration: 0.03, volume: 0.15 },
+            pieceRotate: { type: 'tone', frequency: 550, duration: 0.08, volume: 0.2 },
+            pieceLock: { type: 'thud', frequency: 150, duration: 0.15, volume: 0.25 },
+            lineClear: { type: 'sweep', startFreq: 440, endFreq: 880, duration: 0.3, volume: 0.4 },
+            colorMatch: { type: 'chord', frequencies: [330, 415, 523], duration: 0.2, volume: 0.3 },
+            bombExplosion: { type: 'explosion', duration: 0.6, volume: 0.5 },
+            snakeTrail: { type: 'glide', startFreq: 200, endFreq: 800, duration: 0.3, volume: 0.25 },
+            gameOver: { type: 'descent', startFreq: 440, endFreq: 110, duration: 1.2, volume: 0.4 },
+            levelUp: { type: 'ascent', startFreq: 262, endFreq: 523, duration: 0.5, volume: 0.35 },
+            tetris: { type: 'fanfare', frequencies: [262, 330, 392, 523], duration: 0.8, volume: 0.45 }
+        };
+        
         // DOM elements
         const startScreen = document.getElementById('startScreen');
         const gameScreen = document.getElementById('gameScreen');
@@ -1303,8 +1325,257 @@
             }
         }
         
+        // Audio System Functions
+        function initAudioSystem() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                console.log('Audio system initialized');
+            } catch (error) {
+                console.warn('Audio not supported:', error);
+                soundEnabled = false;
+            }
+        }
+        
+        function playSound(soundName, options = {}) {
+            if (!soundEnabled || !audioContext || !soundLibrary[soundName]) return;
+            
+            try {
+                const sound = soundLibrary[soundName];
+                const volume = (options.volume || sound.volume || 0.3) * masterVolume;
+                
+                switch (sound.type) {
+                    case 'tone':
+                        playTone(sound.frequency, sound.duration, volume);
+                        break;
+                    case 'click':
+                        playClick(sound.frequency, sound.duration, volume);
+                        break;
+                    case 'thud':
+                        playThud(sound.frequency, sound.duration, volume);
+                        break;
+                    case 'sweep':
+                        playSweep(sound.startFreq, sound.endFreq, sound.duration, volume);
+                        break;
+                    case 'chord':
+                        playChord(sound.frequencies, sound.duration, volume);
+                        break;
+                    case 'explosion':
+                        playExplosion(sound.duration, volume);
+                        break;
+                    case 'glide':
+                        playGlide(sound.startFreq, sound.endFreq, sound.duration, volume);
+                        break;
+                    case 'descent':
+                        playDescent(sound.startFreq, sound.endFreq, sound.duration, volume);
+                        break;
+                    case 'ascent':
+                        playAscent(sound.startFreq, sound.endFreq, sound.duration, volume);
+                        break;
+                    case 'fanfare':
+                        playFanfare(sound.frequencies, sound.duration, volume);
+                        break;
+                }
+            } catch (error) {
+                console.warn('Sound playback error:', error);
+            }
+        }
+        
+        function playTone(frequency, duration, volume = 0.3) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playClick(frequency, duration, volume = 0.15) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            oscillator.type = 'square';
+            
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playThud(frequency, duration, volume = 0.25) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            oscillator.type = 'sawtooth';
+            
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playSweep(startFreq, endFreq, duration, volume = 0.3) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(startFreq, audioContext.currentTime);
+            oscillator.frequency.linearRampToValueAtTime(endFreq, audioContext.currentTime + duration);
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.05);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playChord(frequencies, duration, volume = 0.3) {
+            frequencies.forEach((freq, index) => {
+                setTimeout(() => {
+                    playTone(freq, duration * 0.8, volume / frequencies.length);
+                }, index * 50);
+            });
+        }
+        
+        function playExplosion(duration, volume = 0.5) {
+            // Create noise burst for explosion
+            const bufferSize = audioContext.sampleRate * duration;
+            const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+            const output = buffer.getChannelData(0);
+            
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = (Math.random() * 2 - 1) * Math.pow(1 - (i / bufferSize), 2);
+            }
+            
+            const source = audioContext.createBufferSource();
+            const gainNode = audioContext.createGain();
+            const filter = audioContext.createBiquadFilter();
+            
+            source.buffer = buffer;
+            source.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(2000, audioContext.currentTime);
+            filter.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + duration);
+            
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            source.start(audioContext.currentTime);
+        }
+        
+        function playGlide(startFreq, endFreq, duration, volume = 0.25) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(startFreq, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(endFreq, audioContext.currentTime + duration);
+            oscillator.type = 'triangle';
+            
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.1);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playDescent(startFreq, endFreq, duration, volume = 0.4) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(startFreq, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(endFreq, audioContext.currentTime + duration);
+            oscillator.type = 'sawtooth';
+            
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playAscent(startFreq, endFreq, duration, volume = 0.35) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(startFreq, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(endFreq, audioContext.currentTime + duration);
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.1);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playFanfare(frequencies, duration, volume = 0.45) {
+            frequencies.forEach((freq, index) => {
+                const delay = index * 0.1;
+                setTimeout(() => {
+                    playTone(freq, duration - delay, volume / frequencies.length);
+                }, delay * 1000);
+            });
+        }
+        
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const icon = document.getElementById('soundToggleIcon');
+            const text = document.getElementById('soundToggleText');
+            
+            if (soundEnabled) {
+                icon.className = 'fas fa-volume-up mr-2';
+                text.textContent = 'Sound ON';
+                // Play a test sound to confirm audio is working
+                if (audioContext) {
+                    playSound('pieceMove');
+                }
+            } else {
+                icon.className = 'fas fa-volume-mute mr-2';
+                text.textContent = 'Sound OFF';
+            }
+        }
+        
         // Initialize the game
         function init() {
+            // Initialize audio context
+            initAudioSystem();
+            
             // Create animated stars background
             createStarsBackground();
             
@@ -1320,6 +1591,7 @@
             // Event listeners
             document.getElementById('startBtn').addEventListener('click', startGame);
             document.getElementById('endGameBtn').addEventListener('click', endGameEarly);
+            document.getElementById('soundToggleBtn').addEventListener('click', toggleSound);
             
             // Load and display high scores on start screen
             loadHighScores();
@@ -1529,6 +1801,16 @@
         
         // Start the game
         function startGame() {
+            // Ensure audio context is initialized with user gesture
+            if (!audioContext && soundEnabled) {
+                initAudioSystem();
+            }
+            
+            // Resume audio context if suspended
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            
             // Reset game state
             score = 0;
             level = 1;
@@ -1705,6 +1987,7 @@
                 
                 // If moving down and collision, lock the piece
                 if (dy > 0) {
+                    playSound('pieceLock');
                     drawPiece();
                     lockPiece();
                     return;
@@ -1713,6 +1996,13 @@
                 // Redraw at original position
                 drawPiece();
                 return;
+            }
+            
+            // Play movement sound for horizontal movement
+            if (dx !== 0) {
+                playSound('pieceMove');
+            } else if (dy > 0) {
+                playSound('pieceDrop');
             }
             
             drawPiece();
@@ -1776,6 +2066,7 @@
             // First try without moving
             if (!isCollision()) {
                 valid = true;
+                playSound('pieceRotate'); // Play rotation sound on successful rotation
             } else {
                 // Try small position adjustments
                 for (let offset = 1; offset <= 2; offset++) {
@@ -2019,13 +2310,26 @@
             }
             
             if (linesCleared > 0) {
+                // Play appropriate sound based on lines cleared
+                if (linesCleared === 4) {
+                    playSound('tetris'); // Special sound for tetris
+                } else {
+                    playSound('lineClear');
+                }
+                
                 // Update score
                 const points = [0, 40, 100, 300, 1200][linesCleared] * level;
                 score += points;
                 lines += linesCleared;
                 
                 // Update level every 10 lines
-                level = Math.floor(lines / 10) + 1;
+                const newLevel = Math.floor(lines / 10) + 1;
+                if (newLevel > level) {
+                    level = newLevel;
+                    playSound('levelUp'); // Play level up sound
+                } else {
+                    level = newLevel;
+                }
                 
                 // Update UI
                 scoreEl.textContent = score;
@@ -2306,6 +2610,9 @@
         function explodeBomb(centerX, centerY) {
             console.log(`Bomb exploding at (${centerX}, ${centerY})`);
             
+            // Play bomb explosion sound
+            playSound('bombExplosion');
+            
             const explosionCells = [];
             const explosionRadius = 2; // 5x5 area (center ± 2)
             
@@ -2369,6 +2676,9 @@
         // Activate snake trail animation
         function activateSnake(startX, startY) {
             console.log(`Snake activated at (${startX}, ${startY})`);
+            
+            // Play snake trail sound
+            playSound('snakeTrail');
             
             // Remove the snake block from the board
             board[startY][startX] = null;
@@ -2584,6 +2894,9 @@
             
             // If we have matches to remove
             if (matchesToRemove.length >= 4) {
+                // Play color match sound
+                playSound('colorMatch');
+                
                 // Check for special piece creation
                 let bombCreated = false;
                 let snakeCreated = false;
@@ -2839,6 +3152,9 @@
             console.log('ENDGAME TRIGGERED!');
             console.log('Setting gameOver = true');
             gameOver = true;
+            
+            // Play game over sound
+            playSound('gameOver');
             
             // Clear current piece to stop any ongoing movement
             if (currentPiece) {
