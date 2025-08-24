@@ -503,6 +503,64 @@
             z-index: 1;
         }
         
+        .cell.bomb { 
+            background: 
+                radial-gradient(circle at 30% 30%, #ff4444, #990000),
+                radial-gradient(circle at 70% 70%, #660000, #330000),
+                linear-gradient(135deg, #cc0000, #440000);
+            box-shadow: 
+                inset 3px 3px 6px rgba(255, 100, 100, 0.3),
+                inset -3px -3px 6px rgba(60, 0, 0, 0.7),
+                0 3px 12px rgba(255, 0, 0, 0.6),
+                0 0 20px rgba(255, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+            animation: bombPulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes bombPulse {
+            0%, 100% { 
+                box-shadow: 
+                    inset 3px 3px 6px rgba(255, 100, 100, 0.3),
+                    inset -3px -3px 6px rgba(60, 0, 0, 0.7),
+                    0 3px 12px rgba(255, 0, 0, 0.6),
+                    0 0 20px rgba(255, 0, 0, 0.4);
+            }
+            50% { 
+                box-shadow: 
+                    inset 3px 3px 6px rgba(255, 100, 100, 0.5),
+                    inset -3px -3px 6px rgba(60, 0, 0, 0.9),
+                    0 3px 12px rgba(255, 0, 0, 0.8),
+                    0 0 30px rgba(255, 0, 0, 0.6);
+            }
+        }
+        
+        .cell.bomb::before {
+            content: '💣';
+            position: relative;
+            z-index: 2;
+            filter: drop-shadow(0 0 2px rgba(255, 0, 0, 0.8));
+        }
+        
+        .cell.bomb::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 35% 25%, rgba(255, 100, 100, 0.4) 20%, transparent 40%),
+                radial-gradient(circle at 75% 75%, rgba(120, 0, 0, 0.6) 15%, transparent 35%),
+                radial-gradient(circle at 55% 45%, rgba(200, 50, 50, 0.3) 10%, transparent 25%);
+            border-radius: 2px;
+            z-index: 1;
+        }
+        
         .preview {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -664,6 +722,24 @@
         }
         
         .preview-small-cell.yellow::before {
+            font-size: 8px;
+        }
+        
+        .preview-cell.bomb, .preview-small-cell.bomb {
+            background: radial-gradient(circle at 30% 30%, #ff4444, #990000);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.9);
+            animation: bombPulse 1s ease-in-out infinite;
+        }
+        
+        .preview-cell.bomb::before, .preview-small-cell.bomb::before {
+            content: '💣';
+            font-size: 12px;
+        }
+        
+        .preview-small-cell.bomb::before {
             font-size: 8px;
         }
         
@@ -973,7 +1049,7 @@
         const COLS = 10;
         const ROWS = 20;
         const BLOCK_SIZE = 30;
-        const COLORS = ['red', 'blue', 'green', 'yellow'];
+        const COLORS = ['red', 'blue', 'green', 'yellow', 'bomb'];
         
         // Tetromino shapes
         const SHAPES = [
@@ -1049,6 +1125,27 @@
                 [1, 1, 0],
                 [1, 0, 0],
                 [1, 0, 0]
+            ],
+            // Diamond (4x4)
+            [
+                [0, 0, 1, 0],
+                [0, 1, 1, 1],
+                [1, 1, 1, 1],
+                [0, 1, 1, 0]
+            ],
+            // Windmill (4x4)
+            [
+                [1, 0, 0, 1],
+                [0, 1, 1, 0],
+                [0, 1, 1, 0],
+                [1, 0, 0, 1]
+            ],
+            // Temple (4x4)
+            [
+                [0, 1, 1, 0],
+                [1, 1, 1, 1],
+                [1, 0, 0, 1],
+                [1, 0, 0, 1]
             ]
         ];
         
@@ -1419,8 +1516,9 @@
                 colorMatrix[y] = [];
                 for (let x = 0; x < shape[y].length; x++) {
                     if (shape[y][x]) {
-                        // Assign random color to each block
-                        const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                        // Assign random color to each block (exclude bomb from normal generation)
+                        const normalColors = ['red', 'blue', 'green', 'yellow'];
+                        const color = normalColors[Math.floor(Math.random() * normalColors.length)];
                         colorMatrix[y][x] = color;
                         colorCount[color] = (colorCount[color] || 0) + 1;
                     } else {
@@ -2122,6 +2220,70 @@
             return matches;
         }
         
+        // Handle bomb explosion in 5x5 area
+        function explodeBomb(centerX, centerY) {
+            console.log(`Bomb exploding at (${centerX}, ${centerY})`);
+            
+            const explosionCells = [];
+            const explosionRadius = 2; // 5x5 area (center ± 2)
+            
+            // Find all cells in 5x5 area around bomb
+            for (let dy = -explosionRadius; dy <= explosionRadius; dy++) {
+                for (let dx = -explosionRadius; dx <= explosionRadius; dx++) {
+                    const explodeX = centerX + dx;
+                    const explodeY = centerY + dy;
+                    
+                    // Check if coordinates are within board bounds
+                    if (explodeX >= 0 && explodeX < COLS && explodeY >= 0 && explodeY < ROWS) {
+                        if (board[explodeY][explodeX]) {
+                            explosionCells.push({x: explodeX, y: explodeY, color: board[explodeY][explodeX]});
+                        }
+                    }
+                }
+            }
+            
+            console.log(`Bomb will destroy ${explosionCells.length} cells`);
+            
+            // Highlight all cells that will be destroyed
+            explosionCells.forEach(cell => {
+                const domCell = gameBoard.querySelector(`.cell[data-x="${cell.x}"][data-y="${cell.y}"]`);
+                if (domCell) {
+                    domCell.classList.add('highlight');
+                }
+            });
+            
+            // Create bomb explosion effects
+            explosionCells.forEach(cell => {
+                addBombExplosionEffect(cell.x, cell.y);
+            });
+            
+            // Remove all exploded cells after delay
+            setTimeout(() => {
+                explosionCells.forEach(cell => {
+                    board[cell.y][cell.x] = null;
+                    const domCell = gameBoard.querySelector(`.cell[data-x="${cell.x}"][data-y="${cell.y}"]`);
+                    if (domCell) {
+                        domCell.className = 'cell';
+                    }
+                });
+                
+                // Calculate massive bomb bonus score
+                const bombBonus = explosionCells.length * 25 * level; // Higher multiplier for bomb
+                score += bombBonus;
+                scoreEl.textContent = score;
+                
+                // Add animation to score
+                scoreEl.classList.add('score-animation');
+                setTimeout(() => scoreEl.classList.remove('score-animation'), 500);
+                
+                // Apply gravity after explosion
+                setTimeout(() => {
+                    applyGravity();
+                }, 100);
+                
+            }, 500); // Longer delay for bomb explosion
+        }
+        
         // Handle grid click for matching
         function handleGridClick(event) {
             if (gameOver) return;
@@ -2156,6 +2318,12 @@
             
             console.log(`Clicked cell at (${x}, ${y}) with color: ${color}`);
             
+            // Special handling for bomb clicks
+            if (color === 'bomb') {
+                explodeBomb(x, y);
+                return;
+            }
+            
             // Check horizontal matches
             const horizontalMatches = findMatches(x, y, color, 1, 0);
             
@@ -2177,6 +2345,17 @@
             
             // If we have matches to remove
             if (matchesToRemove.length >= 4) {
+                // Check if it's a 5+ match for bomb bonus
+                let bombCreated = false;
+                if (matchesToRemove.length >= 5) {
+                    // Find center position of the match
+                    const centerIndex = Math.floor(matchesToRemove.length / 2);
+                    const centerPos = matchesToRemove[centerIndex];
+                    bombCreated = true;
+                    
+                    console.log(`Creating bomb at center position (${centerPos.x}, ${centerPos.y})`);
+                }
+                
                 // Highlight matched cells
                 matchesToRemove.forEach(match => {
                     const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
@@ -2192,13 +2371,36 @@
                 
                 // Remove matches after a delay
                 setTimeout(() => {
-                    matchesToRemove.forEach(match => {
-                        board[match.y][match.x] = null;
-                        const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
-                        if (cell) {
-                            cell.className = 'cell';
+                    if (bombCreated && matchesToRemove.length >= 5) {
+                        // Place bomb at center position
+                        const centerIndex = Math.floor(matchesToRemove.length / 2);
+                        const centerPos = matchesToRemove[centerIndex];
+                        
+                        // Remove all matches first
+                        matchesToRemove.forEach(match => {
+                            board[match.y][match.x] = null;
+                            const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
+                            if (cell) {
+                                cell.className = 'cell';
+                            }
+                        });
+                        
+                        // Place bomb at center
+                        board[centerPos.y][centerPos.x] = 'bomb';
+                        const bombCell = gameBoard.querySelector(`.cell[data-x="${centerPos.x}"][data-y="${centerPos.y}"]`);
+                        if (bombCell) {
+                            bombCell.className = 'cell bomb filled';
                         }
-                    });
+                    } else {
+                        // Normal match removal
+                        matchesToRemove.forEach(match => {
+                            board[match.y][match.x] = null;
+                            const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
+                            if (cell) {
+                                cell.className = 'cell';
+                            }
+                        });
+                    }
                     
                     // Add score
                     const points = matchesToRemove.length * 10 * level;
@@ -2242,6 +2444,30 @@
             }, 600);
         }
         
+        // Add bomb explosion effect to effects layer (larger and more dramatic)
+        function addBombExplosionEffect(x, y) {
+            const effect = document.createElement('div');
+            effect.className = 'bomb-explosion-effect';
+            effect.style.position = 'absolute';
+            effect.style.left = `${(x * 100) / COLS}%`;
+            effect.style.top = `${(y * 100) / ROWS}%`;
+            effect.style.width = `${100 / COLS}%`;
+            effect.style.height = `${100 / ROWS}%`;
+            effect.style.background = `radial-gradient(circle, rgba(255, 100, 0, 1) 0%, rgba(255, 200, 0, 0.8) 30%, transparent 70%)`;
+            effect.style.animation = 'bombExplode 0.8s ease-out forwards';
+            effect.style.pointerEvents = 'none';
+            effect.style.zIndex = '10';
+            
+            gameEffects.appendChild(effect);
+            
+            // Remove effect after animation
+            setTimeout(() => {
+                if (effect.parentNode) {
+                    effect.parentNode.removeChild(effect);
+                }
+            }, 800);
+        }
+        
         // Get color gradient for effects
         function getColorGradient(color) {
             const gradients = {
@@ -2268,6 +2494,29 @@
                     }
                     100% {
                         transform: scale(2) rotate(360deg);
+                        opacity: 0;
+                    }
+                }
+                
+                @keyframes bombExplode {
+                    0% {
+                        transform: scale(0.3) rotate(0deg);
+                        opacity: 1;
+                    }
+                    25% {
+                        transform: scale(2) rotate(90deg);
+                        opacity: 1;
+                    }
+                    50% {
+                        transform: scale(3) rotate(180deg);
+                        opacity: 0.9;
+                    }
+                    75% {
+                        transform: scale(4) rotate(270deg);
+                        opacity: 0.6;
+                    }
+                    100% {
+                        transform: scale(5) rotate(360deg);
                         opacity: 0;
                     }
                 }
