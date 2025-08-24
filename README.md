@@ -38,6 +38,9 @@ Stellar Collapse is an innovative space-themed puzzle game that combines the cla
 - **Falling Blocks**: 12 unique tetromino shapes with multi-colored fragments
 - **Color Matching**: Click to trigger chain reactions with 4+ matching colors
 - **Line Clearing**: Complete horizontal lines for massive point explosions
+- **Special Blocks**: Powerful bonus pieces with unique abilities
+  - 💣 **Bomb Blocks**: Created from 5+ matches, explode in 5×5 area
+  - 🐍 **Snake Blocks**: Created from 4-matches, rainbow trail across all blocks
 - **Gravity Physics**: Realistic falling mechanics with cascading effects
 
 ### 🌟 Visual Excellence
@@ -114,16 +117,31 @@ open index.html
 - **4+ consecutive blocks** (horizontal or vertical) of the same color will explode
 - Chain reactions can cascade for massive point bonuses
 
-#### 4. **Scoring System** 📊
+#### 4. **Special Blocks** ✨
+- **💣 Bomb Blocks**: Created when you match 5+ blocks in a row
+  - Click to activate a devastating 5×5 explosion
+  - Destroys all blocks in the blast radius
+  - Awards 25× bonus scoring multiplier
+  
+- **🐍 Snake Blocks**: Created when you match exactly 4 blocks
+  - Appears as a diamond-shaped 🐍 block
+  - Click to activate a cosmic rainbow snake trail
+  - Snake travels across ALL blocks on the board over 5+ seconds
+  - Randomly recolors every block it touches
+  - Creates spectacular visual effects before disappearing
+  - Perfect for board reorganization and combo setups
+
+#### 5. **Scoring System** 📊
 ```
 Single Line Clear: 40 × Level
 Double Line Clear: 100 × Level  
 Triple Line Clear: 300 × Level
 Tetris (4 lines): 1200 × Level
 Color Match (4+): 10 × Blocks × Level
+Bomb Explosion: 25 × Blocks × Level
 ```
 
-#### 5. **Game Over Conditions** ⚠️
+#### 6. **Game Over Conditions** ⚠️
 - New pieces cannot spawn (top area blocked)
 - Board becomes completely filled
 - Strategic planning prevents early endings!
@@ -141,12 +159,17 @@ Color Match (4+): 10 × Blocks × Level
 ### 🌟 Advanced Strategies  
 - **T-Spin setups** - master advanced rotation techniques
 - **Color cascading** - plan matches that trigger chain reactions
+- **Special block timing** - save snake blocks for board reorganization
+- **Bomb placement** - position 5+ matches near dense block clusters
 - **Speed management** - balance speed with strategic placement
 - **Endgame survival** - maintain space in critical top rows
 
 ### 💎 Pro Techniques
 - **Combo chains** - link line clears with color matches
+- **Snake manipulation** - use snake trails to set up perfect color combinations
+- **Bomb synergy** - combine bomb explosions with line clears for massive scores
 - **Board control** - manipulate piece placement for optimal color distribution
+- **Special block preservation** - save powerful blocks for critical moments
 - **Pressure management** - stay calm as speed increases
 - **Pattern recognition** - identify optimal placement positions quickly
 

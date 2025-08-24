@@ -561,6 +561,68 @@
             z-index: 1;
         }
         
+        .cell.snake { 
+            background: 
+                radial-gradient(circle at 30% 30%, #00ff88, #006644),
+                radial-gradient(circle at 70% 70%, #004433, #002211),
+                linear-gradient(45deg, #00cc66, #004433);
+            box-shadow: 
+                inset 3px 3px 6px rgba(100, 255, 150, 0.3),
+                inset -3px -3px 6px rgba(0, 60, 30, 0.7),
+                0 3px 12px rgba(0, 255, 100, 0.6),
+                0 0 20px rgba(0, 255, 100, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+            animation: snakePulse 1.5s ease-in-out infinite;
+            transform: rotate(45deg);
+        }
+        
+        @keyframes snakePulse {
+            0%, 100% { 
+                box-shadow: 
+                    inset 3px 3px 6px rgba(100, 255, 150, 0.3),
+                    inset -3px -3px 6px rgba(0, 60, 30, 0.7),
+                    0 3px 12px rgba(0, 255, 100, 0.6),
+                    0 0 20px rgba(0, 255, 100, 0.4);
+                transform: rotate(45deg) scale(1);
+            }
+            50% { 
+                box-shadow: 
+                    inset 3px 3px 6px rgba(100, 255, 150, 0.5),
+                    inset -3px -3px 6px rgba(0, 60, 30, 0.9),
+                    0 3px 12px rgba(0, 255, 100, 0.8),
+                    0 0 30px rgba(0, 255, 100, 0.6);
+                transform: rotate(45deg) scale(1.05);
+            }
+        }
+        
+        .cell.snake::before {
+            content: '🐍';
+            position: relative;
+            z-index: 2;
+            filter: drop-shadow(0 0 2px rgba(0, 255, 100, 0.8));
+            transform: rotate(-45deg);
+        }
+        
+        .cell.snake::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 35% 25%, rgba(100, 255, 150, 0.4) 20%, transparent 40%),
+                radial-gradient(circle at 75% 75%, rgba(0, 120, 60, 0.6) 15%, transparent 35%),
+                radial-gradient(circle at 55% 45%, rgba(50, 200, 100, 0.3) 10%, transparent 25%);
+            border-radius: 2px;
+            z-index: 1;
+        }
+        
         .preview {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -740,6 +802,26 @@
         }
         
         .preview-small-cell.bomb::before {
+            font-size: 8px;
+        }
+        
+        .preview-cell.snake, .preview-small-cell.snake {
+            background: radial-gradient(circle at 30% 30%, #00ff88, #006644);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.9);
+            animation: snakePulse 1.5s ease-in-out infinite;
+            transform: rotate(45deg);
+        }
+        
+        .preview-cell.snake::before, .preview-small-cell.snake::before {
+            content: '🐍';
+            font-size: 12px;
+            transform: rotate(-45deg);
+        }
+        
+        .preview-small-cell.snake::before {
             font-size: 8px;
         }
         
@@ -1049,7 +1131,7 @@
         const COLS = 10;
         const ROWS = 20;
         const BLOCK_SIZE = 30;
-        const COLORS = ['red', 'blue', 'green', 'yellow', 'bomb'];
+        const COLORS = ['red', 'blue', 'green', 'yellow', 'bomb', 'snake'];
         
         // Tetromino shapes
         const SHAPES = [
@@ -2284,6 +2366,157 @@
             }, 500); // Longer delay for bomb explosion
         }
         
+        // Activate snake trail animation
+        function activateSnake(startX, startY) {
+            console.log(`Snake activated at (${startX}, ${startY})`);
+            
+            // Remove the snake block from the board
+            board[startY][startX] = null;
+            const snakeCell = gameBoard.querySelector(`.cell[data-x="${startX}"][data-y="${startY}"]`);
+            if (snakeCell) {
+                snakeCell.className = 'cell';
+            }
+            
+            // Generate a path through all filled blocks on the board
+            const allBlocks = [];
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    if (board[y][x] && board[y][x] !== 'snake' && board[y][x] !== 'bomb') {
+                        allBlocks.push({x, y});
+                    }
+                }
+            }
+            
+            if (allBlocks.length === 0) {
+                console.log('No blocks to recolor, snake disappears');
+                return;
+            }
+            
+            // Shuffle the blocks for random path
+            for (let i = allBlocks.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [allBlocks[i], allBlocks[j]] = [allBlocks[j], allBlocks[i]];
+            }
+            
+            // Create snake trail of 5 blocks
+            const snakeTrail = [];
+            const snakeLength = 5;
+            
+            // Start snake at random edge of the board
+            const edges = [
+                {x: -1, y: Math.floor(Math.random() * ROWS)}, // Left edge
+                {x: COLS, y: Math.floor(Math.random() * ROWS)}, // Right edge
+                {x: Math.floor(Math.random() * COLS), y: -1}, // Top edge
+                {x: Math.floor(Math.random() * COLS), y: ROWS} // Bottom edge
+            ];
+            
+            const startEdge = edges[Math.floor(Math.random() * edges.length)];
+            
+            // Initialize snake trail starting from edge
+            for (let i = 0; i < snakeLength; i++) {
+                snakeTrail.push({x: startEdge.x, y: startEdge.y, visible: false});
+            }
+            
+            let currentBlockIndex = 0;
+            const totalAnimationTime = 5000; // 5 seconds
+            const stepInterval = Math.max(50, totalAnimationTime / (allBlocks.length + snakeLength * 2));
+            
+            console.log(`Snake will visit ${allBlocks.length} blocks over ${totalAnimationTime}ms with ${stepInterval}ms per step`);
+            
+            // Function to update snake position and recolor blocks
+            function moveSnake() {
+                // Clear previous snake trail visuals
+                document.querySelectorAll('.snake-trail').forEach(element => {
+                    element.remove();
+                });
+                
+                // Move snake forward
+                if (currentBlockIndex < allBlocks.length) {
+                    const targetBlock = allBlocks[currentBlockIndex];
+                    
+                    // Move each segment of the snake
+                    for (let i = snakeLength - 1; i > 0; i--) {
+                        snakeTrail[i] = {...snakeTrail[i - 1]};
+                    }
+                    
+                    // Head moves to current target
+                    snakeTrail[0] = {x: targetBlock.x, y: targetBlock.y, visible: true};
+                    
+                    // Recolor the block randomly
+                    const normalColors = ['red', 'blue', 'green', 'yellow'];
+                    const newColor = normalColors[Math.floor(Math.random() * normalColors.length)];
+                    board[targetBlock.y][targetBlock.x] = newColor;
+                    
+                    // Update DOM
+                    const cell = gameBoard.querySelector(`.cell[data-x="${targetBlock.x}"][data-y="${targetBlock.y}"]`);
+                    if (cell) {
+                        cell.className = `cell ${newColor} filled`;
+                    }
+                    
+                    currentBlockIndex++;
+                } else {
+                    // Snake is exiting - move towards exit edge
+                    const exitEdges = [
+                        {x: -2, y: snakeTrail[0].y}, // Exit left
+                        {x: COLS + 1, y: snakeTrail[0].y}, // Exit right
+                        {x: snakeTrail[0].x, y: -2}, // Exit top
+                        {x: snakeTrail[0].x, y: ROWS + 1} // Exit bottom
+                    ];
+                    
+                    const exitEdge = exitEdges[Math.floor(Math.random() * exitEdges.length)];
+                    
+                    // Move snake towards exit
+                    for (let i = snakeLength - 1; i > 0; i--) {
+                        snakeTrail[i] = {...snakeTrail[i - 1]};
+                    }
+                    snakeTrail[0] = {x: exitEdge.x, y: exitEdge.y, visible: false};
+                }
+                
+                // Draw snake trail
+                snakeTrail.forEach((segment, index) => {
+                    if (segment.visible && segment.x >= 0 && segment.x < COLS && segment.y >= 0 && segment.y < ROWS) {
+                        const trailEffect = document.createElement('div');
+                        trailEffect.className = 'snake-trail';
+                        trailEffect.style.position = 'absolute';
+                        trailEffect.style.left = `${(segment.x * 100) / COLS}%`;
+                        trailEffect.style.top = `${(segment.y * 100) / ROWS}%`;
+                        trailEffect.style.width = `${100 / COLS}%`;
+                        trailEffect.style.height = `${100 / ROWS}%`;
+                        trailEffect.style.background = index === 0 ? 
+                            'radial-gradient(circle, rgba(0, 255, 136, 0.9) 0%, rgba(0, 102, 68, 0.7) 50%, transparent 70%)' :
+                            `radial-gradient(circle, rgba(0, 255, 136, ${0.6 - index * 0.1}) 0%, transparent 70%)`;
+                        trailEffect.style.borderRadius = '50%';
+                        trailEffect.style.transform = 'rotate(45deg)';
+                        trailEffect.style.pointerEvents = 'none';
+                        trailEffect.style.zIndex = '15';
+                        trailEffect.style.animation = `snakeGlow 0.3s ease-in-out`;
+                        
+                        gameEffects.appendChild(trailEffect);
+                    }
+                });
+                
+                // Continue animation or end
+                if (currentBlockIndex < allBlocks.length + snakeLength) {
+                    setTimeout(moveSnake, stepInterval);
+                } else {
+                    // Snake animation complete
+                    console.log('Snake trail animation complete');
+                    // Clean up any remaining visual effects
+                    setTimeout(() => {
+                        document.querySelectorAll('.snake-trail').forEach(element => {
+                            element.remove();
+                        });
+                        
+                        // Apply gravity after snake finishes
+                        applyGravity();
+                    }, 500);
+                }
+            }
+            
+            // Start snake animation
+            moveSnake();
+        }
+        
         // Handle grid click for matching
         function handleGridClick(event) {
             if (gameOver) return;
@@ -2324,6 +2557,12 @@
                 return;
             }
             
+            // Special handling for snake clicks
+            if (color === 'snake') {
+                activateSnake(x, y);
+                return;
+            }
+            
             // Check horizontal matches
             const horizontalMatches = findMatches(x, y, color, 1, 0);
             
@@ -2345,15 +2584,24 @@
             
             // If we have matches to remove
             if (matchesToRemove.length >= 4) {
-                // Check if it's a 5+ match for bomb bonus
+                // Check for special piece creation
                 let bombCreated = false;
+                let snakeCreated = false;
+                
                 if (matchesToRemove.length >= 5) {
-                    // Find center position of the match
+                    // 5+ match creates bomb at center
                     const centerIndex = Math.floor(matchesToRemove.length / 2);
                     const centerPos = matchesToRemove[centerIndex];
                     bombCreated = true;
                     
                     console.log(`Creating bomb at center position (${centerPos.x}, ${centerPos.y})`);
+                } else if (matchesToRemove.length === 4) {
+                    // 4-match creates snake at a random position within the match
+                    const randomIndex = Math.floor(Math.random() * matchesToRemove.length);
+                    const snakePos = matchesToRemove[randomIndex];
+                    snakeCreated = true;
+                    
+                    console.log(`Creating snake at position (${snakePos.x}, ${snakePos.y})`);
                 }
                 
                 // Highlight matched cells
@@ -2390,6 +2638,26 @@
                         const bombCell = gameBoard.querySelector(`.cell[data-x="${centerPos.x}"][data-y="${centerPos.y}"]`);
                         if (bombCell) {
                             bombCell.className = 'cell bomb filled';
+                        }
+                    } else if (snakeCreated && matchesToRemove.length === 4) {
+                        // Place snake at random position within the match
+                        const randomIndex = Math.floor(Math.random() * matchesToRemove.length);
+                        const snakePos = matchesToRemove[randomIndex];
+                        
+                        // Remove all matches first
+                        matchesToRemove.forEach(match => {
+                            board[match.y][match.x] = null;
+                            const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
+                            if (cell) {
+                                cell.className = 'cell';
+                            }
+                        });
+                        
+                        // Place snake at chosen position
+                        board[snakePos.y][snakePos.x] = 'snake';
+                        const snakeCell = gameBoard.querySelector(`.cell[data-x="${snakePos.x}"][data-y="${snakePos.y}"]`);
+                        if (snakeCell) {
+                            snakeCell.className = 'cell snake filled';
                         }
                     } else {
                         // Normal match removal
@@ -2518,6 +2786,24 @@
                     100% {
                         transform: scale(5) rotate(360deg);
                         opacity: 0;
+                    }
+                }
+                
+                @keyframes snakeGlow {
+                    0% {
+                        transform: rotate(45deg) scale(0.8);
+                        opacity: 0.9;
+                        box-shadow: 0 0 15px rgba(0, 255, 136, 0.8);
+                    }
+                    50% {
+                        transform: rotate(45deg) scale(1.1);
+                        opacity: 1;
+                        box-shadow: 0 0 25px rgba(0, 255, 136, 1);
+                    }
+                    100% {
+                        transform: rotate(45deg) scale(1);
+                        opacity: 0.9;
+                        box-shadow: 0 0 20px rgba(0, 255, 136, 0.9);
                     }
                 }
             `;
