@@ -824,12 +824,7 @@
                         <div class="game-grid-ui" id="gameUI"></div>
                     </div>
                     
-                    <div id="gameOver" class="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center flex-col opacity-0 pointer-events-none">
-                        <h2 class="text-3xl font-bold text-red-500 mb-4">GAME OVER</h2>
-                        <button id="restartBtn" class="btn bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold py-2 px-6 rounded-full">
-                            PLAY AGAIN
-                        </button>
-                    </div>
+
                 </div>
                 
                 <div class="hologram-panel p-4">
@@ -919,11 +914,11 @@
                 [1, 1, 1],
                 [0, 0, 0]
             ],
-            // Small Cross
+            // X shape
             [
-                [0, 1],
-                [1, 1],
-                [0, 1]
+                [1, 0, 1],
+                [0, 1, 0],
+                [1, 0, 1]
             ],
             // Corner
             [
@@ -961,7 +956,6 @@
         const scoreEl = document.getElementById('score');
         const levelEl = document.getElementById('level');
         const linesEl = document.getElementById('lines');
-        const gameOverEl = document.getElementById('gameOver');
         const startScreenScoreList = document.getElementById('startScreenScoreList');
         const playerNameInput = document.getElementById('playerName');
         
@@ -1018,7 +1012,6 @@
             
             // Event listeners
             document.getElementById('startBtn').addEventListener('click', startGame);
-            document.getElementById('restartBtn').addEventListener('click', startGame);
             document.getElementById('endGameBtn').addEventListener('click', endGameEarly);
             
             // Load and display high scores on start screen
@@ -1114,9 +1107,6 @@
             gameScreen.classList.add('opacity-0', 'pointer-events-none');
             startScreen.classList.remove('opacity-0', 'pointer-events-none');
             
-            // Ensure game over screen is hidden
-            gameOverEl.classList.add('opacity-0', 'pointer-events-none');
-            
             updateStartScreenScores();
         }
         
@@ -1178,7 +1168,6 @@
             scoreEl.textContent = '0';
             levelEl.textContent = '1';
             linesEl.textContent = '0';
-            gameOverEl.classList.add('opacity-0', 'pointer-events-none');
             
             // Clear board
             createBoard();
@@ -1367,17 +1356,40 @@
             const originalShape = currentPiece.shape;
             const originalColorMatrix = currentPiece.colorMatrix;
             
-            // Rotate the shape (transpose and reverse rows)
-            const newShape = originalShape.map((row, i) => 
-                row.map((val, j) => originalShape[originalShape.length - 1 - j][i])
-            );
+            let newShape, newColorMatrix;
             
-            // Rotate the color matrix as well
-            const newColorMatrix = originalColorMatrix.map((row, i) => 
-                row.map((val, j) => originalColorMatrix[originalColorMatrix.length - 1 - j][i])
-            );
+            // For square pieces, use standard rotation
+            if (originalShape.length === originalShape[0].length) {
+                // Standard square rotation (transpose and reverse rows)
+                newShape = originalShape.map((row, i) => 
+                    row.map((val, j) => originalShape[originalShape.length - 1 - j][i])
+                );
+                
+                // Rotate the color matrix as well
+                newColorMatrix = originalColorMatrix.map((row, i) => 
+                    row.map((val, j) => originalColorMatrix[originalColorMatrix.length - 1 - j][i])
+                );
+            } else {
+                // For other non-square pieces, create rotated matrix with proper dimensions
+                const rows = originalShape.length;
+                const cols = originalShape[0].length;
+                
+                // Create new matrix with swapped dimensions
+                newShape = Array(cols).fill(null).map(() => Array(rows).fill(0));
+                newColorMatrix = Array(cols).fill(null).map(() => Array(rows).fill(null));
+                
+                // Rotate by transposing and reversing
+                for (let y = 0; y < rows; y++) {
+                    for (let x = 0; x < cols; x++) {
+                        const newY = x;
+                        const newX = rows - 1 - y;
+                        newShape[newY][newX] = originalShape[y][x];
+                        newColorMatrix[newY][newX] = originalColorMatrix[y][x];
+                    }
+                }
+            }
             
-            // Temporarily set new shape and colors for collision testing
+            // Apply new shape and colors
             currentPiece.shape = newShape;
             currentPiece.colorMatrix = newColorMatrix;
             
@@ -1387,34 +1399,41 @@
             
             // Try to adjust position if rotation causes collision
             let valid = false;
-            for (let offset = 0; offset < 3; offset++) {
-                for (let sign of [-1, 1]) {
-                    currentPiece.x = originalX + offset * sign;
+            
+            // First try without moving
+            if (!isCollision()) {
+                valid = true;
+            } else {
+                // Try small position adjustments
+                for (let offset = 1; offset <= 2; offset++) {
+                    // Try moving left
+                    currentPiece.x = originalX - offset;
                     if (!isCollision()) {
                         valid = true;
                         break;
                     }
-                }
-                if (valid) break;
-                
-                currentPiece.x = originalX - offset;
-                if (!isCollision()) {
-                    valid = true;
-                    break;
+                    
+                    // Try moving right
+                    currentPiece.x = originalX + offset;
+                    if (!isCollision()) {
+                        valid = true;
+                        break;
+                    }
+                    
+                    // Reset X for next iteration
+                    currentPiece.x = originalX;
                 }
             }
             
-            // If no valid position found, revert
+            // If no valid position found, revert to original
             if (!valid) {
                 currentPiece.x = originalX;
                 currentPiece.y = originalY;
                 currentPiece.shape = originalShape;
                 currentPiece.colorMatrix = originalColorMatrix;
-                drawPiece();
-                return;
             }
             
-            // Apply rotation (already set)
+            // Redraw the piece
             drawPiece();
         }
         
@@ -2099,30 +2118,11 @@
                 currentPiece = null;
             }
             
-            // Check if board is completely full for special message
-            const boardIsFull = isBoardFull();
-            console.log(`Board is full: ${boardIsFull}`);
-            const gameOverTitle = boardIsFull ? 'BOARD FULL!' : 'GAME OVER';
-            const gameOverColor = boardIsFull ? 'text-yellow-500' : 'text-red-500';
-            
-            // Update game over message
-            const gameOverMessage = gameOverEl.querySelector('h2');
-            if (gameOverMessage) {
-                gameOverMessage.textContent = gameOverTitle;
-                gameOverMessage.className = `text-3xl font-bold ${gameOverColor} mb-4`;
-                console.log(`Updated game over message to: ${gameOverTitle}`);
-            }
-            
-            gameOverEl.classList.remove('opacity-0', 'pointer-events-none');
-            console.log('Game over screen should now be visible');
-            
             // Save score
             saveScore(score);
             
-            // Show start screen after delay
-            setTimeout(() => {
-                showStartScreen();
-            }, 3000);
+            // Return to start screen immediately
+            showStartScreen();
         }
         
         // Save score to high scores
