@@ -570,7 +570,7 @@
         <!-- End Game Button -->
         <div class="absolute top-4 right-4">
             <button id="endGameBtn" class="btn bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-full transition-colors">
-                <i class="fas fa-times mr-2"></i>End Game
+                <i class="fas fa-sign-out-alt mr-2"></i>Exit Mission
             </button>
         </div>
         
@@ -877,6 +877,10 @@
         function showStartScreen() {
             gameScreen.classList.add('opacity-0', 'pointer-events-none');
             startScreen.classList.remove('opacity-0', 'pointer-events-none');
+            
+            // Ensure game over screen is hidden
+            gameOverEl.classList.add('opacity-0', 'pointer-events-none');
+            
             updateStartScreenScores();
         }
         
@@ -888,14 +892,39 @@
         
         // End game early (from end game button)
         function endGameEarly() {
-            if (confirm('Are you sure you want to end the current game?')) {
-                gameOver = true;
-                if (currentPiece) {
-                    clearPiece();
-                    currentPiece = null;
-                }
-                showStartScreen();
+            console.log('EARLY EXIT TRIGGERED!');
+            console.log('Setting gameOver = true');
+            gameOver = true;
+            
+            // Clear current piece to stop any ongoing movement
+            if (currentPiece) {
+                clearPiece();
+                currentPiece = null;
             }
+            
+            // Use "EXIT" message for early termination
+            const gameOverTitle = 'MISSION ABORTED';
+            const gameOverColor = 'text-orange-500';
+            
+            // Update game over message
+            const gameOverMessage = gameOverEl.querySelector('h2');
+            if (gameOverMessage) {
+                gameOverMessage.textContent = gameOverTitle;
+                gameOverMessage.className = `text-3xl font-bold ${gameOverColor} mb-4`;
+                console.log(`Updated game over message to: ${gameOverTitle}`);
+            }
+            
+            // Show game over screen briefly
+            gameOverEl.classList.remove('opacity-0', 'pointer-events-none');
+            console.log('Game over screen should now be visible');
+            
+            // Save score if it qualifies for high scores
+            saveScore(score);
+            
+            // Show start screen after shorter delay for early exit
+            setTimeout(() => {
+                showStartScreen();
+            }, 2000);
         }
         
         // Update start screen scoreboard
