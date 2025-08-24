@@ -65,6 +65,114 @@
         
 
         
+        /* Multi-layer game container system */
+        .game-container {
+            position: relative;
+            width: 300px;
+            height: 600px;
+            border: 3px solid #00d4ff;
+            border-radius: 8px;
+            box-shadow: 
+                0 0 30px rgba(0, 212, 255, 0.5),
+                0 0 60px rgba(0, 212, 255, 0.3);
+            overflow: hidden;
+        }
+        
+        /* Layer 1: Static background grid (never changes, maximum performance) */
+        .game-grid-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(255, 0, 128, 0.1) 0%, transparent 50%),
+                linear-gradient(135deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 20, 40, 0.9) 100%);
+            z-index: 1;
+            will-change: auto; /* Static layer - no animation optimization needed */
+        }
+        
+        .game-grid-background::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                repeating-linear-gradient(
+                    0deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.03) 1px,
+                    transparent 2px
+                ),
+                repeating-linear-gradient(
+                    90deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.03) 1px,
+                    transparent 2px
+                );
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        
+        /* Layer 2: Board state (locked pieces) */
+        .game-grid-board {
+            position: absolute;
+            top: 0;
+            left: 0;
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(20, 1fr);
+            gap: 2px;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            will-change: contents; /* Only content changes, not transforms */
+            pointer-events: auto; /* This layer should receive clicks */
+        }
+        
+        /* Layer 3: Active falling piece */
+        .game-grid-active {
+            position: absolute;
+            top: 0;
+            left: 0;
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(20, 1fr);
+            gap: 2px;
+            width: 100%;
+            height: 100%;
+            z-index: 3;
+            will-change: transform; /* Optimized for movement animations */
+            pointer-events: none; /* Don't interfere with board clicks */
+        }
+        
+        /* Layer 4: Effects and animations */
+        .game-grid-effects {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 4;
+            pointer-events: none;
+            will-change: opacity, transform; /* Optimized for effect animations */
+        }
+        
+        /* Layer 5: UI overlay */
+        .game-grid-ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            pointer-events: none;
+        }
+        
+        /* Restore original game-grid styles for backward compatibility */
         .game-grid {
             display: grid;
             grid-template-columns: repeat(10, 1fr);
@@ -120,6 +228,9 @@
             border: 1px solid rgba(0, 212, 255, 0.1);
             border-radius: 2px;
             position: relative;
+            /* Performance optimizations for layered rendering */
+            backface-visibility: hidden;
+            transform: translateZ(0); /* Force hardware acceleration */
         }
         
         .cell:hover {
@@ -132,6 +243,15 @@
                 inset 2px 2px 4px rgba(255, 255, 255, 0.2),
                 inset -2px -2px 4px rgba(0, 0, 0, 0.5),
                 0 2px 8px rgba(0, 0, 0, 0.3);
+            cursor: pointer; /* Show it's clickable */
+        }
+        
+        .cell.filled:hover {
+            transform: scale(1.05);
+            box-shadow: 
+                inset 2px 2px 4px rgba(255, 255, 255, 0.3),
+                inset -2px -2px 4px rgba(0, 0, 0, 0.6),
+                0 4px 12px rgba(0, 212, 255, 0.4);
         }
         
         /* Asteroid-like block styles */
@@ -576,7 +696,24 @@
                 </div>
                 
                 <div class="relative">
-                    <div class="game-grid" id="gameGrid"></div>
+                    <!-- Multi-layer game container -->
+                    <div class="game-container" id="gameContainer">
+                        <!-- Layer 1: Static background grid -->
+                        <div class="game-grid-background" id="gridBackground"></div>
+                        
+                        <!-- Layer 2: Locked pieces (board state) -->
+                        <div class="game-grid-board" id="gameBoard"></div>
+                        
+                        <!-- Layer 3: Active/falling piece -->
+                        <div class="game-grid-active" id="activePiece"></div>
+                        
+                        <!-- Layer 4: Effects and animations -->
+                        <div class="game-grid-effects" id="gameEffects"></div>
+                        
+                        <!-- Layer 5: UI overlay -->
+                        <div class="game-grid-ui" id="gameUI"></div>
+                    </div>
+                    
                     <div id="gameOver" class="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center flex-col opacity-0 pointer-events-none">
                         <h2 class="text-3xl font-bold text-red-500 mb-4">GAME OVER</h2>
                         <button id="restartBtn" class="btn bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold py-2 px-6 rounded-full">
@@ -702,7 +839,14 @@
         // DOM elements
         const startScreen = document.getElementById('startScreen');
         const gameScreen = document.getElementById('gameScreen');
-        const gameGrid = document.getElementById('gameGrid');
+        const gameContainer = document.getElementById('gameContainer');
+        const gridBackground = document.getElementById('gridBackground');
+        const gameBoard = document.getElementById('gameBoard');
+        const activePiece = document.getElementById('activePiece');
+        const gameEffects = document.getElementById('gameEffects');
+        const gameUI = document.getElementById('gameUI');
+        // Legacy support
+        const gameGrid = document.getElementById('gameGrid') || gameBoard;
         const nextPieceEl = document.getElementById('nextPiece');
         const scoreEl = document.getElementById('score');
         const levelEl = document.getElementById('level');
@@ -801,14 +945,19 @@
             });
             
             // Mouse controls for matching
-            gameGrid.addEventListener('click', handleGridClick);
+            gameContainer.addEventListener('click', handleGridClick);
         }
         
-        // Create the game board
+        // Create the game board with layered system
         function createBoard() {
-            gameGrid.innerHTML = '';
+            // Clear all layers
+            gameBoard.innerHTML = '';
+            activePiece.innerHTML = '';
+            gameEffects.innerHTML = '';
+            
             board = [];
             
+            // Create board state layer (locked pieces)
             for (let y = 0; y < ROWS; y++) {
                 board[y] = [];
                 for (let x = 0; x < COLS; x++) {
@@ -817,7 +966,20 @@
                     cell.className = 'cell';
                     cell.dataset.x = x;
                     cell.dataset.y = y;
-                    gameGrid.appendChild(cell);
+                    gameBoard.appendChild(cell);
+                }
+            }
+            
+            // Create active piece layer (transparent cells for current piece)
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    cell.style.background = 'transparent';
+                    cell.style.border = 'none';
+                    activePiece.appendChild(cell);
                 }
             }
         }
@@ -1004,34 +1166,29 @@
             }
         }
         
-        // Clear the current piece from display
+        // Clear the current piece from active layer
         function clearPiece() {
             if (!currentPiece) return;
             
-            const shape = currentPiece.shape;
-            for (let y = 0; y < shape.length; y++) {
-                for (let x = 0; x < shape[y].length; x++) {
-                    if (shape[y][x]) {
-                        const boardX = currentPiece.x + x;
-                        const boardY = currentPiece.y + y;
-                        
-                        if (boardY >= 0 && boardX >= 0 && boardX < COLS && boardY < ROWS) {
-                            const cell = document.querySelector(`.cell[data-x="${boardX}"][data-y="${boardY}"]`);
-                            if (cell && !board[boardY][boardX]) {
-                                cell.className = 'cell';
-                            }
-                        }
-                    }
-                }
-            }
+            // Clear all cells in the active piece layer
+            const activeCells = activePiece.querySelectorAll('.cell');
+            activeCells.forEach(cell => {
+                cell.className = 'cell';
+                cell.style.background = 'transparent';
+                cell.style.border = 'none';
+            });
         }
         
-        // Draw the current piece
+        // Draw the current piece on active layer
         function drawPiece() {
             if (!currentPiece) return;
             
+            // First clear the active layer
+            clearPiece();
+            
             const shape = currentPiece.shape;
             const colorMatrix = currentPiece.colorMatrix;
+            
             for (let y = 0; y < shape.length; y++) {
                 for (let x = 0; x < shape[y].length; x++) {
                     if (shape[y][x]) {
@@ -1039,12 +1196,16 @@
                         const boardY = currentPiece.y + y;
                         
                         if (boardY >= 0 && boardX >= 0 && boardX < COLS && boardY < ROWS) {
-                            const cell = document.querySelector(`.cell[data-x="${boardX}"][data-y="${boardY}"]`);
+                            // Use the active piece layer
+                            const cell = activePiece.querySelector(`.cell[data-x="${boardX}"][data-y="${boardY}"]`);
                             if (cell && !board[boardY][boardX]) {
                                 cell.className = 'cell';
                                 if (colorMatrix[y][x]) {
                                     cell.classList.add(colorMatrix[y][x]);
                                 }
+                                // Remove transparent styling for visible pieces
+                                cell.style.background = '';
+                                cell.style.border = '';
                             }
                         }
                     }
@@ -1640,15 +1801,35 @@
         function handleGridClick(event) {
             if (gameOver) return;
             
-            const cell = event.target;
-            if (!cell.classList.contains('cell') || !cell.classList.contains('filled')) return;
+            // Get the clicked element and traverse up to find a cell
+            let cell = event.target;
             
+            // If clicked on pseudo-element (::before), get the parent cell
+            while (cell && !cell.classList.contains('cell')) {
+                cell = cell.parentElement;
+                if (!cell || cell === gameContainer) {
+                    return; // No valid cell found
+                }
+            }
+            
+            // Must be a filled cell from the board layer
+            if (!cell || !cell.classList.contains('filled')) return;
+            
+            // Get coordinates
             const x = parseInt(cell.dataset.x);
             const y = parseInt(cell.dataset.y);
             
-            // Find matching colors
-            const color = Array.from(cell.classList).find(cls => COLORS.includes(cls));
-            if (!color) return;
+            // Validate coordinates
+            if (isNaN(x) || isNaN(y) || x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
+            
+            // Must have a color in the board data
+            if (!board[y][x]) return;
+            
+            // Find matching colors from board data (more reliable than DOM classes)
+            const color = board[y][x];
+            if (!COLORS.includes(color)) return;
+            
+            console.log(`Clicked cell at (${x}, ${y}) with color: ${color}`);
             
             // Check horizontal matches
             const horizontalMatches = findMatches(x, y, color, 1, 0);
@@ -1667,21 +1848,28 @@
                 matchesToRemove = verticalMatches;
             }
             
+            console.log(`Found ${matchesToRemove.length} matches to remove`);
+            
             // If we have matches to remove
             if (matchesToRemove.length >= 4) {
                 // Highlight matched cells
                 matchesToRemove.forEach(match => {
-                    const cell = document.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
+                    const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
                     if (cell) {
                         cell.classList.add('highlight');
                     }
+                });
+                
+                // Add explosion effects to each matched cell
+                matchesToRemove.forEach(match => {
+                    addExplosionEffect(match.x, match.y, color);
                 });
                 
                 // Remove matches after a delay
                 setTimeout(() => {
                     matchesToRemove.forEach(match => {
                         board[match.y][match.x] = null;
-                        const cell = document.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
+                        const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
                         if (cell) {
                             cell.className = 'cell';
                         }
@@ -1705,12 +1893,72 @@
             }
         }
         
-        // Redraw the entire board
+        // Add explosion effect to effects layer
+        function addExplosionEffect(x, y, color) {
+            const effect = document.createElement('div');
+            effect.className = 'explosion-effect';
+            effect.style.position = 'absolute';
+            effect.style.left = `${(x * 100) / COLS}%`;
+            effect.style.top = `${(y * 100) / ROWS}%`;
+            effect.style.width = `${100 / COLS}%`;
+            effect.style.height = `${100 / ROWS}%`;
+            effect.style.background = `radial-gradient(circle, ${getColorGradient(color)} 0%, transparent 70%)`;
+            effect.style.animation = 'explode 0.6s ease-out forwards';
+            effect.style.pointerEvents = 'none';
+            effect.style.zIndex = '1';
+            
+            gameEffects.appendChild(effect);
+            
+            // Remove effect after animation
+            setTimeout(() => {
+                if (effect.parentNode) {
+                    effect.parentNode.removeChild(effect);
+                }
+            }, 600);
+        }
+        
+        // Get color gradient for effects
+        function getColorGradient(color) {
+            const gradients = {
+                'red': 'rgba(255, 100, 0, 0.8), rgba(255, 200, 100, 0.4)',
+                'blue': 'rgba(0, 150, 255, 0.8), rgba(100, 200, 255, 0.4)',
+                'green': 'rgba(100, 255, 100, 0.8), rgba(200, 255, 200, 0.4)',
+                'yellow': 'rgba(255, 255, 100, 0.8), rgba(255, 255, 200, 0.4)'
+            };
+            return gradients[color] || 'rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.4)';
+        }
+        
+        // Add CSS animation for explosions
+        function addExplosionCSS() {
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes explode {
+                    0% {
+                        transform: scale(0.5) rotate(0deg);
+                        opacity: 1;
+                    }
+                    50% {
+                        transform: scale(1.5) rotate(180deg);
+                        opacity: 0.8;
+                    }
+                    100% {
+                        transform: scale(2) rotate(360deg);
+                        opacity: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // Initialize explosion CSS
+        addExplosionCSS();
+        
+        // Redraw the entire board using layered system
         function redrawBoard() {
-            // First, clear all cells and redraw only locked pieces
+            // Redraw board layer (locked pieces only)
             for (let y = 0; y < ROWS; y++) {
                 for (let x = 0; x < COLS; x++) {
-                    const cell = document.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
+                    const cell = gameBoard.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
                     if (cell) {
                         cell.className = 'cell';
                         if (board[y][x]) {
@@ -1720,7 +1968,7 @@
                 }
             }
             
-            // Then draw the current piece if it exists
+            // Redraw active piece on its own layer
             if (currentPiece) {
                 drawPiece();
             }
