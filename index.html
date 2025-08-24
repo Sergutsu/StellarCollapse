@@ -202,9 +202,22 @@
                 inset 3px 3px 6px rgba(255, 150, 100, 0.3),
                 inset -3px -3px 6px rgba(80, 0, 0, 0.7),
                 0 3px 12px rgba(255, 68, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
         }
         
         .cell.red::before {
+            content: '🔥';
+            position: relative;
+            z-index: 2;
+            filter: drop-shadow(0 0 2px rgba(255, 100, 0, 0.8));
+        }
+        
+        .cell.red::after {
             content: '';
             position: absolute;
             top: 0;
@@ -216,6 +229,7 @@
                 radial-gradient(circle at 75% 70%, rgba(120, 20, 0, 0.6) 15%, transparent 35%),
                 radial-gradient(circle at 60% 30%, rgba(200, 50, 20, 0.3) 10%, transparent 25%);
             border-radius: 2px;
+            z-index: 1;
         }
         
         .cell.blue { 
@@ -227,9 +241,22 @@
                 inset 3px 3px 6px rgba(150, 200, 255, 0.3),
                 inset -3px -3px 6px rgba(0, 30, 80, 0.7),
                 0 3px 12px rgba(68, 136, 255, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
         }
         
         .cell.blue::before {
+            content: '💎';
+            position: relative;
+            z-index: 2;
+            filter: drop-shadow(0 0 2px rgba(0, 150, 255, 0.8));
+        }
+        
+        .cell.blue::after {
             content: '';
             position: absolute;
             top: 0;
@@ -241,6 +268,7 @@
                 radial-gradient(circle at 80% 60%, rgba(0, 50, 120, 0.6) 15%, transparent 35%),
                 radial-gradient(circle at 45% 20%, rgba(50, 150, 200, 0.3) 10%, transparent 25%);
             border-radius: 2px;
+            z-index: 1;
         }
         
         .cell.green { 
@@ -252,9 +280,22 @@
                 inset 3px 3px 6px rgba(150, 255, 180, 0.3),
                 inset -3px -3px 6px rgba(0, 80, 30, 0.7),
                 0 3px 12px rgba(68, 255, 100, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
         }
         
         .cell.green::before {
+            content: '🌟';
+            position: relative;
+            z-index: 2;
+            filter: drop-shadow(0 0 2px rgba(100, 255, 100, 0.8));
+        }
+        
+        .cell.green::after {
             content: '';
             position: absolute;
             top: 0;
@@ -266,6 +307,7 @@
                 radial-gradient(circle at 70% 80%, rgba(20, 120, 40, 0.6) 15%, transparent 35%),
                 radial-gradient(circle at 50% 60%, rgba(80, 200, 100, 0.3) 10%, transparent 25%);
             border-radius: 2px;
+            z-index: 1;
         }
         
         .cell.yellow { 
@@ -277,9 +319,22 @@
                 inset 3px 3px 6px rgba(255, 240, 150, 0.3),
                 inset -3px -3px 6px rgba(80, 60, 0, 0.7),
                 0 3px 12px rgba(255, 221, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
         }
         
         .cell.yellow::before {
+            content: '⚡';
+            position: relative;
+            z-index: 2;
+            filter: drop-shadow(0 0 2px rgba(255, 255, 100, 0.8));
+        }
+        
+        .cell.yellow::after {
             content: '';
             position: absolute;
             top: 0;
@@ -291,6 +346,7 @@
                 radial-gradient(circle at 75% 75%, rgba(120, 80, 0, 0.6) 15%, transparent 35%),
                 radial-gradient(circle at 55% 45%, rgba(200, 160, 50, 0.3) 10%, transparent 25%);
             border-radius: 2px;
+            z-index: 1;
         }
         
         .preview {
