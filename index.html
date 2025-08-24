@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stellar Collapse - Cosmic Block Puzzle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(ellipse at center, #0f1419 0%, #000510 70%, #000000 100%);
+            min-height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        /* Animated Stars Background */
+        .stars {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            opacity: 0;
+            animation: twinkle 3s infinite ease-in-out;
+        }
+        
+        .star.small {
+            width: 1px;
+            height: 1px;
+            animation-duration: 4s;
+        }
+        
+        .star.medium {
+            width: 2px;
+            height: 2px;
+            animation-duration: 3s;
+            box-shadow: 0 0 4px rgba(135, 206, 235, 0.8);
+        }
+        
+        .star.large {
+            width: 3px;
+            height: 3px;
+            animation-duration: 2s;
+            box-shadow: 0 0 6px rgba(255, 182, 193, 0.9);
+        }
+        
+        .star.nebula {
+            width: 4px;
+            height: 4px;
+            animation-duration: 5s;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1);
+            box-shadow: 0 0 8px rgba(255, 107, 107, 0.6);
+        }
+        
+        @keyframes twinkle {
+            0%, 100% { opacity: 0; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+        }
+        
+        /* Moving stars */
+        .shooting-star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: linear-gradient(to right, transparent, #fff, transparent);
+            border-radius: 50%;
+            animation: shoot 8s linear infinite;
+        }
+        
+        @keyframes shoot {
+            0% {
+                transform: translateX(-100px) translateY(0);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                transform: translateX(100vw) translateY(-200px);
+                opacity: 0;
+            }
+        }
+        
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(20, 1fr);
+            gap: 1px;
+            width: 300px;
+            height: 600px;
+            border: 2px solid #2d3748;
+            background: rgba(0, 0, 0, 0.3);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        
+        .cell {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .cell.filled {
+            border: 1px solid rgba(0, 0, 0, 0.2);
+        }
+        
+        .cell.red { background: linear-gradient(135deg, #ff4d4d, #ff0000); }
+        .cell.blue { background: linear-gradient(135deg, #4d79ff, #0040ff); }
+        .cell.green { background: linear-gradient(135deg, #4dff4d, #00b300); }
+        .cell.yellow { background: linear-gradient(135deg, #ffff4d, #ffd700); }
+        
+        .preview {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(4, 1fr);
+            width: 120px;
+            height: 120px;
+            border: 2px solid #2d3748;
+            background: rgba(0, 0, 0, 0.3);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        .preview-cell {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .screen {
+            transition: all 0.5s ease;
+        }
+        
+        .btn {
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .btn:active {
+            transform: translateY(1px);
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .score-animation {
+            animation: scorePulse 0.5s ease;
+        }
+        
+        @keyframes scorePulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        
+        .highlight {
+            box-shadow: 0 0 15px 5px rgba(255, 255, 255, 0.7);
+            z-index: 10;
+        }
+        
+        .instructions {
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="text-white flex items-center justify-center min-h-screen p-4">
+    <!-- Animated Stars Background -->
+    <div class="stars" id="starsContainer"></div>
+    <!-- Start Screen with Integrated Scoreboard -->    <div id="startScreen" class="screen absolute inset-0 flex items-center justify-center bg-black bg-opacity-70 z-50">
+        <div class="flex gap-8 max-w-6xl w-full px-8">
+            <!-- Left side - Game info and player input -->
+            <div class="flex-1 text-center p-8 rounded-2xl bg-gray-900 bg-opacity-80 backdrop-blur-sm border border-gray-700">
+                <h1 class="text-5xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500">
+                    <i class="fas fa-star"></i> STELLAR COLLAPSE
+                </h1>
+                <p class="text-cyan-300 mb-6">Cosmic blocks with explosive chain reactions!</p>
+                
+                <!-- Player Name Input -->
+                <div class="mb-6">
+                    <label class="block text-cyan-300 font-bold mb-2" for="playerName">Enter Your Call Sign:</label>
+                    <input type="text" id="playerName" class="bg-gray-900 text-cyan-300 px-4 py-2 rounded-lg border border-cyan-500 focus:border-pink-400 focus:outline-none text-center focus:ring-2 focus:ring-pink-400 focus:ring-opacity-50" 
+                           placeholder="Pilot" maxlength="15" value="Pilot">
+                </div>
+                
+                <div class="instructions p-4 rounded-lg mb-6">
+                    <h2 class="text-xl font-bold mb-3 text-cyan-300">Mission Briefing</h2>
+                    <ul class="text-left text-gray-200 space-y-2">
+                        <li><i class="fas fa-rocket text-cyan-400 mr-2"></i> Standard stellar physics apply</li>
+                        <li><i class="fas fa-rocket text-cyan-400 mr-2"></i> Match 4 stellar fragments (horizontal or vertical) to trigger collapse</li>
+                        <li><i class="fas fa-rocket text-cyan-400 mr-2"></i> Complete stellar lines create massive explosions</li>
+                        <li><i class="fas fa-rocket text-cyan-400 mr-2"></i> Use SPACE to rotate, ARROWS to navigate</li>
+                    </ul>
+                </div>
+                
+                <button id="startBtn" class="btn bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-bold py-3 px-8 rounded-full text-xl pulse shadow-lg shadow-cyan-500/25">
+                    <i class="fas fa-play mr-2"></i>BEGIN MISSION
+                </button>
+            </div>
+            
+            <!-- Right side - Mission Rankings -->
+            <div class="flex-1 p-8 rounded-2xl bg-gray-900 bg-opacity-80 backdrop-blur-sm border border-cyan-500/30">
+                <h2 class="text-3xl font-bold mb-6 text-center text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500">
+                    <i class="fas fa-medal"></i> STELLAR RANKINGS
+                </h2>
+                
+                <div class="mb-6">
+                    <div class="flex justify-between border-b border-cyan-600 pb-2 mb-4 font-bold text-cyan-300">
+                        <span>Rank</span>
+                        <span>Pilot</span>
+                        <span>Score</span>
+                    </div>
+                    <div id="startScreenScoreList" class="space-y-3">
+                        <!-- Scores will be inserted here -->
+                    </div>
+                </div>
+                
+                <div class="text-center text-cyan-400 text-sm">
+                    <p>Master stellar collapse chains for maximum points!</p>
+                    <p class="mt-2">Top 5 pilots are immortalized in the cosmos</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="gameScreen" class="screen absolute inset-0 flex flex-col items-center justify-center opacity-0 pointer-events-none">
+        <!-- End Game Button -->
+        <div class="absolute top-4 right-4">
+            <button id="endGameBtn" class="btn bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-full transition-colors">
+                <i class="fas fa-times mr-2"></i>End Game
+            </button>
+        </div>
+        
+        <div class="flex flex-col items-center">
+            <div class="flex justify-between w-full max-w-2xl mb-4">
+                <div class="text-center">
+                    <h2 class="text-2xl font-bold">SCORE</h2>
+                    <div id="score" class="text-4xl font-bold text-yellow-300">0</div>
+                </div>
+                
+                <div class="text-center">
+                    <h2 class="text-2xl font-bold">LEVEL</h2>
+                    <div id="level" class="text-4xl font-bold text-blue-300">1</div>
+                </div>
+                
+                <div class="text-center">
+                    <h2 class="text-2xl font-bold">LINES</h2>
+                    <div id="lines" class="text-4xl font-bold text-green-300">0</div>
+                </div>
+            </div>
+            
+            <div class="flex gap-8">
+                <div>
+                    <h3 class="text-center mb-2 font-bold">NEXT</h3>
+                    <div class="preview" id="nextPiece"></div>
+                </div>
+                
+                <div class="relative">
+                    <div class="game-grid" id="gameGrid"></div>
+                    <div id="gameOver" class="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center flex-col opacity-0 pointer-events-none">
+                        <h2 class="text-3xl font-bold text-red-500 mb-4">GAME OVER</h2>
+                        <button id="restartBtn" class="btn bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold py-2 px-6 rounded-full">
+                            PLAY AGAIN
+                        </button>
+                    </div>
+                </div>
+                
+                <div>
+                    <h3 class="text-center mb-2 font-bold">CONTROLS</h3>
+                    <div class="bg-black bg-opacity-30 p-4 rounded-lg">
+                        <p class="mb-2"><i class="fas fa-arrow-up text-yellow-300 mr-2"></i> Rotate</p>
+                        <p class="mb-2"><i class="fas fa-arrow-left text-yellow-300 mr-2"></i> Move Left</p>
+                        <p class="mb-2"><i class="fas fa-arrow-right text-yellow-300 mr-2"></i> Move Right</p>
+                        <p class="mb-2"><i class="fas fa-arrow-down text-yellow-300 mr-2"></i> Move Down</p>
+                        <p class="mb-2"><i class="fas fa-spacebar text-yellow-300 mr-2"></i> Drop</p>
+                        <p class="mb-2"><i class="fas fa-mouse-pointer text-yellow-300 mr-2"></i> Match 4 Colors (H/V)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <script>
+        // Game constants
+        const COLS = 10;
+        const ROWS = 20;
+        const BLOCK_SIZE = 30;
+        const COLORS = ['red', 'blue', 'green', 'yellow'];
+        
+        // Tetromino shapes
+        const SHAPES = [
+            // I
+            [
+                [0, 0, 0, 0],
+                [1, 1, 1, 1],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0]
+            ],
+            // J
+            [
+                [1, 0, 0],
+                [1, 1, 1],
+                [0, 0, 0]
+            ],
+            // L
+            [
+                [0, 0, 1],
+                [1, 1, 1],
+                [0, 0, 0]
+            ],
+            // O
+            [
+                [1, 1],
+                [1, 1]
+            ],
+            // S
+            [
+                [0, 1, 1],
+                [1, 1, 0],
+                [0, 0, 0]
+            ],
+            // T
+            [
+                [0, 1, 0],
+                [1, 1, 1],
+                [0, 0, 0]
+            ],
+            // Z
+            [
+                [1, 1, 0],
+                [0, 1, 1],
+                [0, 0, 0]
+            ],
+            // Cross (Plus)
+            [
+                [0, 1, 0],
+                [1, 1, 1],
+                [0, 1, 0]
+            ],
+            // Big L
+            [
+                [1, 0, 0, 0],
+                [1, 0, 0, 0],
+                [1, 1, 1, 1],
+                [0, 0, 0, 0]
+            ],
+            // Zigzag
+            [
+                [1, 0, 1],
+                [1, 1, 1],
+                [0, 0, 0]
+            ],
+            // Small Cross
+            [
+                [0, 1],
+                [1, 1],
+                [0, 1]
+            ],
+            // Corner
+            [
+                [1, 1, 0],
+                [1, 0, 0],
+                [1, 0, 0]
+            ]
+        ];
+        
+        // Game state
+        let score = 0;
+        let level = 1;
+        let lines = 0;
+        let gameOver = false;
+        let board = [];
+        let currentPiece = null;
+        let nextPiece = null;
+        let dropCounter = 0;
+        let dropInterval = 1000;
+        let lastTime = 0;
+        let highScores = [];
+        
+        // DOM elements
+        const startScreen = document.getElementById('startScreen');
+        const gameScreen = document.getElementById('gameScreen');
+        const gameGrid = document.getElementById('gameGrid');
+        const nextPieceEl = document.getElementById('nextPiece');
+        const scoreEl = document.getElementById('score');
+        const levelEl = document.getElementById('level');
+        const linesEl = document.getElementById('lines');
+        const gameOverEl = document.getElementById('gameOver');
+        const startScreenScoreList = document.getElementById('startScreenScoreList');
+        const playerNameInput = document.getElementById('playerName');
+        
+        // Create animated stars background
+        function createStarsBackground() {
+            const starsContainer = document.getElementById('starsContainer');
+            const numStars = 150;
+            const numShootingStars = 3;
+            
+            // Create twinkling stars
+            for (let i = 0; i < numStars; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                
+                // Random star types
+                const types = ['small', 'medium', 'large', 'nebula'];
+                const weights = [0.5, 0.3, 0.15, 0.05]; // Probability weights
+                let random = Math.random();
+                let type = 'small';
+                
+                for (let j = 0; j < types.length; j++) {
+                    if (random < weights[j]) {
+                        type = types[j];
+                        break;
+                    }
+                    random -= weights[j];
+                }
+                
+                star.classList.add(type);
+                
+                // Random position
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                
+                // Random animation delay
+                star.style.animationDelay = Math.random() * 3 + 's';
+                
+                starsContainer.appendChild(star);
+            }
+            
+            // Create shooting stars
+            for (let i = 0; i < numShootingStars; i++) {
+                const shootingStar = document.createElement('div');
+                shootingStar.className = 'shooting-star';
+                
+                // Random starting position
+                shootingStar.style.top = Math.random() * 50 + '%';
+                shootingStar.style.animationDelay = Math.random() * 8 + 's';
+                
+                starsContainer.appendChild(shootingStar);
+            }
+        }
+        
+        // Initialize the game
+        function init() {
+            // Create animated stars background
+            createStarsBackground();
+            
+            // Create game board
+            createBoard();
+            
+            // Create next piece preview
+            createNextPiecePreview();
+            
+            // Load high scores
+            loadHighScores();
+            
+            // Event listeners
+            document.getElementById('startBtn').addEventListener('click', startGame);
+            document.getElementById('restartBtn').addEventListener('click', startGame);
+            document.getElementById('endGameBtn').addEventListener('click', endGameEarly);
+            
+            // Load and display high scores on start screen
+            loadHighScores();
+            updateStartScreenScores();
+            
+            // Auto-focus player name input
+            playerNameInput.focus();
+            playerNameInput.select();
+            
+            // Keyboard controls
+            document.addEventListener('keydown', event => {
+                if (gameOver) return;
+                
+                switch(event.key) {
+                    case 'ArrowLeft':
+                        event.preventDefault();
+                        movePiece(-1);
+                        break;
+                    case 'ArrowRight':
+                        event.preventDefault();
+                        movePiece(1);
+                        break;
+                    case 'ArrowDown':
+                        event.preventDefault();
+                        movePiece(0, 1);
+                        break;
+                    case 'ArrowUp':
+                        event.preventDefault();
+                        rotatePiece();
+                        break;
+                    case ' ':
+                        event.preventDefault();
+                        dropPiece();
+                        break;
+                }
+            });
+            
+            // Mouse controls for matching
+            gameGrid.addEventListener('click', handleGridClick);
+        }
+        
+        // Create the game board
+        function createBoard() {
+            gameGrid.innerHTML = '';
+            board = [];
+            
+            for (let y = 0; y < ROWS; y++) {
+                board[y] = [];
+                for (let x = 0; x < COLS; x++) {
+                    board[y][x] = null;
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    gameGrid.appendChild(cell);
+                }
+            }
+        }
+        
+        // Create next piece preview
+        function createNextPiecePreview() {
+            nextPieceEl.innerHTML = '';
+            for (let y = 0; y < 4; y++) {
+                for (let x = 0; x < 4; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'preview-cell';
+                    nextPieceEl.appendChild(cell);
+                }
+            }
+        }
+        
+        // Show start screen
+        function showStartScreen() {
+            gameScreen.classList.add('opacity-0', 'pointer-events-none');
+            startScreen.classList.remove('opacity-0', 'pointer-events-none');
+            updateStartScreenScores();
+        }
+        
+        // Show game screen
+        function showGameScreen() {
+            startScreen.classList.add('opacity-0', 'pointer-events-none');
+            gameScreen.classList.remove('opacity-0', 'pointer-events-none');
+        }
+        
+        // End game early (from end game button)
+        function endGameEarly() {
+            if (confirm('Are you sure you want to end the current game?')) {
+                gameOver = true;
+                if (currentPiece) {
+                    clearPiece();
+                    currentPiece = null;
+                }
+                showStartScreen();
+            }
+        }
+        
+        // Update start screen scoreboard
+        function updateStartScreenScores() {
+            startScreenScoreList.innerHTML = '';
+            
+            if (highScores.length === 0) {
+                startScreenScoreList.innerHTML = '<div class="text-gray-400 text-center py-4">No high scores yet!<br>Be the first to play!</div>';
+                return;
+            }
+            
+            highScores.forEach((entry, index) => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between items-center py-2 px-3 rounded border border-gray-700 bg-gray-800 bg-opacity-50';
+                div.innerHTML = `
+                    <span class="text-yellow-300 font-bold">#${index + 1}</span>
+                    <span class="text-white font-medium">${entry.name}</span>
+                    <span class="text-green-300 font-bold">${entry.score.toLocaleString()}</span>
+                `;
+                startScreenScoreList.appendChild(div);
+            });
+        }
+        
+        // Start the game
+        function startGame() {
+            // Reset game state
+            score = 0;
+            level = 1;
+            lines = 0;
+            gameOver = false;
+            
+            // Update UI
+            scoreEl.textContent = '0';
+            levelEl.textContent = '1';
+            linesEl.textContent = '0';
+            gameOverEl.classList.add('opacity-0', 'pointer-events-none');
+            
+            // Clear board
+            createBoard();
+            
+            // Create first pieces
+            currentPiece = createPiece();
+            nextPiece = createPiece();
+            updateNextPiecePreview();
+            
+            // Draw initial piece
+            drawPiece();
+            
+            // Show game screen
+            showGameScreen();
+            
+            // Start game loop
+            lastTime = 0;
+            dropCounter = 0;
+            dropInterval = 1000; // Reset drop interval
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Game loop
+        function gameLoop(time = 0) {
+            if (gameOver) return;
+            
+            requestAnimationFrame(gameLoop);
+            
+            const deltaTime = time - lastTime;
+            lastTime = time;
+            
+            dropCounter += deltaTime;
+            if (dropCounter > dropInterval) {
+                movePiece(0, 1);
+                dropCounter = 0;
+            }
+            
+            // Ensure current piece is always visible
+            if (currentPiece) {
+                drawPiece();
+            }
+        }
+        
+        // Create a new piece
+        function createPiece() {
+            const type = Math.floor(Math.random() * SHAPES.length);
+            const shape = SHAPES[type];
+            
+            console.log(`Creating piece type ${type} of ${SHAPES.length} total shapes`);
+            
+            // Create color matrix for multi-colored pieces
+            const colorMatrix = [];
+            let colorCount = {};
+            
+            for (let y = 0; y < shape.length; y++) {
+                colorMatrix[y] = [];
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x]) {
+                        // Assign random color to each block
+                        const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                        colorMatrix[y][x] = color;
+                        colorCount[color] = (colorCount[color] || 0) + 1;
+                    } else {
+                        colorMatrix[y][x] = null;
+                    }
+                }
+            }
+            
+            console.log(`Piece colors:`, colorCount);
+            
+            return {
+                x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2),
+                y: 0,
+                shape,
+                colorMatrix,
+                type
+            };
+        }
+        
+        // Update next piece preview
+        function updateNextPiecePreview() {
+            const cells = nextPieceEl.querySelectorAll('.preview-cell');
+            cells.forEach(cell => cell.className = 'preview-cell');
+            
+            if (!nextPiece) return;
+            
+            const shape = nextPiece.shape;
+            const colorMatrix = nextPiece.colorMatrix;
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x]) {
+                        const index = y * 4 + x;
+                        if (cells[index] && colorMatrix[y][x]) {
+                            cells[index].classList.add(colorMatrix[y][x]);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Clear the current piece from display
+        function clearPiece() {
+            if (!currentPiece) return;
+            
+            const shape = currentPiece.shape;
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x]) {
+                        const boardX = currentPiece.x + x;
+                        const boardY = currentPiece.y + y;
+                        
+                        if (boardY >= 0 && boardX >= 0 && boardX < COLS && boardY < ROWS) {
+                            const cell = document.querySelector(`.cell[data-x="${boardX}"][data-y="${boardY}"]`);
+                            if (cell && !board[boardY][boardX]) {
+                                cell.className = 'cell';
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Draw the current piece
+        function drawPiece() {
+            if (!currentPiece) return;
+            
+            const shape = currentPiece.shape;
+            const colorMatrix = currentPiece.colorMatrix;
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x]) {
+                        const boardX = currentPiece.x + x;
+                        const boardY = currentPiece.y + y;
+                        
+                        if (boardY >= 0 && boardX >= 0 && boardX < COLS && boardY < ROWS) {
+                            const cell = document.querySelector(`.cell[data-x="${boardX}"][data-y="${boardY}"]`);
+                            if (cell && !board[boardY][boardX]) {
+                                cell.className = 'cell';
+                                if (colorMatrix[y][x]) {
+                                    cell.classList.add(colorMatrix[y][x]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Move the current piece
+        function movePiece(dx, dy = 0) {
+            if (!currentPiece || gameOver) return;
+            
+            // Clear current position
+            clearPiece();
+            
+            currentPiece.x += dx;
+            currentPiece.y += dy;
+            
+            // Check for collision
+            if (isCollision()) {
+                currentPiece.x -= dx;
+                currentPiece.y -= dy;
+                
+                // If moving down and collision, lock the piece
+                if (dy > 0) {
+                    drawPiece();
+                    lockPiece();
+                    return;
+                }
+                
+                // Redraw at original position
+                drawPiece();
+                return;
+            }
+            
+            drawPiece();
+        }
+        
+        // Rotate the current piece
+        function rotatePiece() {
+            if (!currentPiece || gameOver) return;
+            
+            // Clear current position
+            clearPiece();
+            
+            // Save original shape and color matrix
+            const originalShape = currentPiece.shape;
+            const originalColorMatrix = currentPiece.colorMatrix;
+            
+            // Rotate the shape (transpose and reverse rows)
+            const newShape = originalShape.map((row, i) => 
+                row.map((val, j) => originalShape[originalShape.length - 1 - j][i])
+            );
+            
+            // Rotate the color matrix as well
+            const newColorMatrix = originalColorMatrix.map((row, i) => 
+                row.map((val, j) => originalColorMatrix[originalColorMatrix.length - 1 - j][i])
+            );
+            
+            // Temporarily set new shape and colors for collision testing
+            currentPiece.shape = newShape;
+            currentPiece.colorMatrix = newColorMatrix;
+            
+            // Check if rotation is valid
+            const originalX = currentPiece.x;
+            const originalY = currentPiece.y;
+            
+            // Try to adjust position if rotation causes collision
+            let valid = false;
+            for (let offset = 0; offset < 3; offset++) {
+                for (let sign of [-1, 1]) {
+                    currentPiece.x = originalX + offset * sign;
+                    if (!isCollision()) {
+                        valid = true;
+                        break;
+                    }
+                }
+                if (valid) break;
+                
+                currentPiece.x = originalX - offset;
+                if (!isCollision()) {
+                    valid = true;
+                    break;
+                }
+            }
+            
+            // If no valid position found, revert
+            if (!valid) {
+                currentPiece.x = originalX;
+                currentPiece.y = originalY;
+                currentPiece.shape = originalShape;
+                currentPiece.colorMatrix = originalColorMatrix;
+                drawPiece();
+                return;
+            }
+            
+            // Apply rotation (already set)
+            drawPiece();
+        }
+        
+        // Drop the piece to the bottom
+        function dropPiece() {
+            if (!currentPiece || gameOver) return;
+            
+            // Clear current position
+            clearPiece();
+            
+            while (!isCollisionAt(0, 1)) {
+                currentPiece.y++;
+            }
+            
+            drawPiece();
+            lockPiece();
+        }
+        
+        // Check for collision
+        function isCollision(dx = 0, dy = 0) {
+            if (!currentPiece) return true;
+            
+            const shape = currentPiece.shape;
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x]) {
+                        const boardX = currentPiece.x + x + dx;
+                        const boardY = currentPiece.y + y + dy;
+                        
+                        // Check boundaries
+                        if (boardX < 0 || boardX >= COLS || boardY >= ROWS) {
+                            return true;
+                        }
+                        
+                        // Check for collision with locked pieces
+                        if (boardY >= 0 && board[boardY] && board[boardY][boardX]) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // Check collision at specific position
+        function isCollisionAt(dx, dy) {
+            if (!currentPiece) return true;
+            
+            const shape = currentPiece.shape;
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x]) {
+                        const boardX = currentPiece.x + x + dx;
+                        const boardY = currentPiece.y + y + dy;
+                        
+                        // Check boundaries
+                        if (boardX < 0 || boardX >= COLS || boardY >= ROWS) {
+                            return true;
+                        }
+                        
+                        // Check for collision with locked pieces
+                        if (boardY >= 0 && board[boardY] && board[boardY][boardX]) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // Lock the piece in place
+        function lockPiece() {
+            if (!currentPiece) return;
+            
+            console.log('=== LOCKING PIECE ===');
+            if (isBoardAlmostFull()) {
+                console.log('WARNING: Board is almost full!');
+            }
+            
+            const shape = currentPiece.shape;
+            const colorMatrix = currentPiece.colorMatrix;
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x]) {
+                        const boardX = currentPiece.x + x;
+                        const boardY = currentPiece.y + y;
+                        
+                        if (boardY < 0) {
+                            // Game over
+                            console.log('PIECE COLLISION AT TOP - ENDING GAME');
+                            endGame();
+                            return;
+                        }
+                        
+                        board[boardY][boardX] = colorMatrix[y][x];
+                        const cell = document.querySelector(`.cell[data-x="${boardX}"][data-y="${boardY}"]`);
+                        if (cell) {
+                            cell.className = 'cell filled';
+                            if (colorMatrix[y][x]) {
+                                cell.classList.add(colorMatrix[y][x]);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Simple and reliable board full check after locking piece
+            console.log('=== LOCK PIECE: Checking if game should end ===');
+            
+            // Count total filled cells
+            let filledCells = 0;
+            const totalCells = COLS * ROWS;
+            
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    if (board[y][x]) {
+                        filledCells++;
+                    }
+                }
+            }
+            
+            const fillPercentage = (filledCells / totalCells) * 100;
+            console.log(`Board filled: ${filledCells}/${totalCells} (${fillPercentage.toFixed(1)}%)`);
+            
+            // End game if board is completely full OR if top 2 rows are blocked
+            const boardCompleteFull = filledCells === totalCells;
+            
+            let topRowsBlocked = true;
+            for (let y = 0; y < 2; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    if (!board[y][x]) {
+                        topRowsBlocked = false;
+                        break;
+                    }
+                }
+                if (!topRowsBlocked) break;
+            }
+            
+            if (boardCompleteFull) {
+                console.log('BOARD COMPLETELY FULL - ENDING GAME');
+                endGame();
+                return;
+            }
+            
+            if (topRowsBlocked) {
+                console.log('TOP 2 ROWS COMPLETELY BLOCKED - ENDING GAME');
+                endGame();
+                return;
+            }
+            
+            // Check for completed lines
+            console.log('Game continues, checking for completed lines...');
+            checkLines();
+            
+            // Create new piece
+            if (gameOver) return; // Don't create new pieces if game is over
+            
+            console.log('Creating new piece...');
+            currentPiece = nextPiece;
+            nextPiece = createPiece();
+            updateNextPiecePreview();
+            
+            // Simple check: if new piece immediately collides, game over
+            if (currentPiece && isCollision()) {
+                console.log('NEW PIECE COLLISION - GAME OVER');
+                endGame();
+                return;
+            }
+            
+            // Draw the new piece
+            drawPiece();
+        }
+        
+        // Check for completed lines
+        function checkLines() {
+            if (gameOver) return; // Don't check lines if game is over
+            
+            let linesCleared = 0;
+            
+            for (let y = ROWS - 1; y >= 0; y--) {
+                let isLineComplete = true;
+                for (let x = 0; x < COLS; x++) {
+                    if (!board[y][x]) {
+                        isLineComplete = false;
+                        break;
+                    }
+                }
+                
+                if (isLineComplete) {
+                    // Remove the line
+                    for (let x = 0; x < COLS; x++) {
+                        board[y][x] = null;
+                    }
+                    
+                    // Move all lines above down
+                    for (let yy = y; yy > 0; yy--) {
+                        for (let x = 0; x < COLS; x++) {
+                            board[yy][x] = board[yy-1][x];
+                        }
+                    }
+                    
+                    // Clear the top line
+                    for (let x = 0; x < COLS; x++) {
+                        board[0][x] = null;
+                    }
+                    
+                    linesCleared++;
+                    y++; // Recheck the same line index since we moved everything down
+                }
+            }
+            
+            if (linesCleared > 0) {
+                // Update score
+                const points = [0, 40, 100, 300, 1200][linesCleared] * level;
+                score += points;
+                lines += linesCleared;
+                
+                // Update level every 10 lines
+                level = Math.floor(lines / 10) + 1;
+                
+                // Update UI
+                scoreEl.textContent = score;
+                levelEl.textContent = level;
+                linesEl.textContent = lines;
+                
+                // Update drop speed (slower for this variant)
+                dropInterval = Math.max(200, 1500 - (level - 1) * 75);
+                
+                // Redraw board
+                redrawBoard();
+                
+                // Apply gravity to ensure proper falling of remaining pieces
+                setTimeout(() => {
+                    applyGravity();
+                }, 50);
+            }
+        }
+        
+        // Debug function to test the exact endgame scenario
+        function debugTestEndgame() {
+            console.log('=== DEBUG: Testing endgame scenario ===');
+            
+            // Test scenario 1: Complete board fill
+            console.log('Test 1: Filling entire board...');
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    board[y][x] = COLORS[Math.floor(Math.random() * COLORS.length)];
+                }
+            }
+            
+            redrawBoard();
+            
+            if (isBoardFull()) {
+                console.log('Board is completely full - should trigger endgame');
+                endGame();
+                return;
+            }
+            
+            console.log('Test 1 failed, trying Test 2...');
+            
+            // Test scenario 2: Top area congestion
+            // Clear board and create congested top area
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    board[y][x] = null;
+                }
+            }
+            
+            // Fill most of the board leaving top area very congested
+            for (let y = 6; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    board[y][x] = COLORS[Math.floor(Math.random() * COLORS.length)];
+                }
+            }
+            
+            // Fill 95% of top 6 rows
+            let cellsToFill = Math.floor((6 * COLS) * 0.95);
+            let filledCount = 0;
+            
+            for (let y = 0; y < 6 && filledCount < cellsToFill; y++) {
+                for (let x = 0; x < COLS && filledCount < cellsToFill; x++) {
+                    board[y][x] = COLORS[Math.floor(Math.random() * COLORS.length)];
+                    filledCount++;
+                }
+            }
+            
+            redrawBoard();
+            console.log('Test 2: Created congested top area scenario');
+            
+            // Simulate piece locking to trigger congestion check
+            setTimeout(() => {
+                console.log('Simulating piece lock with congested board...');
+                lockPiece();
+            }, 1000);
+        }
+        
+        // Simple debug function to test piece creation
+        function debugTestPieces() {
+            console.log('=== TESTING PIECE CREATION ===');
+            console.log(`Total shapes available: ${SHAPES.length}`);
+            console.log(`Available colors: ${COLORS.join(', ')}`);
+            
+            // Create and display 5 test pieces
+            for (let i = 0; i < 5; i++) {
+                const testPiece = createPiece();
+                console.log(`Test piece ${i + 1}:`, {
+                    type: testPiece.type,
+                    hasColorMatrix: !!testPiece.colorMatrix,
+                    shapeSize: testPiece.shape.length + 'x' + testPiece.shape[0].length
+                });
+            }
+        }
+        
+        // Simple board clear function
+        function debugClearBoard() {
+            console.log('Clearing board...');
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    board[y][x] = null;
+                }
+            }
+            redrawBoard();
+            console.log('Board cleared!');
+        }
+        
+        // Expose simple debug functions
+        window.debugTestPieces = debugTestPieces;
+        window.debugClearBoard = debugClearBoard;
+        
+        // Debug function to show board state in console
+        function debugShowBoard() {
+            console.log('=== CURRENT BOARD STATE ===');
+            let emptyCount = 0;
+            let boardVisualization = '';
+            
+            for (let y = 0; y < ROWS; y++) {
+                let row = '';
+                for (let x = 0; x < COLS; x++) {
+                    if (board[y][x]) {
+                        row += '█';
+                    } else {
+                        row += '·';
+                        emptyCount++;
+                    }
+                }
+                boardVisualization += `Row ${y.toString().padStart(2)}: ${row}\n`;
+            }
+            
+            console.log(boardVisualization);
+            console.log(`Empty cells: ${emptyCount}/${COLS * ROWS}`);
+            console.log(`Board full: ${emptyCount === 0}`);
+            console.log(`Game over: ${gameOver}`);
+            
+            return emptyCount;
+        }
+        
+        // Expose debug function
+        window.debugShowBoard = debugShowBoard;
+        
+        // Expose new debug function
+        window.debugTestEndgame = debugTestEndgame;
+        
+        // Debug function to test board full detection (call from console)
+        function debugFillBoard() {
+            console.log('=== DEBUG: Filling board for testing ===');
+            console.log('Current gameOver state:', gameOver);
+            
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    if (!board[y][x]) {
+                        board[y][x] = COLORS[Math.floor(Math.random() * COLORS.length)];
+                    }
+                }
+            }
+            
+            redrawBoard();
+            console.log('Board filled. Checking if full...');
+            
+            const isFull = isBoardFull();
+            console.log('isBoardFull result:', isFull);
+            
+            if (isFull) {
+                console.log('Board is full - calling endGame()');
+                endGame();
+                console.log('endGame() called. New gameOver state:', gameOver);
+            } else {
+                console.log('Board is not full - endGame not triggered');
+            }
+        }
+        
+        // Expose debug function globally
+        window.debugFillBoard = debugFillBoard;
+        
+        // Check if the board is almost full (useful for debugging)
+        function isBoardAlmostFull() {
+            let emptyCount = 0;
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    if (!board[y][x]) {
+                        emptyCount++;
+                    }
+                }
+            }
+            return emptyCount <= 20; // Consider "almost full" when 20 or fewer empty cells
+        }
+        
+        // Check if the board is completely full
+        function isBoardFull() {
+            let emptyCount = 0;
+            let totalCells = COLS * ROWS;
+            
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    if (!board[y][x]) {
+                        emptyCount++;
+                    }
+                }
+            }
+            
+            const filledCells = totalCells - emptyCount;
+            const isFull = emptyCount === 0;
+            
+            // Log when getting close to full or when full
+            if (emptyCount <= 10 || isFull) {
+                console.log(`Board status: ${emptyCount}/${totalCells} empty cells (${filledCells} filled). Full: ${isFull}`);
+                if (isFull) {
+                    console.log('TRIGGERING ENDGAME - BOARD IS COMPLETELY FULL!');
+                }
+            }
+            
+            return isFull;
+        }
+        
+        // Apply gravity to make pieces fall down
+        function applyGravity() {
+            let piecesMovedDown = false;
+            
+            // Work from bottom to top for each column
+            for (let x = 0; x < COLS; x++) {
+                // Find empty spots and move pieces down
+                for (let y = ROWS - 1; y >= 0; y--) {
+                    if (!board[y][x]) {
+                        // Found empty spot, look for piece above to fall
+                        for (let aboveY = y - 1; aboveY >= 0; aboveY--) {
+                            if (board[aboveY][x]) {
+                                // Move piece down
+                                board[y][x] = board[aboveY][x];
+                                board[aboveY][x] = null;
+                                piecesMovedDown = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (piecesMovedDown) {
+                // Redraw board after gravity
+                redrawBoard();
+                
+                // Apply gravity again until no more pieces can fall
+                setTimeout(() => applyGravity(), 100);
+            } else {
+                // When gravity is done, check for completed lines
+                setTimeout(() => {
+                    checkLines();
+                }, 150);
+            }
+        }
+        
+        // Find matches in a specific direction
+        function findMatches(startX, startY, color, deltaX, deltaY) {
+            const matches = [{x: startX, y: startY}];
+            
+            // Check in positive direction
+            let x = startX + deltaX;
+            let y = startY + deltaY;
+            while (x >= 0 && x < COLS && y >= 0 && y < ROWS && board[y][x] === color) {
+                matches.push({x, y});
+                x += deltaX;
+                y += deltaY;
+            }
+            
+            // Check in negative direction
+            x = startX - deltaX;
+            y = startY - deltaY;
+            while (x >= 0 && x < COLS && y >= 0 && y < ROWS && board[y][x] === color) {
+                matches.push({x, y});
+                x -= deltaX;
+                y -= deltaY;
+            }
+            
+            return matches;
+        }
+        
+        // Handle grid click for matching
+        function handleGridClick(event) {
+            if (gameOver) return;
+            
+            const cell = event.target;
+            if (!cell.classList.contains('cell') || !cell.classList.contains('filled')) return;
+            
+            const x = parseInt(cell.dataset.x);
+            const y = parseInt(cell.dataset.y);
+            
+            // Find matching colors
+            const color = Array.from(cell.classList).find(cls => COLORS.includes(cls));
+            if (!color) return;
+            
+            // Check horizontal matches
+            const horizontalMatches = findMatches(x, y, color, 1, 0);
+            
+            // Check vertical matches
+            const verticalMatches = findMatches(x, y, color, 0, 1);
+            
+            let matchesToRemove = [];
+            
+            // Use horizontal matches if 4 or more
+            if (horizontalMatches.length >= 4) {
+                matchesToRemove = horizontalMatches;
+            }
+            // Use vertical matches if 4 or more (and better than horizontal)
+            else if (verticalMatches.length >= 4) {
+                matchesToRemove = verticalMatches;
+            }
+            
+            // If we have matches to remove
+            if (matchesToRemove.length >= 4) {
+                // Highlight matched cells
+                matchesToRemove.forEach(match => {
+                    const cell = document.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
+                    if (cell) {
+                        cell.classList.add('highlight');
+                    }
+                });
+                
+                // Remove matches after a delay
+                setTimeout(() => {
+                    matchesToRemove.forEach(match => {
+                        board[match.y][match.x] = null;
+                        const cell = document.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
+                        if (cell) {
+                            cell.className = 'cell';
+                        }
+                    });
+                    
+                    // Add score
+                    const points = matchesToRemove.length * 10 * level;
+                    score += points;
+                    scoreEl.textContent = score;
+                    
+                    // Add animation to score
+                    scoreEl.classList.add('score-animation');
+                    setTimeout(() => scoreEl.classList.remove('score-animation'), 500);
+                    
+                    // Apply gravity to make remaining pieces fall
+                    setTimeout(() => {
+                        applyGravity();
+                    }, 100);
+                    
+                }, 300);
+            }
+        }
+        
+        // Redraw the entire board
+        function redrawBoard() {
+            // First, clear all cells and redraw only locked pieces
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    const cell = document.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
+                    if (cell) {
+                        cell.className = 'cell';
+                        if (board[y][x]) {
+                            cell.classList.add(board[y][x], 'filled');
+                        }
+                    }
+                }
+            }
+            
+            // Then draw the current piece if it exists
+            if (currentPiece) {
+                drawPiece();
+            }
+        }
+        
+        // End the game
+        function endGame() {
+            console.log('ENDGAME TRIGGERED!');
+            console.log('Setting gameOver = true');
+            gameOver = true;
+            
+            // Clear current piece to stop any ongoing movement
+            if (currentPiece) {
+                clearPiece();
+                currentPiece = null;
+            }
+            
+            // Check if board is completely full for special message
+            const boardIsFull = isBoardFull();
+            console.log(`Board is full: ${boardIsFull}`);
+            const gameOverTitle = boardIsFull ? 'BOARD FULL!' : 'GAME OVER';
+            const gameOverColor = boardIsFull ? 'text-yellow-500' : 'text-red-500';
+            
+            // Update game over message
+            const gameOverMessage = gameOverEl.querySelector('h2');
+            if (gameOverMessage) {
+                gameOverMessage.textContent = gameOverTitle;
+                gameOverMessage.className = `text-3xl font-bold ${gameOverColor} mb-4`;
+                console.log(`Updated game over message to: ${gameOverTitle}`);
+            }
+            
+            gameOverEl.classList.remove('opacity-0', 'pointer-events-none');
+            console.log('Game over screen should now be visible');
+            
+            // Save score
+            saveScore(score);
+            
+            // Show start screen after delay
+            setTimeout(() => {
+                showStartScreen();
+            }, 3000);
+        }
+        
+        // Save score to high scores
+        function saveScore(score) {
+            const playerName = playerNameInput.value.trim() || 'Pilot';
+            console.log(`Saving score: ${score} for player: ${playerName}`);
+            
+            highScores.push({name: playerName, score: score});
+            highScores.sort((a, b) => b.score - a.score);
+            highScores = highScores.slice(0, 5); // Keep only top 5
+            localStorage.setItem('tetrisHighScores', JSON.stringify(highScores));
+            
+            // Update the start screen scores
+            updateStartScreenScores();
+        }
+        
+        // Load high scores
+        function loadHighScores() {
+            const saved = localStorage.getItem('tetrisHighScores');
+            if (saved) {
+                highScores = JSON.parse(saved);
+            }
+        }
+        
+        // Initialize the game when page loads
+        window.addEventListener('load', () => {
+            init();
+        });
+    </script>
+</body>
+</html>
