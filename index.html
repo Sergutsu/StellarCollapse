@@ -32,69 +32,38 @@
             height: 2px;
             background: white;
             border-radius: 50%;
-            opacity: 0;
-            animation: twinkle 3s infinite ease-in-out;
+            opacity: 0.3;
         }
         
         .star.small {
             width: 1px;
             height: 1px;
-            animation-duration: 4s;
+            opacity: 0.2;
         }
         
         .star.medium {
             width: 2px;
             height: 2px;
-            animation-duration: 3s;
-            box-shadow: 0 0 4px rgba(135, 206, 235, 0.8);
+            opacity: 0.3;
+            box-shadow: 0 0 4px rgba(135, 206, 235, 0.4);
         }
         
         .star.large {
             width: 3px;
             height: 3px;
-            animation-duration: 2s;
-            box-shadow: 0 0 6px rgba(255, 182, 193, 0.9);
+            opacity: 0.4;
+            box-shadow: 0 0 6px rgba(255, 182, 193, 0.5);
         }
         
         .star.nebula {
             width: 4px;
             height: 4px;
-            animation-duration: 5s;
+            opacity: 0.3;
             background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1);
-            box-shadow: 0 0 8px rgba(255, 107, 107, 0.6);
+            box-shadow: 0 0 8px rgba(255, 107, 107, 0.3);
         }
         
-        @keyframes twinkle {
-            0%, 100% { opacity: 0; transform: scale(0.8); }
-            50% { opacity: 1; transform: scale(1.2); }
-        }
-        
-        /* Moving stars */
-        .shooting-star {
-            position: absolute;
-            width: 2px;
-            height: 2px;
-            background: linear-gradient(to right, transparent, #fff, transparent);
-            border-radius: 50%;
-            animation: shoot 8s linear infinite;
-        }
-        
-        @keyframes shoot {
-            0% {
-                transform: translateX(-100px) translateY(0);
-                opacity: 0;
-            }
-            10% {
-                opacity: 1;
-            }
-            90% {
-                opacity: 1;
-            }
-            100% {
-                transform: translateX(100vw) translateY(-200px);
-                opacity: 0;
-            }
-        }
+
         
         .game-grid {
             display: grid;
@@ -138,46 +107,19 @@
                 );
             pointer-events: none;
             border-radius: 6px;
-            animation: gridPulse 4s ease-in-out infinite;
+            opacity: 0.6;
+            z-index: 3;
         }
         
-        .game-grid::after {
-            content: '';
-            position: absolute;
-            top: -2px;
-            left: -2px;
-            right: -2px;
-            bottom: -2px;
-            background: 
-                linear-gradient(45deg, transparent 0%, rgba(0, 212, 255, 0.1) 50%, transparent 100%);
-            border-radius: 10px;
-            animation: hologramSweep 6s linear infinite;
-            pointer-events: none;
-        }
+
         
-        @keyframes gridPulse {
-            0%, 100% { opacity: 0.6; }
-            50% { opacity: 1; }
-        }
-        
-        @keyframes hologramSweep {
-            0% {
-                background: linear-gradient(45deg, transparent 0%, rgba(0, 212, 255, 0.1) 5%, transparent 10%);
-            }
-            50% {
-                background: linear-gradient(45deg, transparent 40%, rgba(0, 212, 255, 0.1) 50%, transparent 60%);
-            }
-            100% {
-                background: linear-gradient(45deg, transparent 90%, rgba(0, 212, 255, 0.1) 95%, transparent 100%);
-            }
-        }
+
         
         .cell {
             background: rgba(0, 212, 255, 0.02);
             border: 1px solid rgba(0, 212, 255, 0.1);
             border-radius: 2px;
             position: relative;
-            transition: all 0.2s ease;
         }
         
         .cell:hover {
@@ -394,7 +336,6 @@
             background: rgba(0, 212, 255, 0.02);
             border: 1px solid rgba(0, 212, 255, 0.08);
             border-radius: 2px;
-            transition: all 0.2s ease;
         }
         
         .screen {
@@ -415,15 +356,7 @@
             transform: translateY(1px);
         }
         
-        .pulse {
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
+
         
         .score-animation {
             animation: scorePulse 0.5s ease;
@@ -483,19 +416,7 @@
             pointer-events: none;
         }
         
-        /* Asteroid surface texture animation */
-        @keyframes asteroidSurface {
-            0%, 100% { 
-                background-position: 0% 0%;
-            }
-            50% { 
-                background-position: 100% 100%;
-            }
-        }
-        
-        .cell.filled {
-            animation: asteroidSurface 8s ease-in-out infinite;
-        }
+
         
         .instructions {
             background: 
@@ -591,7 +512,7 @@
                     </ul>
                 </div>
                 
-                <button id="startBtn" class="btn bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-bold py-3 px-8 rounded-full text-xl pulse shadow-lg shadow-cyan-500/25">
+                <button id="startBtn" class="btn bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-bold py-3 px-8 rounded-full text-xl shadow-lg shadow-cyan-500/25">
                     <i class="fas fa-play mr-2"></i>BEGIN MISSION
                 </button>
             </div>
@@ -794,9 +715,8 @@
         function createStarsBackground() {
             const starsContainer = document.getElementById('starsContainer');
             const numStars = 150;
-            const numShootingStars = 3;
             
-            // Create twinkling stars
+            // Create static stars
             for (let i = 0; i < numStars; i++) {
                 const star = document.createElement('div');
                 star.className = 'star';
@@ -821,22 +741,7 @@
                 star.style.left = Math.random() * 100 + '%';
                 star.style.top = Math.random() * 100 + '%';
                 
-                // Random animation delay
-                star.style.animationDelay = Math.random() * 3 + 's';
-                
                 starsContainer.appendChild(star);
-            }
-            
-            // Create shooting stars
-            for (let i = 0; i < numShootingStars; i++) {
-                const shootingStar = document.createElement('div');
-                shootingStar.className = 'shooting-star';
-                
-                // Random starting position
-                shootingStar.style.top = Math.random() * 50 + '%';
-                shootingStar.style.animationDelay = Math.random() * 8 + 's';
-                
-                starsContainer.appendChild(shootingStar);
             }
         }
         
@@ -958,29 +863,11 @@
                 currentPiece = null;
             }
             
-            // Use "EXIT" message for early termination
-            const gameOverTitle = 'MISSION ABORTED';
-            const gameOverColor = 'text-orange-500';
-            
-            // Update game over message
-            const gameOverMessage = gameOverEl.querySelector('h2');
-            if (gameOverMessage) {
-                gameOverMessage.textContent = gameOverTitle;
-                gameOverMessage.className = `text-3xl font-bold ${gameOverColor} mb-4`;
-                console.log(`Updated game over message to: ${gameOverTitle}`);
-            }
-            
-            // Show game over screen briefly
-            gameOverEl.classList.remove('opacity-0', 'pointer-events-none');
-            console.log('Game over screen should now be visible');
-            
-            // Save score if it qualifies for high scores
+            // Save score if it qualifies for high scores (silent)
             saveScore(score);
             
-            // Show start screen after shorter delay for early exit
-            setTimeout(() => {
-                showStartScreen();
-            }, 2000);
+            // Go directly to start screen without any dialogs
+            showStartScreen();
         }
         
         // Update start screen scoreboard
