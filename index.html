@@ -550,6 +550,123 @@
             border-radius: 2px;
         }
         
+        .preview-small {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            width: 80px;
+            height: 60px;
+            border: 1px solid #00d4ff;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(0, 212, 255, 0.08) 0%, transparent 50%),
+                linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 20, 40, 0.7) 100%);
+            box-shadow: 
+                0 0 10px rgba(0, 212, 255, 0.2),
+                inset 0 0 8px rgba(0, 212, 255, 0.05);
+            border-radius: 4px;
+            position: relative;
+        }
+        
+        .preview-small::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                repeating-linear-gradient(
+                    0deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.02) 1px,
+                    transparent 2px
+                ),
+                repeating-linear-gradient(
+                    90deg,
+                    transparent 0px,
+                    rgba(0, 212, 255, 0.02) 1px,
+                    transparent 2px
+                );
+            pointer-events: none;
+            border-radius: 3px;
+        }
+        
+        .preview-small-cell {
+            background: rgba(0, 212, 255, 0.01);
+            border: 1px solid rgba(0, 212, 255, 0.05);
+            border-radius: 1px;
+            font-size: 8px;
+        }
+        
+        /* Color styles for preview cells */
+        .preview-cell.red, .preview-small-cell.red {
+            background: radial-gradient(circle at 30% 30%, #ff6b4a, #cc2200);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .preview-cell.red::before, .preview-small-cell.red::before {
+            content: '🔥';
+            font-size: 12px;
+        }
+        
+        .preview-small-cell.red::before {
+            font-size: 8px;
+        }
+        
+        .preview-cell.blue, .preview-small-cell.blue {
+            background: radial-gradient(circle at 35% 25%, #4a9eff, #0055cc);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .preview-cell.blue::before, .preview-small-cell.blue::before {
+            content: '💎';
+            font-size: 12px;
+        }
+        
+        .preview-small-cell.blue::before {
+            font-size: 8px;
+        }
+        
+        .preview-cell.green, .preview-small-cell.green {
+            background: radial-gradient(circle at 40% 30%, #4aff6b, #00cc22);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .preview-cell.green::before, .preview-small-cell.green::before {
+            content: '🌟';
+            font-size: 12px;
+        }
+        
+        .preview-small-cell.green::before {
+            font-size: 8px;
+        }
+        
+        .preview-cell.yellow, .preview-small-cell.yellow {
+            background: radial-gradient(circle at 30% 40%, #ffeb4a, #cc9900);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .preview-cell.yellow::before, .preview-small-cell.yellow::before {
+            content: '⚡';
+            font-size: 12px;
+        }
+        
+        .preview-small-cell.yellow::before {
+            font-size: 8px;
+        }
+        
         .screen {
             transition: all 0.5s ease;
         }
@@ -803,6 +920,13 @@
                 <div class="hologram-panel p-4">
                     <h3 class="text-center mb-2 font-bold glow-text text-cyan-300">NEXT</h3>
                     <div class="preview" id="nextPiece"></div>
+                    
+                    <h4 class="text-center mt-4 mb-2 text-sm font-bold text-cyan-400">COMING UP</h4>
+                    <div class="space-y-2">
+                        <div class="preview-small" id="nextPiece2"></div>
+                        <div class="preview-small" id="nextPiece3"></div>
+                        <div class="preview-small" id="nextPiece4"></div>
+                    </div>
                 </div>
                 
                 <div class="relative">
@@ -936,6 +1060,7 @@
         let board = [];
         let currentPiece = null;
         let nextPiece = null;
+        let pieceQueue = []; // Queue for upcoming pieces
         let dropCounter = 0;
         let dropInterval = 1000;
         let lastTime = 0;
@@ -953,6 +1078,9 @@
         // Legacy support
         const gameGrid = document.getElementById('gameGrid') || gameBoard;
         const nextPieceEl = document.getElementById('nextPiece');
+        const nextPieceEl2 = document.getElementById('nextPiece2');
+        const nextPieceEl3 = document.getElementById('nextPiece3');
+        const nextPieceEl4 = document.getElementById('nextPiece4');
         const scoreEl = document.getElementById('score');
         const levelEl = document.getElementById('level');
         const linesEl = document.getElementById('lines');
@@ -1092,6 +1220,7 @@
         
         // Create next piece preview
         function createNextPiecePreview() {
+            // Main preview (4x4)
             nextPieceEl.innerHTML = '';
             for (let y = 0; y < 4; y++) {
                 for (let x = 0; x < 4; x++) {
@@ -1100,6 +1229,69 @@
                     nextPieceEl.appendChild(cell);
                 }
             }
+            
+            // Small previews (4x3 each)
+            [nextPieceEl2, nextPieceEl3, nextPieceEl4].forEach(previewEl => {
+                previewEl.innerHTML = '';
+                for (let y = 0; y < 3; y++) {
+                    for (let x = 0; x < 4; x++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'preview-small-cell';
+                        previewEl.appendChild(cell);
+                    }
+                }
+            });
+        }
+        
+        // Initialize piece queue with upcoming pieces
+        function initializePieceQueue() {
+            pieceQueue = [];
+            // Fill the queue with upcoming pieces
+            for (let i = 0; i < 5; i++) { // 5 pieces: nextPiece + 4 preview pieces
+                pieceQueue.push(createPiece());
+            }
+        }
+        
+        // Get next piece from queue and add new one to end
+        function getNextPieceFromQueue() {
+            const piece = pieceQueue.shift(); // Remove first piece
+            pieceQueue.push(createPiece()); // Add new piece to end to maintain queue size
+            return piece;
+        }
+        
+        // Update all piece previews
+        function updateAllPreviews() {
+            updateNextPiecePreview();
+            updateSmallPreviews();
+        }
+        
+        // Update small previews (2nd, 3rd, 4th pieces)
+        function updateSmallPreviews() {
+            const previewElements = [nextPieceEl2, nextPieceEl3, nextPieceEl4];
+            
+            previewElements.forEach((previewEl, index) => {
+                const cells = previewEl.querySelectorAll('.preview-small-cell');
+                cells.forEach(cell => cell.className = 'preview-small-cell');
+                
+                // pieceQueue[0] is nextPiece, so we want indices 1, 2, 3 for small previews
+                const queueIndex = index + 1;
+                if (pieceQueue[queueIndex]) {
+                    const piece = pieceQueue[queueIndex];
+                    const shape = piece.shape;
+                    const colorMatrix = piece.colorMatrix;
+                    
+                    for (let y = 0; y < Math.min(shape.length, 3); y++) {
+                        for (let x = 0; x < Math.min(shape[y].length, 4); x++) {
+                            if (shape[y][x]) {
+                                const cellIndex = y * 4 + x;
+                                if (cells[cellIndex] && colorMatrix[y][x]) {
+                                    cells[cellIndex].classList.add(colorMatrix[y][x]);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
         
         // Show start screen
@@ -1172,10 +1364,11 @@
             // Clear board
             createBoard();
             
-            // Create first pieces
-            currentPiece = createPiece();
-            nextPiece = createPiece();
-            updateNextPiecePreview();
+            // Initialize piece queue and get first pieces
+            initializePieceQueue();
+            currentPiece = getNextPieceFromQueue();
+            nextPiece = getNextPieceFromQueue();
+            updateAllPreviews();
             
             // Draw initial piece
             drawPiece();
@@ -1593,8 +1786,8 @@
             
             console.log('Creating new piece...');
             currentPiece = nextPiece;
-            nextPiece = createPiece();
-            updateNextPiecePreview();
+            nextPiece = getNextPieceFromQueue();
+            updateAllPreviews();
             
             // Simple check: if new piece immediately collides, game over
             if (currentPiece && isCollision()) {
