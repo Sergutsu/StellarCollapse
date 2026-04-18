@@ -336,11 +336,16 @@ export class GameView {
             this._redrawBoard();
         });
         s.on('match-detected', ({ cells, color }) => {
+            // Auto-match can clear runs of several different colors in one
+            // sweep, in which case the top-level `color` is null and each
+            // cell carries its own color. Fall back to the cell color first,
+            // then the run color. Without this the auto-match explosion
+            // always rendered white.
             for (let i = 0; i < cells.length; i++) {
                 const m = cells[i];
                 const cell = this.boardCells[m.y][m.x];
                 if (cell) cell.classList.add('highlight');
-                this._addExplosionEffect(m.x, m.y, color);
+                this._addExplosionEffect(m.x, m.y, m.color || color);
             }
         });
         s.on('match-cleared', () => {
