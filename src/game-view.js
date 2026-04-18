@@ -10,6 +10,11 @@ export class GameView {
         this.state = state;
         this.el = elements;
 
+        // Active countdown overlays for COLLAPSED bomb/snake cells, keyed
+        // by "x,y". Each entry holds the DOM node, its tick handle, and
+        // the cell's arming metadata so we can rebuild the label on each
+        // frame and tear the overlay down on consume / expire / game-end.
+        this._specialOverlays = new Map();
         // Cached per-cell DOM references. Built once in createBoard().
         this.boardCells = [];
         this.activeCells = [];
@@ -388,6 +393,10 @@ export class GameView {
     _bindState() {
         const s = this.state;
         s.on('game-started', () => {
+            // createBoard() wipes `effects.innerHTML`, so tear the old
+            // overlay bookkeeping down first to avoid dangling timers
+            // pointing at nodes that no longer live in the tree.
+            this._clearAllSpecialOverlays();
             this.createBoard();
             this._updateHUD();
             this._updatePreviews();
@@ -445,6 +454,97 @@ export class GameView {
             this._updateHUD();
         });
         s.on('score-changed', () => this._updateHUD());
+        // COLLAPSED special-cell countdown overlays: arm -> show ring,
+        // cleared/expired -> tear down, moved -> reposition, game-started
+        // -> wipe any stale overlays from a prior run.
+        s.on('special-armed', ({ x, y, type, durationMs }) => {
+            this._addSpecialOverlay(x, y, type, durationMs);
+        });
+        s.on('special-cleared', ({ x, y }) => {
+            this._removeSpecialOverlay(x, y);
+        });
+        s.on('special-expired', ({ x, y }) => {
+            this._removeSpecialOverlay(x, y);
+            // Redraw so the morphed cell picks up its new color class.
+            this._redrawBoard();
+        });
+        s.on('special-moved', ({ fromX, fromY, toX, toY }) => {
+            this._moveSpecialOverlay(fromX, fromY, toX, toY);
+        });
+        s.on('special-cleared-all', () => this._clearAllSpecialOverlays());
+        s.on('game-over', () => this._clearAllSpecialOverlays());
+    }
+
+    // -------------------------------------------------------------------
+    // Special-cell countdown overlays (COLLAPSED hardcore timer).
+    // -------------------------------------------------------------------
+
+    _addSpecialOverlay(x, y, type, durationMs) {
+        this._removeSpecialOverlay(x, y);
+        const node = document.createElement('div');
+        node.className = `special-countdown special-countdown--${type}`;
+        node.style.position = 'absolute';
+        node.style.left = `${(x * 100) / this.state.cols}%`;
+        node.style.top = `${(y * 100) / this.state.rows}%`;
+        node.style.width = `${100 / this.state.cols}%`;
+        node.style.height = `${100 / this.state.rows}%`;
+        node.style.pointerEvents = 'none';
+        node.style.zIndex = '20';
+
+        const label = document.createElement('div');
+        label.className = 'special-countdown__digit';
+        node.appendChild(label);
+        this.el.effects.appendChild(node);
+
+        const entry = {
+            node,
+            label,
+            type,
+            armedAt: Date.now(),
+            durationMs,
+            tick: null,
+        };
+        const renderFrame = () => {
+            const remaining = Math.max(0, entry.durationMs - (Date.now() - entry.armedAt));
+            const pct = Math.min(100, Math.max(0, (remaining / entry.durationMs) * 100));
+            label.textContent = Math.ceil(remaining / 1000).toString();
+            // Conic-gradient ring: full at arm, depletes toward 0.
+            node.style.background = `conic-gradient(rgba(255,255,255,0.85) ${pct}%, rgba(255,255,255,0.05) ${pct}%)`;
+            if (remaining <= 0 && entry.tick !== null) {
+                clearInterval(entry.tick);
+                entry.tick = null;
+            }
+        };
+        renderFrame();
+        entry.tick = setInterval(renderFrame, 100);
+        this._specialOverlays.set(`${x},${y}`, entry);
+    }
+
+    _removeSpecialOverlay(x, y) {
+        const key = `${x},${y}`;
+        const entry = this._specialOverlays.get(key);
+        if (!entry) return;
+        if (entry.tick !== null) clearInterval(entry.tick);
+        if (entry.node.parentNode) entry.node.parentNode.removeChild(entry.node);
+        this._specialOverlays.delete(key);
+    }
+
+    _moveSpecialOverlay(fromX, fromY, toX, toY) {
+        const fromKey = `${fromX},${fromY}`;
+        const entry = this._specialOverlays.get(fromKey);
+        if (!entry) return;
+        this._specialOverlays.delete(fromKey);
+        entry.node.style.left = `${(toX * 100) / this.state.cols}%`;
+        entry.node.style.top = `${(toY * 100) / this.state.rows}%`;
+        this._specialOverlays.set(`${toX},${toY}`, entry);
+    }
+
+    _clearAllSpecialOverlays() {
+        for (const entry of this._specialOverlays.values()) {
+            if (entry.tick !== null) clearInterval(entry.tick);
+            if (entry.node.parentNode) entry.node.parentNode.removeChild(entry.node);
+        }
+        this._specialOverlays.clear();
     }
 }
 

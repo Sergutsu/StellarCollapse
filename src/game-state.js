@@ -28,6 +28,7 @@ import {
     GAME_MODES,
     PIECE_COMPLEXITY,
     COLLAPSED_BOMB_CHANCE,
+    SPECIAL_ARM_MS,
     resolveFieldSize,
     DEFAULT_FIELD_SIZE_ID,
 } from './constants.js';
@@ -60,6 +61,7 @@ export class GameState extends Emitter {
         schedule = immediateSchedule,
         mode = GAME_MODES.STELLAR,
         complexity = PIECE_COMPLEXITY.MUTATED,
+        specialArmMs = SPECIAL_ARM_MS,
     } = {}) {
         super();
         // Explicit cols/rows win (handy for unit tests that exercise
@@ -82,6 +84,7 @@ export class GameState extends Emitter {
         this.schedule = schedule;
         this.mode = mode;
         this.complexity = complexity;
+        this.specialArmMs = specialArmMs;
 
         this.board = this._emptyBoard();
         this.score = 0;
@@ -93,6 +96,14 @@ export class GameState extends Emitter {
         this.currentPiece = null;
         this.nextPiece = null;
         this.pieceQueue = [];
+
+        // COLLAPSED arming clock: each bomb / snake cell placed on the
+        // board gets a timer that fires after `specialArmMs`. Keyed by
+        // "x,y" so lookups on click / gravity / line-clear are O(1).
+        // Each entry: { x, y, type, expired }. `expired` is a guard the
+        // timer callback checks -- if the cell was consumed or removed
+        // before the timer fires, the callback no-ops.
+        this.specialTimers = new Map();
     }
 
     // Let the UI reconfigure mode/complexity/field-size between runs
@@ -108,6 +119,7 @@ export class GameState extends Emitter {
         this.rows = resolved.rows;
         this.fieldSizeId = resolved.id;
         this.board = this._emptyBoard();
+        this._disarmAllSpecialTimers();
     }
 
     _emptyBoard() {
@@ -122,6 +134,7 @@ export class GameState extends Emitter {
     // the initial spawn so the view can draw the first piece.
     start() {
         this.board = this._emptyBoard();
+        this._disarmAllSpecialTimers();
         this.score = 0;
         this.level = 1;
         this.lines = 0;
@@ -341,6 +354,11 @@ export class GameState extends Emitter {
                 const color = colors[y][x];
                 this.board[by][bx] = color;
                 lockedCells.push({ x: bx, y: by, color });
+                // Piece-injected bomb cells (COLLAPSED only) arm the
+                // moment they become part of the board.
+                if (color === 'bomb' || color === 'snake') {
+                    this._armSpecial(bx, by, color);
+                }
             }
         }
         this.emit('piece-locked', { cells: lockedCells });
@@ -429,9 +447,16 @@ export class GameState extends Emitter {
         this.emit('match-detected', { cells: cleared, color: null, special });
         for (let i = 0; i < cleared.length; i++) {
             const c = cleared[i];
+            // Disarm any timer sitting on a cell we're about to null out.
+            // Matches rarely cover specials (the scanner skips bomb/snake
+            // cells), but the defensive disarm keeps the map consistent.
+            this._disarmSpecialAt(c.x, c.y);
             this.board[c.y][c.x] = null;
         }
-        if (special) this.board[special.y][special.x] = special.type;
+        if (special) {
+            this.board[special.y][special.x] = special.type;
+            this._armSpecial(special.x, special.y, special.type);
+        }
         const points = cleared.length * MATCH_POINTS * this.level;
         this.score += points;
         this.emit('match-cleared', { cells: cleared, color: null, special, points });
@@ -454,6 +479,136 @@ export class GameState extends Emitter {
     // repaint the floating overlay. Safe no-op when nothing is floating.
     _emitFloatingChanged() {
         this.emit('floating-changed', {});
+    }
+
+    // -------------------------------------------------------------------
+    // Special-cell arming clock (COLLAPSED hardcore mode).
+    //
+    // When a bomb or snake cell appears on the board (from a match, an
+    // auto-match sweep, or a piece that locks with an injected bomb cell),
+    // we start a countdown. If the player doesn't consume it within
+    // `specialArmMs`, it morphs into a random normal-color cell. The view
+    // subscribes to `special-armed` / `special-expired` / `special-cleared`
+    // to render the countdown overlay and the fade-to-normal transition.
+    //
+    // Storage: `this.specialTimers` is a Map keyed by "x,y" whose values
+    // are `{ x, y, type, armedAt, expired }`. `expired` is flipped by
+    // consumers (click, bomb blast, snake activation, line clear, game
+    // over) so the deferred callback can no-op when it fires late.
+    // -------------------------------------------------------------------
+
+    _specialKey(x, y) {
+        return `${x},${y}`;
+    }
+
+    _armSpecial(x, y, type) {
+        // Disabled in non-COLLAPSED complexity: the mechanic only exists
+        // in the hardest tier, so we never even track timers elsewhere.
+        if (this.complexity !== PIECE_COMPLEXITY.COLLAPSED) return;
+        if (this.specialArmMs <= 0) return;
+        // Defensive: if a timer already lives at (x, y), disarm it first
+        // so we don't leak callbacks.
+        this._disarmSpecialAt(x, y);
+        const entry = {
+            x,
+            y,
+            type,
+            armedAt: Date.now(),
+            durationMs: this.specialArmMs,
+            expired: false,
+        };
+        this.specialTimers.set(this._specialKey(x, y), entry);
+        this.emit('special-armed', {
+            x, y, type,
+            durationMs: this.specialArmMs,
+        });
+        this.schedule(() => {
+            // By the time this callback fires the cell may have been
+            // consumed, cleared by a line, or displaced by gravity to a
+            // different (x, y). Only fire the morph if the entry is still
+            // the live one at its last known position.
+            if (entry.expired) return;
+            if (this.gameOver) return;
+            const current = this.specialTimers.get(this._specialKey(entry.x, entry.y));
+            if (current !== entry) return;
+            if (this.board[entry.y][entry.x] !== entry.type) {
+                // Board moved on without us noticing; just drop the entry.
+                this.specialTimers.delete(this._specialKey(entry.x, entry.y));
+                return;
+            }
+            this._expireSpecial(entry);
+        }, this.specialArmMs);
+    }
+
+    _expireSpecial(entry) {
+        entry.expired = true;
+        const newColor = NORMAL_COLORS[Math.floor(this.rng() * NORMAL_COLORS.length)];
+        this.board[entry.y][entry.x] = newColor;
+        this.specialTimers.delete(this._specialKey(entry.x, entry.y));
+        this.emit('special-expired', {
+            x: entry.x,
+            y: entry.y,
+            type: entry.type,
+            newColor,
+        });
+    }
+
+    // Called when a special is consumed or forcibly cleared (click, bomb
+    // blast, snake activation, line clear). Silences the pending morph
+    // and lets the view clear its overlay.
+    _disarmSpecialAt(x, y) {
+        const key = this._specialKey(x, y);
+        const entry = this.specialTimers.get(key);
+        if (!entry) return;
+        entry.expired = true;
+        this.specialTimers.delete(key);
+        this.emit('special-cleared', { x, y, type: entry.type });
+    }
+
+    _disarmAllSpecialTimers() {
+        if (!this.specialTimers || this.specialTimers.size === 0) return;
+        for (const entry of this.specialTimers.values()) entry.expired = true;
+        this.specialTimers.clear();
+        this.emit('special-cleared-all', {});
+    }
+
+    // Apply the effect of clearing row `clearedY` on the timer map:
+    //  - timers at (_, clearedY) are disarmed (cells destroyed).
+    //  - timers at (_, y') for y' < clearedY move to (_, y'+1).
+    // Done before the board rows shift so lookups still hit the old keys.
+    _shiftSpecialTimersOnLineClear(clearedY) {
+        if (this.specialTimers.size === 0) return;
+        // Disarm everything on the cleared row first. Collect keys to
+        // avoid mutating the map during iteration.
+        const toDisarm = [];
+        const toShift = [];
+        for (const [key, entry] of this.specialTimers) {
+            if (entry.y === clearedY) toDisarm.push(entry);
+            else if (entry.y < clearedY) toShift.push(entry);
+        }
+        for (const e of toDisarm) this._disarmSpecialAt(e.x, e.y);
+        // Shift top-down so we never write into a key that still holds
+        // an unshifted entry.
+        toShift.sort((a, b) => b.y - a.y);
+        for (const e of toShift) this._moveSpecialTimer(e.x, e.y, e.x, e.y + 1);
+    }
+
+    // Move a timer to follow its cell after gravity / line-shift. Same
+    // column in practice (x doesn't change), but the helper takes
+    // independent (fx, fy, tx, ty) to keep the callsites honest.
+    _moveSpecialTimer(fx, fy, tx, ty) {
+        const fromKey = this._specialKey(fx, fy);
+        const entry = this.specialTimers.get(fromKey);
+        if (!entry) return;
+        this.specialTimers.delete(fromKey);
+        entry.x = tx;
+        entry.y = ty;
+        this.specialTimers.set(this._specialKey(tx, ty), entry);
+        this.emit('special-moved', {
+            fromX: fx, fromY: fy,
+            toX: tx, toY: ty,
+            type: entry.type,
+        });
     }
 
     _spawnNextPiece() {
@@ -496,6 +651,10 @@ export class GameState extends Emitter {
             }
             if (!complete) continue;
 
+            // Specials sitting on this complete row are destroyed; their
+            // timers must go too. Specials above shift down by one along
+            // with the cells they belong to, so their timer keys follow.
+            this._shiftSpecialTimersOnLineClear(y);
             // Shift everything above `y` down by one row.
             for (let yy = y; yy > 0; yy--) {
                 for (let x = 0; x < this.cols; x++) {
@@ -531,6 +690,11 @@ export class GameState extends Emitter {
     // re-check for newly completed lines after the collapse.
     _applyGravity() {
         let movedAny = false;
+        // Gravity can shift a timer's cell downward; collect (from, to)
+        // pairs so the timer map follows the cell, then commit them after
+        // the column pass (committing mid-loop would race with our own
+        // readY/writeY bookkeeping).
+        const timerMoves = [];
         for (let x = 0; x < this.cols; x++) {
             let writeY = this.rows - 1;
             for (let readY = this.rows - 1; readY >= 0; readY--) {
@@ -540,6 +704,9 @@ export class GameState extends Emitter {
                         this.board[writeY][x] = v;
                         this.board[readY][x] = null;
                         movedAny = true;
+                        if (v === 'bomb' || v === 'snake') {
+                            timerMoves.push({ fx: x, fy: readY, tx: x, ty: writeY });
+                        }
                     }
                     writeY--;
                 }
@@ -550,6 +717,10 @@ export class GameState extends Emitter {
                     movedAny = true;
                 }
             }
+        }
+        for (let i = 0; i < timerMoves.length; i++) {
+            const m = timerMoves[i];
+            this._moveSpecialTimer(m.fx, m.fy, m.tx, m.ty);
         }
         this.emit('gravity-applied', { moved: movedAny });
         this.schedule(() => {
@@ -611,10 +782,12 @@ export class GameState extends Emitter {
             if (this.gameOver) return;
             for (let i = 0; i < matches.length; i++) {
                 const m = matches[i];
+                this._disarmSpecialAt(m.x, m.y);
                 this.board[m.y][m.x] = null;
             }
             if (special) {
                 this.board[special.y][special.x] = special.type;
+                this._armSpecial(special.x, special.y, special.type);
             }
             const points = matches.length * MATCH_POINTS * this.level;
             this.score += points;
@@ -653,6 +826,9 @@ export class GameState extends Emitter {
     }
 
     _explodeBomb(centerX, centerY) {
+        // The bomb itself is about to detonate -- disarm its timer so the
+        // morph-to-normal callback can't fire mid-blast.
+        this._disarmSpecialAt(centerX, centerY);
         const affected = [];
         for (let dy = -BOMB_RADIUS; dy <= BOMB_RADIUS; dy++) {
             for (let dx = -BOMB_RADIUS; dx <= BOMB_RADIUS; dx++) {
@@ -670,6 +846,9 @@ export class GameState extends Emitter {
             if (this.gameOver) return;
             for (let i = 0; i < affected.length; i++) {
                 const c = affected[i];
+                // A chain-bomb blast can catch other armed specials in
+                // its radius -- disarm them before the cells go null.
+                this._disarmSpecialAt(c.x, c.y);
                 this.board[c.y][c.x] = null;
             }
             const points = affected.length * BOMB_POINTS * this.level;
@@ -692,7 +871,8 @@ export class GameState extends Emitter {
     }
 
     _activateSnake(startX, startY) {
-        // Clear the snake piece immediately so it doesn't get recolored.
+        // Consume the snake cell: disarm its timer and null the board.
+        this._disarmSpecialAt(startX, startY);
         this.board[startY][startX] = null;
 
         const allBlocks = [];
@@ -775,6 +955,7 @@ export class GameState extends Emitter {
         if (this.gameOver) return;
         this.gameOver = true;
         this.currentPiece = null;
+        this._disarmAllSpecialTimers();
         this.emit('game-over', { reason, score: this.score, level: this.level, lines: this.lines });
     }
 }

@@ -84,6 +84,14 @@ export const PIECE_COMPLEXITY = Object.freeze({
 // pieces, not explosive clouds.
 export const COLLAPSED_BOMB_CHANCE = 0.04;
 
+// COLLAPSED only: newly-placed bomb / snake cells arm a countdown. If the
+// player doesn't consume the special within this window it morphs into a
+// random normal-color cell -- use-it-or-lose-it pressure that turns the
+// hardest complexity into a clock. Tests can pass `specialArmMs: 0` to
+// the GameState constructor to disable arming (avoids stale expirations
+// under a synchronous scheduler).
+export const SPECIAL_ARM_MS = 5000;
+
 // Six curated difficulty tiers for the high-score board. Each tier is a
 // unique (mode, complexity) combination. Ordered easy -> hard so the UI
 // can render a green -> red gradient straight off the array index.
