@@ -376,6 +376,71 @@ test('auto-match mode auto-clears a 4+ run created by a locking piece', () => {
     assert.ok(state.score - baseline >= 40, `score should grow by >=40 (got ${state.score - baseline})`);
 });
 
+test('auto-match dedupes overlapping runs (cross pattern scores unique cells once)', () => {
+    const state = makeState(41, {
+        mode: GAME_MODES.AUTO_MATCH,
+        complexity: PIECE_COMPLEXITY.CLASSIC,
+    });
+    state.start();
+    // Cross of red: horizontal 4-run on row 18 cols 0..3; vertical 4-run
+    // on col 2 rows 16..19. Share cell (2, 18). 7 unique cells total.
+    state.board[18][0] = 'red';
+    state.board[18][1] = 'red';
+    state.board[18][2] = 'red';
+    state.board[18][3] = 'red';
+    state.board[16][2] = 'red';
+    state.board[17][2] = 'red';
+    state.board[19][2] = 'red';
+    const baseline = state.score;
+    let matchEvent = null;
+    state.on('match-cleared', (e) => { matchEvent = e; });
+    // Lock an empty no-op piece to trigger the sweep.
+    state.currentPiece = {
+        x: 9, y: 0,
+        shape: [[1]],
+        colorMatrix: [['blue']],
+        type: 0,
+    };
+    state._lockPiece();
+    assert.ok(matchEvent, 'auto-match should emit match-cleared');
+    assert.equal(matchEvent.cells.length, 7, 'cross has 7 unique cells');
+    // 7 cells * 10 pts * level 1 = 70.
+    assert.equal(state.score - baseline, 70);
+});
+
+test('auto-match does NOT game-over when match is in the spawn zone', () => {
+    // Regression: the earlier implementation scheduled clears via setTimeout
+    // and spawned the next piece synchronously, so a 4-run near the top
+    // would still be on the board during the spawn-collision check.
+    const realTimeoutState = new GameState({
+        rng: mulberry32(51),
+        // Production-style scheduler: defers via setTimeout. If the sweep
+        // still deferred anything, the spawn check would see the match-cells.
+        schedule: (fn, ms) => setTimeout(fn, ms),
+        mode: GAME_MODES.AUTO_MATCH,
+        complexity: PIECE_COMPLEXITY.CLASSIC,
+    });
+    realTimeoutState.start();
+    // Fill the spawn zone (rows 0-1) with a 4-run that auto-match will clear.
+    realTimeoutState.board[0][3] = 'red';
+    realTimeoutState.board[0][4] = 'red';
+    realTimeoutState.board[0][5] = 'red';
+    realTimeoutState.board[0][6] = 'red';
+    realTimeoutState.currentPiece = {
+        x: 0, y: ROWS - 1,
+        shape: [[1]],
+        colorMatrix: [['blue']],
+        type: 0,
+    };
+    let gameOverReason = null;
+    realTimeoutState.on('game-over', (e) => { gameOverReason = e; });
+    realTimeoutState._lockPiece();
+    assert.equal(gameOverReason, null, 'auto-match should clear before spawn');
+    for (let x = 3; x <= 6; x++) {
+        assert.equal(realTimeoutState.board[0][x], null, 'spawn zone cleared');
+    }
+});
+
 test('classic mode does NOT auto-match on lock (manual click still required)', () => {
     const state = makeState(31, {
         mode: GAME_MODES.CLASSIC,

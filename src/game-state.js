@@ -342,31 +342,81 @@ export class GameState extends Emitter {
     }
 
     // Auto-Match mode: after a piece locks, find every 4+ run of same-color
-    // cells and trigger the same clear path a manual click would. Each run
-    // schedules its own animation/gravity via `schedule`, so chains play
-    // out visually similarly to rapid manual matching.
+    // cells and clear them all in one synchronous pass. Clearing has to be
+    // synchronous (rather than going through `clickCell`'s scheduled path)
+    // because `_lockPiece` immediately spawns the next piece afterwards --
+    // if the matched cells still linger, the spawn-collision check can
+    // falsely trigger game-over on cells that should have been cleared.
+    //
+    // Doing it in one pass also sidesteps overlap bugs: a horizontal 4-run
+    // and a vertical 4-run sharing a center cell get deduped into a single
+    // set of unique cells, scored once, cleared once.
     _autoMatchSweep() {
-        const visited = new Set();
+        // 1. Collect every 4+ run on the board. Each run is independent at
+        //    detection time -- cells are allowed to appear in multiple runs
+        //    (e.g. the center of a cross) but we dedupe before clearing.
+        const runs = [];
         for (let y = 0; y < this.rows; y++) {
             for (let x = 0; x < this.cols; x++) {
-                const key = y * this.cols + x;
-                if (visited.has(key)) continue;
                 const color = this.board[y][x];
                 if (!color || color === 'bomb' || color === 'snake') continue;
-                const horizontal = this._findMatches(x, y, color, 1, 0);
-                const vertical = this._findMatches(x, y, color, 0, 1);
-                let run = null;
-                if (horizontal.length >= 4) run = horizontal;
-                else if (vertical.length >= 4) run = vertical;
-                if (!run) continue;
-                for (let i = 0; i < run.length; i++) {
-                    visited.add(run[i].y * this.cols + run[i].x);
+                // Only start a horizontal run from its leftmost cell, and a
+                // vertical run from its topmost cell, so each run is
+                // enumerated exactly once.
+                if (x === 0 || this.board[y][x - 1] !== color) {
+                    const horizontal = this._findMatches(x, y, color, 1, 0);
+                    if (horizontal.length >= 4) runs.push({ cells: horizontal, color });
                 }
-                // Trigger through the normal click path so all side effects
-                // (scoring, special-block spawn, events, gravity) match.
-                this.clickCell(run[0].x, run[0].y);
+                if (y === 0 || this.board[y - 1][x] !== color) {
+                    const vertical = this._findMatches(x, y, color, 0, 1);
+                    if (vertical.length >= 4) runs.push({ cells: vertical, color });
+                }
             }
         }
+        if (runs.length === 0) return;
+
+        // 2. Union unique cells across all runs. Score is based on unique
+        //    cells so a cross-pattern with 7 cells scores 7*MATCH_POINTS,
+        //    not 4+4 = 8.
+        const unique = new Map(); // key -> { x, y, color }
+        for (let i = 0; i < runs.length; i++) {
+            const run = runs[i];
+            for (let j = 0; j < run.cells.length; j++) {
+                const c = run.cells[j];
+                unique.set(c.y * this.cols + c.x, { x: c.x, y: c.y, color: run.color });
+            }
+        }
+        const cleared = Array.from(unique.values());
+
+        // 3. In COLLAPSED complexity, the longest single run still seeds a
+        //    snake (4-run) or bomb (5+ run) -- matches manual click behavior.
+        let special = null;
+        if (this.complexity === PIECE_COMPLEXITY.COLLAPSED) {
+            let longest = runs[0];
+            for (let i = 1; i < runs.length; i++) {
+                if (runs[i].cells.length > longest.cells.length) longest = runs[i];
+            }
+            if (longest.cells.length >= 5) {
+                const pos = longest.cells[Math.floor(longest.cells.length / 2)];
+                special = { x: pos.x, y: pos.y, type: 'bomb' };
+            } else if (longest.cells.length === 4) {
+                const pos = longest.cells[Math.floor(this.rng() * longest.cells.length)];
+                special = { x: pos.x, y: pos.y, type: 'snake' };
+            }
+        }
+
+        // 4. Announce, clear synchronously, score once, then gravity.
+        this.emit('match-detected', { cells: cleared, color: null, special });
+        for (let i = 0; i < cleared.length; i++) {
+            const c = cleared[i];
+            this.board[c.y][c.x] = null;
+        }
+        if (special) this.board[special.y][special.x] = special.type;
+        const points = cleared.length * MATCH_POINTS * this.level;
+        this.score += points;
+        this.emit('match-cleared', { cells: cleared, color: null, special, points });
+        this.emit('score-changed', { score: this.score, level: this.level, lines: this.lines });
+        this._applyGravity();
     }
 
     _spawnNextPiece() {
