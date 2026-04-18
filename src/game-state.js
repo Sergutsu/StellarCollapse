@@ -745,10 +745,22 @@ export class GameState extends Emitter {
             this.board[r.y][r.x] = r.color;
         }
 
+        // Gravity must wait for the view's snake walk to finish. The walk
+        // paints one board cell per step, and if gravity runs mid-walk it
+        // shifts those cells underneath the animation -- the view then
+        // keeps writing colors to pre-gravity (x, y) positions, leaving
+        // stale board cells that don't match state. The symptom is a
+        // next-piece visibly dropping through cells that look filled
+        // (but aren't) and snapping to a corrected board only on lock.
+        //
+        // Total walk = stepInterval * (recolors + trail segments). Add a
+        // small buffer so the final segments finish rendering before the
+        // board rearranges.
+        const walkMs = stepInterval * (recolors.length + SNAKE_LENGTH);
         this.schedule(() => {
             if (this.gameOver) return;
             this._applyGravity();
-        }, POST_SNAKE_GRAVITY_MS);
+        }, walkMs + POST_SNAKE_GRAVITY_MS);
     }
 
     // -------------------------------------------------------------------
