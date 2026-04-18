@@ -3,7 +3,13 @@
 // animations. It does not read game rules; anything it needs to know it
 // learns from event payloads.
 
-import { SNAKE_LENGTH, PIECE_COMPLEXITY, BLOCK_SIZE_FOR, LINES_PER_LEVEL } from './constants.js';
+import {
+    SNAKE_LENGTH,
+    PIECE_COMPLEXITY,
+    BLOCK_SIZE_FOR,
+    LINES_PER_LEVEL,
+    LOW_FX_CELL_THRESHOLD,
+} from './constants.js';
 
 export class GameView {
     constructor({ state, elements }) {
@@ -60,6 +66,17 @@ export class GameView {
         if (this.el.container) {
             this.el.container.style.width = `${cols * blockPx}px`;
             this.el.container.style.height = `${rows * blockPx}px`;
+        }
+
+        // Big boards with many filled cells tank framerate under the
+        // per-cell pulse / glow animations. Tag the board + active layers
+        // with .low-fx past a cell count threshold; CSS drops the animated
+        // filters and box-shadow keyframes under that class. Colors and
+        // piece rendering are unchanged, only the expensive effects go.
+        const lowFx = cols * rows >= LOW_FX_CELL_THRESHOLD;
+        for (const layer of [board, active, this.el.container]) {
+            if (!layer) continue;
+            layer.classList.toggle('low-fx', lowFx);
         }
 
         const boardFrag = document.createDocumentFragment();
@@ -232,7 +249,11 @@ export class GameView {
         // Optional HUD elements -- not every host page wires them up (the
         // unit tests don't), so guard every access.
         if (this.el.multiplier) {
-            this.el.multiplier.textContent = `x${this.state.level}.0`;
+            // HUD multiplier = level * size multiplier. Keep to one
+            // decimal so e.g. (level 3, small=1.5) reads as "x4.5" and
+            // (level 3, large=0.75) as "x2.3".
+            const total = this.state.level * (this.state.sizeMultiplier || 1);
+            this.el.multiplier.textContent = `x${total.toFixed(1)}`;
         }
         if (this.el.levelProgress) {
             // Pull the cadence from constants.js so this stays in lockstep

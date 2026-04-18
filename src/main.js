@@ -14,6 +14,7 @@ import {
     HIGHSCORE_TIERS,
     FIELD_SIZES,
     DEFAULT_FIELD_SIZE_ID,
+    getSizeMultiplier,
     findTier,
 } from './constants.js';
 
@@ -249,10 +250,20 @@ function boot() {
         sizes.forEach((size) => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'toggle-btn';
+            btn.className = 'toggle-btn field-size-btn';
             btn.dataset.sizeId = size.id;
-            btn.title = `${size.cols} columns x ${size.rows} rows`;
-            btn.textContent = size.label;
+            const mult = getSizeMultiplier(size.id);
+            // Render e.g. "x1.5" without trailing zeros: 1.5 -> "x1.5",
+            // 1.0 -> "x1", 0.75 -> "x0.75". `toString` on a Number drops
+            // trailing zeros automatically.
+            const multStr = `x${Number(mult).toString()}`;
+            btn.title = `${size.cols} columns x ${size.rows} rows -- score multiplier ${multStr}`;
+            btn.innerHTML = `
+                <span class="field-size-label"></span>
+                <span class="field-size-mult"></span>
+            `;
+            btn.querySelector('.field-size-label').textContent = size.label;
+            btn.querySelector('.field-size-mult').textContent = multStr;
             if (size.id === uiState.fieldSizeId) btn.classList.add('active');
             btn.addEventListener('click', () => {
                 uiState.fieldSizeId = size.id;

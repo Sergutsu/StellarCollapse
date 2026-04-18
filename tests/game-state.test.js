@@ -29,6 +29,9 @@ import {
     DROP_INTERVAL_START_MS,
     DROP_INTERVAL_MIN_MS,
     DROP_INTERVAL_STEP_MS,
+    FIELD_SIZE_MULTIPLIERS,
+    getSizeMultiplier,
+    LOW_FX_CELL_THRESHOLD,
 } from '../src/constants.js';
 import { CLASSIC_SHAPES, MUTATED_SHAPES } from '../src/shapes.js';
 
@@ -921,6 +924,108 @@ test('COLLAPSED: clearing a full line destroys any timer on that row', () => {
     for (let x = 0; x < COLS; x++) {
         assert.equal(state.board[ROWS - 1][x], null);
     }
+});
+
+test('size multiplier exposes expected values for small/medium/large', () => {
+    // Pin the multipliers so future tuning is an intentional edit. The
+    // start menu surfaces these numbers to the player, so a silent
+    // change here would be a UX regression.
+    assert.equal(FIELD_SIZE_MULTIPLIERS.small, 1.5);
+    assert.equal(FIELD_SIZE_MULTIPLIERS.medium, 1);
+    assert.equal(FIELD_SIZE_MULTIPLIERS.large, 0.75);
+    assert.equal(getSizeMultiplier('small'), 1.5);
+    assert.equal(getSizeMultiplier('medium'), 1);
+    assert.equal(getSizeMultiplier('large'), 0.75);
+    // Unknown ids fall back to medium -- never zero out a run.
+    assert.equal(getSizeMultiplier('unknown'), 1);
+    assert.equal(getSizeMultiplier(undefined), 1);
+});
+
+test('GameState.sizeMultiplier tracks configured field size', () => {
+    // We need the lookup path (no explicit cols/rows) so sizeMultiplier
+    // gets resolved from the size id. makeState passes cols/rows and
+    // bypasses that, so build the state directly here.
+    const s = new GameState({
+        rng: mulberry32(1),
+        schedule: (fn) => fn(),
+        complexity: PIECE_COMPLEXITY.CLASSIC,
+        fieldSizeId: 'small',
+        specialArmMs: 0,
+    });
+    assert.equal(s.sizeMultiplier, 1.5);
+    s.configure({ fieldSizeId: 'large' });
+    assert.equal(s.sizeMultiplier, 0.75);
+    s.configure({ fieldSizeId: 'medium' });
+    assert.equal(s.sizeMultiplier, 1);
+});
+
+test('line clear score is scaled by size multiplier', () => {
+    // Same run on each size: clear one full line at level 1. Expected
+    // score = LINE_POINTS[1] * 1 * sizeMultiplier, rounded.
+    const runOne = (fieldSizeId) => {
+        const s = new GameState({
+            rng: mulberry32(1),
+            schedule: (fn) => fn(),
+            complexity: PIECE_COMPLEXITY.CLASSIC,
+            fieldSizeId,
+            specialArmMs: 0,
+        });
+        s.start();
+        for (let x = 0; x < s.cols; x++) s.board[s.rows - 1][x] = 'red';
+        s._checkLines();
+        return s.score;
+    };
+    const small = runOne('small');
+    const medium = runOne('medium');
+    const large = runOne('large');
+    // Round because scoring rounds (e.g. 40 * 0.75 = 30 exactly, no
+    // rounding artifacts -- but guard anyway).
+    assert.equal(small, Math.round(medium * 1.5));
+    assert.equal(large, Math.round(medium * 0.75));
+    assert.ok(small > medium && medium > large, `small=${small} medium=${medium} large=${large}`);
+});
+
+test('click-match score is scaled by size multiplier (stellar mode)', () => {
+    // Seed a row of 4 red cells and click-match it on small vs large.
+    // Score = 4 * MATCH_POINTS * level * sizeMultiplier.
+    const runOne = (fieldSizeId) => {
+        const s = new GameState({
+            rng: mulberry32(2),
+            schedule: (fn) => fn(),
+            mode: GAME_MODES.STELLAR,
+            complexity: PIECE_COMPLEXITY.CLASSIC,
+            fieldSizeId,
+            specialArmMs: 0,
+        });
+        s.start();
+        for (let x = 0; x < 4; x++) s.board[s.rows - 1][x] = 'red';
+        s.clickCell(0, s.rows - 1);
+        return s.score;
+    };
+    const small = runOne('small');
+    const medium = runOne('medium');
+    const large = runOne('large');
+    assert.equal(small, Math.round(medium * 1.5));
+    assert.equal(large, Math.round(medium * 0.75));
+});
+
+test('LOW_FX_CELL_THRESHOLD correctly classifies every field size', () => {
+    // Pin the boards we expect to trigger low-fx so the CSS switch
+    // stays aligned with the threshold constant. The comment block in
+    // constants.js spells out the reasoning; this test enforces it.
+    const classify = (cols, rows) => cols * rows >= LOW_FX_CELL_THRESHOLD;
+    // Classic
+    assert.equal(classify(7, 14), false);    // 98
+    assert.equal(classify(9, 18), false);    // 162
+    assert.equal(classify(12, 22), true);    // 264
+    // Mutated
+    assert.equal(classify(8, 16), false);    // 128
+    assert.equal(classify(11, 22), true);    // 242
+    assert.equal(classify(13, 26), true);    // 338
+    // Collapsed
+    assert.equal(classify(9, 18), false);    // 162
+    assert.equal(classify(12, 24), true);    // 288
+    assert.equal(classify(15, 28), true);    // 420
 });
 
 function sameMatrix(a, b) {

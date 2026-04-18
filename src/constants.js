@@ -191,6 +191,18 @@ export const HIGHSCORE_TIERS = Object.freeze([
     },
 ]);
 
+// Per-size score multiplier. Smaller boards are tighter (less horizontal
+// room, faster top-out) so they pay more per cleared cell; larger boards
+// have more lateral room to plan clears so they pay less. Applied on top
+// of `level` in every scoring path (line clears, click-matches, bombs,
+// auto-match) so picking Small is a risk/reward trade-off instead of
+// purely easier or purely harder.
+export const FIELD_SIZE_MULTIPLIERS = Object.freeze({
+    small: 1.5,
+    medium: 1.0,
+    large: 0.75,
+});
+
 // Three field sizes per piece complexity. None use the 10x20 grid.
 // Sizes were picked so pieces spawn centered, the widest shape in the pool
 // fits comfortably, and the board stays tall enough for meaningful stacking.
@@ -213,9 +225,28 @@ export const FIELD_SIZES = Object.freeze({
     ]),
 });
 
+// Cell-count threshold at which the per-cell glow / pulse animations
+// tank framerate. Above this, the grid gets a `.low-fx` class and the
+// CSS drops the animated filters and box-shadows -- piece rendering and
+// colors stay intact, only the expensive animated FX are disabled.
+//
+// Boards that cross this threshold today:
+//   Classic  / Large      12x22 = 264
+//   Mutated  / Large      13x26 = 338
+//   Collapsed / Medium    12x24 = 288
+//   Collapsed / Large     15x28 = 420
+export const LOW_FX_CELL_THRESHOLD = 240;
+
 // Default field size id (applied per complexity). Medium is the balanced
 // starting point.
 export const DEFAULT_FIELD_SIZE_ID = 'medium';
+
+// Score multiplier for a given field-size id. Unknown ids fall back to
+// the medium multiplier so a bad id never zeros out a run.
+export function getSizeMultiplier(sizeId) {
+    const m = FIELD_SIZE_MULTIPLIERS[sizeId];
+    return typeof m === 'number' ? m : FIELD_SIZE_MULTIPLIERS[DEFAULT_FIELD_SIZE_ID];
+}
 
 // Resolve a { cols, rows } for a complexity + size-id pair. Falls back to
 // the medium entry if anything is out of range.
