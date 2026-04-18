@@ -52,8 +52,27 @@ function makeState(seed = 1, opts = {}) {
         rows: ROWS,
         rng: mulberry32(seed),
         schedule: (fn) => fn(),
+        // Disable the COLLAPSED special-arming clock by default. Under the
+        // synchronous scheduler the arm callback would fire the moment a
+        // bomb/snake spawns and morph it back to a random color, which is
+        // not what the legacy assertions expect. Tests that exercise the
+        // clock opt in by passing a positive `specialArmMs` along with a
+        // deferred scheduler.
+        specialArmMs: 0,
         ...opts,
     });
+}
+
+// Scheduler that queues callbacks instead of firing them inline, so a
+// test can assert intermediate state and then drain expiries on demand.
+function makeQueuedScheduler() {
+    const queue = [];
+    const scheduler = (fn, _ms) => { queue.push(fn); };
+    scheduler.size = () => queue.length;
+    scheduler.flushAll = () => {
+        while (queue.length) queue.shift()();
+    };
+    return scheduler;
 }
 
 function fillBoard(state, layout) {
@@ -705,6 +724,147 @@ test('BLOCK_SIZE_FOR keeps the board within MAX_BOARD_HEIGHT and clamps to MIN_B
     assert.ok(28 * tall <= MAX_BOARD_HEIGHT, `${28 * tall} should fit under ${MAX_BOARD_HEIGHT}`);
     // Absurdly tall grid bottoms out at the floor, not below.
     assert.equal(BLOCK_SIZE_FOR(1000), MIN_BLOCK_SIZE);
+});
+
+// -----------------------------------------------------------------------
+// COLLAPSED special-cell arming clock (hardcore timer).
+// Newly-spawned bomb / snake cells get a `specialArmMs` countdown; if the
+// player doesn't consume them in time they morph into a random normal-
+// color cell. Tests exercise the full lifecycle under a deferred scheduler.
+// -----------------------------------------------------------------------
+
+test('COLLAPSED: bomb timer expires -> converts to a random normal color', () => {
+    const scheduler = makeQueuedScheduler();
+    const state = makeState(5, {
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+        specialArmMs: 5000,
+        schedule: scheduler,
+    });
+    state.start();
+    state.board[10][5] = 'bomb';
+    state._armSpecial(5, 10, 'bomb');
+
+    assert.ok(state.specialTimers.has('5,10'));
+    assert.equal(state.specialTimers.get('5,10').type, 'bomb');
+
+    scheduler.flushAll();
+
+    assert.equal(state.board[10][5] === 'bomb', false);
+    assert.ok(['red', 'blue', 'green', 'yellow'].includes(state.board[10][5]));
+    assert.equal(state.specialTimers.size, 0);
+});
+
+test('COLLAPSED: snake timer expires -> converts to a random normal color', () => {
+    const scheduler = makeQueuedScheduler();
+    const state = makeState(11, {
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+        specialArmMs: 5000,
+        schedule: scheduler,
+    });
+    state.start();
+    state.board[8][3] = 'snake';
+    state._armSpecial(3, 8, 'snake');
+
+    assert.ok(state.specialTimers.has('3,8'));
+
+    scheduler.flushAll();
+
+    assert.equal(state.board[8][3] === 'snake', false);
+    assert.ok(['red', 'blue', 'green', 'yellow'].includes(state.board[8][3]));
+    assert.equal(state.specialTimers.size, 0);
+});
+
+test('COLLAPSED: consuming a bomb before its timer expires cancels the morph', () => {
+    const scheduler = makeQueuedScheduler();
+    const state = makeState(7, {
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+        specialArmMs: 5000,
+        schedule: scheduler,
+    });
+    state.start();
+    // Isolated bomb at (5, 10) with nothing around it.
+    state.board[10][5] = 'bomb';
+    state._armSpecial(5, 10, 'bomb');
+    assert.equal(state.specialTimers.size, 1);
+
+    // Player clicks the bomb -> blast is scheduled via the same queued
+    // scheduler, so we need to drain the queue to let it run AND let the
+    // arm callback fire. The arm callback should no-op (entry.expired).
+    state.clickCell(5, 10);
+    scheduler.flushAll();
+
+    // Bomb is gone (blast cleared the cell) and it did NOT morph to a
+    // normal color -- the morph was cancelled by consumption.
+    assert.equal(state.board[10][5], null);
+    assert.equal(state.specialTimers.size, 0);
+});
+
+test('COLLAPSED: gravity follows the timer to the cell\'s new row', () => {
+    const scheduler = makeQueuedScheduler();
+    const state = makeState(13, {
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+        specialArmMs: 5000,
+        schedule: scheduler,
+    });
+    state.start();
+    state.gameOver = false;
+    // Plant a bomb mid-column with nothing underneath.
+    state.board[5][4] = 'bomb';
+    state._armSpecial(4, 5, 'bomb');
+    assert.ok(state.specialTimers.has('4,5'));
+
+    state._applyGravity();
+
+    // Bomb should have fallen to the bottom row.
+    assert.equal(state.board[5][4], null);
+    assert.equal(state.board[ROWS - 1][4], 'bomb');
+    // Timer key must follow the cell; old key gone, new key present.
+    assert.equal(state.specialTimers.has('4,5'), false);
+    assert.ok(state.specialTimers.has(`4,${ROWS - 1}`));
+    assert.equal(state.specialTimers.get(`4,${ROWS - 1}`).y, ROWS - 1);
+});
+
+test('non-COLLAPSED complexity does not arm the special timer', () => {
+    const scheduler = makeQueuedScheduler();
+    const state = makeState(9, {
+        complexity: PIECE_COMPLEXITY.MUTATED,
+        specialArmMs: 5000,
+        schedule: scheduler,
+    });
+    state.start();
+    state.board[10][5] = 'bomb';
+    state._armSpecial(5, 10, 'bomb');
+
+    assert.equal(state.specialTimers.size, 0);
+    assert.equal(scheduler.size(), 0);
+});
+
+test('COLLAPSED: clearing a full line destroys any timer on that row', () => {
+    const scheduler = makeQueuedScheduler();
+    const state = makeState(17, {
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+        specialArmMs: 5000,
+        schedule: scheduler,
+    });
+    state.start();
+    state.gameOver = false;
+    // Put a bomb in cell (3, ROWS-1), arm it, then fill the rest of the
+    // bottom row to trigger a line clear.
+    for (let x = 0; x < COLS; x++) state.board[ROWS - 1][x] = 'red';
+    state.board[ROWS - 1][3] = 'bomb';
+    state._armSpecial(3, ROWS - 1, 'bomb');
+    assert.ok(state.specialTimers.has(`3,${ROWS - 1}`));
+
+    state._checkLines();
+    // Row cleared: timer on that row must be disarmed.
+    assert.equal(state.specialTimers.size, 0);
+
+    // Any pending arm callback that was queued earlier must no-op now.
+    scheduler.flushAll();
+    // No new morph could have happened because the board row is empty.
+    for (let x = 0; x < COLS; x++) {
+        assert.equal(state.board[ROWS - 1][x], null);
+    }
 });
 
 function sameMatrix(a, b) {

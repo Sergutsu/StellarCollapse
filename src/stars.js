@@ -47,6 +47,34 @@ export function injectEffectKeyframes() {
             50% { transform: rotate(45deg) scale(1.1); opacity: 1; box-shadow: 0 0 25px rgba(0, 255, 136, 1); }
             100% { transform: rotate(45deg) scale(1); opacity: 0.9; box-shadow: 0 0 20px rgba(0, 255, 136, 0.9); }
         }
+        /* COLLAPSED countdown ring on bomb/snake cells. The conic-gradient
+           background is set inline each tick; these rules just handle the
+           mask, color theming, and the urgent-state pulse. */
+        .special-countdown {
+            border-radius: 50%;
+            -webkit-mask: radial-gradient(circle, transparent 38%, #000 42%, #000 58%, transparent 62%);
+                    mask: radial-gradient(circle, transparent 38%, #000 42%, #000 58%, transparent 62%);
+            filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.6));
+        }
+        .special-countdown--bomb {
+            color: #ffb347;
+        }
+        .special-countdown--snake {
+            color: #5fffc7;
+        }
+        .special-countdown__digit {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Orbitron', 'Courier New', monospace;
+            font-weight: 700;
+            font-size: 0.9em;
+            color: inherit;
+            text-shadow: 0 0 4px currentColor, 0 0 8px rgba(0, 0, 0, 0.9);
+            pointer-events: none;
+        }
     `;
     document.head.appendChild(style);
 }
