@@ -1,0 +1,11 @@
+{
+  "name": "stellar-collapse",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Cosmic block puzzle with chain reactions.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "serve": "python3 -m http.server 8000"
+  }
+}
