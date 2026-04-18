@@ -947,15 +947,16 @@ export class PixiView {
         const t = this.hud?.scoreValue;
         if (!t) return;
         // Brief scale pop. Reuses the tween system so no timers leak.
-        const duration = 260;
+        // _tickTweens expects {elapsed, duration, update(p), done()} --
+        // same shape as every other tween in this file.
         this._addTween({
-            duration,
-            onTick: (elapsed) => {
-                const p = Math.min(1, elapsed / duration);
+            elapsed: 0,
+            duration: 260,
+            update: (p) => {
                 const s = 1 + 0.2 * Math.sin(p * Math.PI);
                 t.scale.set(s);
             },
-            onDone: () => t.scale.set(1),
+            done: () => t.scale.set(1),
         });
     }
 
@@ -1393,7 +1394,9 @@ export class PixiView {
         g.roundRect(pad, pad, w, w, 3).fill({ color: bodyGrad });
         // Highlight spot + border.
         g.circle(pad + w * 0.3, pad + w * 0.3, w * 0.25).fill({ color: pal.highlight, alpha: 0.55 });
-        g.roundRect(pad, pad, w, w, 3).stroke({ color: pal.border, width: 1, alpha: 0.9 });
+        // Match the full-size cell's border: CELL_PALETTE has no
+        // `border` field, the dark edge comes from `shadow`.
+        g.roundRect(pad, pad, w, w, 3).stroke({ color: pal.shadow, width: 1, alpha: 0.9 });
     }
 
     // ---- Score / Lines / Multiplier panel -----------------------------
@@ -1580,8 +1583,10 @@ export class PixiView {
         const t = this.hud?.matchControlHintText;
         if (!t) return;
         const mode = this.state.mode;
+        // Mode strings come from GAME_MODES in constants.js: STELLAR
+        // is 'stellar', AUTO_MATCH is 'auto-match', BLOCKS is 'blocks'.
         if (mode === 'blocks') t.text = 'Match disabled';
-        else if (mode === 'auto') t.text = 'Auto-Match 4+ Colors';
+        else if (mode === 'auto-match') t.text = 'Auto-Match 4+ Colors';
         else t.text = 'Match 4+ Colors';
     }
 
