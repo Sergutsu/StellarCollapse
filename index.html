@@ -116,11 +116,28 @@
            which forces fractional 1fr cell sizes (27.6px wide, 27.8px tall)
            and causes the active-piece layer to drift sub-pixels out of sync
            with the locked-piece layer. */
+        /* Fixed-shape slot that holds the board. Every field size
+           centers inside this box so the overall three-column layout
+           stays the same rectangle regardless of whether the player
+           picked a 7x14 or 15x28 field. Width accommodates the widest
+           board (15 cols * 25px = 375px) with breathing room. */
+        .game-board-slot {
+            width: 400px;
+            height: 720px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
         .game-container {
             box-sizing: content-box;
             position: relative;
-            width: 300px;
-            height: 600px;
+            /* Inline styles from game-view set width/height to the
+               computed board dimensions; these are fallbacks for the
+               brief pre-wire frame. */
+            width: 360px;
+            height: 720px;
             border: 2px solid #00d4ff;
             border-radius: 8px;
             /* Glow dialed back from 30px/60px so the board outline stays
@@ -1308,8 +1325,10 @@
                     </div>
                 </div>
 
-                <!-- CENTER: the board itself. -->
-                <div class="relative">
+                <!-- CENTER: fixed-shape slot so the outer UI rectangle
+                     stays the same across all field sizes; the board
+                     centers inside. -->
+                <div class="game-board-slot">
                     <!-- Multi-layer game container -->
                     <div class="game-container" id="gameContainer">
                         <!-- Layer 1: Static background grid -->

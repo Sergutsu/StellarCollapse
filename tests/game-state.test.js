@@ -24,6 +24,7 @@ import {
     BLOCK_SIZE_FOR,
     BLOCK_SIZE,
     MIN_BLOCK_SIZE,
+    MAX_BLOCK_SIZE,
     MAX_BOARD_HEIGHT,
     LINES_PER_LEVEL,
     DROP_INTERVAL_START_MS,
@@ -773,16 +774,34 @@ test('configure() rebuilds the board for the new field size', () => {
     assert.equal(state.board[0].length, largeExpected.cols);
 });
 
-test('BLOCK_SIZE_FOR keeps the board within MAX_BOARD_HEIGHT and clamps to MIN_BLOCK_SIZE', () => {
-    // Short grid -> full-size blocks.
-    assert.equal(BLOCK_SIZE_FOR(10), BLOCK_SIZE);
+test('BLOCK_SIZE_FOR scales block size to fill MAX_BOARD_HEIGHT within block-size caps', () => {
+    // Short grid -> blocks grow up to MAX_BLOCK_SIZE so the board still
+    // fills the vertical slot. The previous clamp to BLOCK_SIZE (30)
+    // left small boards visibly short; we widen to MAX_BLOCK_SIZE so
+    // Small fields don't look dwarfed next to the HUD.
+    assert.equal(BLOCK_SIZE_FOR(14), MAX_BLOCK_SIZE);
     // Tall grids shrink but never go below MIN_BLOCK_SIZE.
     const tall = BLOCK_SIZE_FOR(28);
-    assert.ok(tall <= BLOCK_SIZE);
+    assert.ok(tall <= MAX_BLOCK_SIZE);
     assert.ok(tall >= MIN_BLOCK_SIZE);
     assert.ok(28 * tall <= MAX_BOARD_HEIGHT, `${28 * tall} should fit under ${MAX_BOARD_HEIGHT}`);
     // Absurdly tall grid bottoms out at the floor, not below.
     assert.equal(BLOCK_SIZE_FOR(1000), MIN_BLOCK_SIZE);
+    // Every supported field size reaches at least 90% of the target
+    // board height -- this is the core of "consistent rectangle across
+    // all field sizes". Rows from 14 (Small Classic) to 28 (Large
+    // Collapsed) all qualify.
+    for (const rows of [14, 16, 18, 22, 24, 26, 28]) {
+        const px = BLOCK_SIZE_FOR(rows) * rows;
+        assert.ok(
+            px >= MAX_BOARD_HEIGHT * 0.9,
+            `rows=${rows}: board height ${px}px is below 90% of ${MAX_BOARD_HEIGHT}`,
+        );
+    }
+    // BLOCK_SIZE stays the default fallback for preview cells and isn't
+    // tied to BLOCK_SIZE_FOR's min/max -- just sanity-check the
+    // relationship so the fallback stays inside the cap range.
+    assert.ok(BLOCK_SIZE >= MIN_BLOCK_SIZE && BLOCK_SIZE <= MAX_BLOCK_SIZE);
 });
 
 // -----------------------------------------------------------------------
