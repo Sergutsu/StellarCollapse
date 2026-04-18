@@ -2,19 +2,31 @@
 // These are values that both the pure game-state module and the DOM view
 // module agree on. Nothing in this file should import from the DOM.
 
-// Default block size in CSS pixels. Larger grids downscale this so the
-// board always fits the layout (see BLOCK_SIZE_FOR below).
+// Fallback block size in CSS pixels if we don't have a row count to
+// scale against (e.g. preview cells). Actual in-game blocks are sized by
+// `BLOCK_SIZE_FOR(rows)` so every field size fills the same vertical
+// slot regardless of how many rows it has.
 export const BLOCK_SIZE = 30;
+// Floor on the computed block size. Below this pieces become unreadable
+// even on the tallest (28-row) board, so we accept the vertical gap
+// instead of squeezing further.
 export const MIN_BLOCK_SIZE = 22;
-// Target maximum board height in CSS pixels; block size is clamped so
-// rows * block_size never exceeds this.
+// Ceiling on the computed block size. Without a cap, a 14-row Small
+// board would give 50+ px cells that look oversized next to the HUD
+// panels. 48 keeps Small looking chunky-but-proportional.
+export const MAX_BLOCK_SIZE = 48;
+// Target board height in CSS pixels. Every field size aims for exactly
+// this height (bounded by MIN/MAX block size) so the overall game
+// screen reads as one consistent rectangle regardless of whether the
+// player picked 14 rows or 28 rows.
 export const MAX_BOARD_HEIGHT = 720;
 
-// Scale block size down for taller grids so the board doesn't overflow the
-// layout. Returns an integer >= MIN_BLOCK_SIZE.
+// Scale block size so `rows * blockPx` lands as close to
+// MAX_BOARD_HEIGHT as the min/max block size caps allow. Returns an
+// integer in [MIN_BLOCK_SIZE, MAX_BLOCK_SIZE].
 export function BLOCK_SIZE_FOR(rows) {
     const fit = Math.floor(MAX_BOARD_HEIGHT / rows);
-    return Math.max(MIN_BLOCK_SIZE, Math.min(BLOCK_SIZE, fit));
+    return Math.max(MIN_BLOCK_SIZE, Math.min(MAX_BLOCK_SIZE, fit));
 }
 
 // Colors that can appear on the board. The first four are the normal
