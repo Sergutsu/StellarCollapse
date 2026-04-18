@@ -357,6 +357,36 @@
             outline-offset: -2px;
             animation: floatPulse 1.8s ease-in-out infinite;
         }
+
+        /* Low-fx mode: applied to the board and active layers when the
+           grid is big enough that per-cell pulse/glow animations tank
+           framerate. The rules below disable the animated filters and
+           keep the static gradient + inset shadows so colors and
+           readability are preserved. */
+        .low-fx .cell.filled.floating {
+            animation: none;
+            /* Keep the floating outline static so the player still sees
+               which cells are suspended. */
+            box-shadow:
+                inset 2px 2px 4px rgba(255, 255, 255, 0.2),
+                inset -2px -2px 4px rgba(0, 0, 0, 0.5),
+                0 0 8px rgba(125, 211, 252, 0.4);
+        }
+        .low-fx .cell.bomb {
+            animation: none;
+        }
+        .low-fx .cell.snake {
+            animation: none;
+            /* snakePulse's keyframes also drive transform: rotate+scale.
+               Pin the rotation here so the icon stays diamond-shaped. */
+            transform: rotate(45deg);
+        }
+        .low-fx .cell.filled:hover {
+            /* Skip the filter on hover too -- hover transitions on a big
+               board multiply into noticeable jank when the cursor sweeps
+               across many filled cells. */
+            filter: none;
+        }
         @keyframes floatPulse {
             0%, 100% {
                 filter: brightness(1);
@@ -736,6 +766,36 @@
             border-color: #00d4ff;
             color: #ffffff;
             box-shadow: 0 0 12px rgba(0, 212, 255, 0.45);
+        }
+
+        /* Field-size buttons are a two-line stack: the size label on top
+           and the per-size score multiplier badge below it. Same width as
+           other toggle-btns so the rows line up. */
+        .field-size-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            line-height: 1.1;
+            padding: 6px 10px;
+        }
+
+        .field-size-btn .field-size-label {
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .field-size-btn .field-size-mult {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #fbbf24;
+            text-shadow: 0 0 6px rgba(251, 191, 36, 0.45);
+        }
+
+        .field-size-btn.active .field-size-mult {
+            color: #fde68a;
         }
 
         .toggle-label {

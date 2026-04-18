@@ -31,6 +31,7 @@ import {
     SPECIAL_ARM_MS,
     resolveFieldSize,
     DEFAULT_FIELD_SIZE_ID,
+    getSizeMultiplier,
 } from './constants.js';
 
 // Animation timing for match removal / gravity. These are part of the
@@ -77,6 +78,11 @@ export class GameState extends Emitter {
             this.rows = resolved.rows;
             this.fieldSizeId = resolved.id;
         }
+        // Per-size score multiplier. Pulled out of the size id so both
+        // the HUD and the scoring paths can read the same number without
+        // doing the lookup themselves. Kept in sync with fieldSizeId by
+        // `configure()`.
+        this.sizeMultiplier = getSizeMultiplier(this.fieldSizeId);
         this.rng = rng;
         // `schedule(fn, ms)` must call fn() at some point in the future
         // (or synchronously, in the immediate/test case). It doesn't need
@@ -118,6 +124,7 @@ export class GameState extends Emitter {
         this.cols = resolved.cols;
         this.rows = resolved.rows;
         this.fieldSizeId = resolved.id;
+        this.sizeMultiplier = getSizeMultiplier(this.fieldSizeId);
         this.board = this._emptyBoard();
         this._disarmAllSpecialTimers();
     }
@@ -457,7 +464,7 @@ export class GameState extends Emitter {
             this.board[special.y][special.x] = special.type;
             this._armSpecial(special.x, special.y, special.type);
         }
-        const points = cleared.length * MATCH_POINTS * this.level;
+        const points = Math.round(cleared.length * MATCH_POINTS * this.level * this.sizeMultiplier);
         this.score += points;
         this.emit('match-cleared', { cells: cleared, color: null, special, points });
         this.emit('score-changed', { score: this.score, level: this.level, lines: this.lines });
@@ -669,7 +676,8 @@ export class GameState extends Emitter {
         }
 
         if (linesCleared > 0) {
-            const points = LINE_POINTS[Math.min(linesCleared, LINE_POINTS.length - 1)] * this.level;
+            const basePoints = LINE_POINTS[Math.min(linesCleared, LINE_POINTS.length - 1)] * this.level;
+            const points = Math.round(basePoints * this.sizeMultiplier);
             this.score += points;
             this.lines += linesCleared;
             const newLevel = Math.floor(this.lines / LINES_PER_LEVEL) + 1;
@@ -789,7 +797,7 @@ export class GameState extends Emitter {
                 this.board[special.y][special.x] = special.type;
                 this._armSpecial(special.x, special.y, special.type);
             }
-            const points = matches.length * MATCH_POINTS * this.level;
+            const points = Math.round(matches.length * MATCH_POINTS * this.level * this.sizeMultiplier);
             this.score += points;
             this.emit('match-cleared', { cells: matches, color, special, points });
             this.emit('score-changed', { score: this.score, level: this.level, lines: this.lines });
@@ -851,7 +859,7 @@ export class GameState extends Emitter {
                 this._disarmSpecialAt(c.x, c.y);
                 this.board[c.y][c.x] = null;
             }
-            const points = affected.length * BOMB_POINTS * this.level;
+            const points = Math.round(affected.length * BOMB_POINTS * this.level * this.sizeMultiplier);
             this.score += points;
             this.emit('bomb-exploded', {
                 center: { x: centerX, y: centerY },
