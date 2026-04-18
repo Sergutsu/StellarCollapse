@@ -25,6 +25,10 @@ import {
     BLOCK_SIZE,
     MIN_BLOCK_SIZE,
     MAX_BOARD_HEIGHT,
+    LINES_PER_LEVEL,
+    DROP_INTERVAL_START_MS,
+    DROP_INTERVAL_MIN_MS,
+    DROP_INTERVAL_STEP_MS,
 } from '../src/constants.js';
 import { CLASSIC_SHAPES, MUTATED_SHAPES } from '../src/shapes.js';
 
@@ -300,16 +304,48 @@ test('clickCell on vertical 4-run works too', () => {
     assert.equal(cleared.cells.length, 4);
 });
 
-test('level advances every 10 lines cleared', () => {
+test(`level advances every LINES_PER_LEVEL (${LINES_PER_LEVEL}) lines cleared`, () => {
     const state = makeState(2);
     state.start();
-    // Clear 10 single rows by forcing full-row board writes.
-    for (let i = 0; i < 10; i++) {
+    // Clear one single row per iteration by rewriting the bottom row.
+    for (let i = 0; i < LINES_PER_LEVEL; i++) {
         for (let x = 0; x < COLS; x++) state.board[ROWS - 1][x] = 'red';
         state._checkLines();
     }
-    assert.equal(state.lines, 10);
+    assert.equal(state.lines, LINES_PER_LEVEL);
     assert.equal(state.level, 2);
+});
+
+test('drop interval shrinks by DROP_INTERVAL_STEP_MS per level and hits the min floor', () => {
+    const state = makeState(3);
+    state.start();
+    assert.equal(state.dropInterval, DROP_INTERVAL_START_MS);
+
+    // Drive the level up by clearing LINES_PER_LEVEL rows at a time and
+    // assert the interval drops by one full step each level gained until
+    // it hits the floor. This is the ramp that makes higher levels
+    // actually play faster -- the bug report was that speed didn't rise
+    // noticeably, so we pin both the cadence and the step here.
+    const maxLevels = Math.ceil((DROP_INTERVAL_START_MS - DROP_INTERVAL_MIN_MS) / DROP_INTERVAL_STEP_MS) + 2;
+    let lastInterval = state.dropInterval;
+    for (let lvl = 2; lvl <= maxLevels; lvl++) {
+        for (let i = 0; i < LINES_PER_LEVEL; i++) {
+            for (let x = 0; x < COLS; x++) state.board[ROWS - 1][x] = 'red';
+            state._checkLines();
+        }
+        assert.equal(state.level, lvl);
+        const expected = Math.max(
+            DROP_INTERVAL_MIN_MS,
+            DROP_INTERVAL_START_MS - (lvl - 1) * DROP_INTERVAL_STEP_MS,
+        );
+        assert.equal(state.dropInterval, expected);
+        assert.ok(
+            state.dropInterval <= lastInterval,
+            `interval should not grow as level rises, got ${state.dropInterval} after ${lastInterval}`,
+        );
+        lastInterval = state.dropInterval;
+    }
+    assert.equal(state.dropInterval, DROP_INTERVAL_MIN_MS);
 });
 
 test('game-over fires when a newly spawned piece immediately collides', () => {
@@ -653,6 +689,26 @@ test('findTier maps BLOCKS mode to the correct blocks-* tier ids', () => {
     const collapsed = findTier(GAME_MODES.BLOCKS, PIECE_COMPLEXITY.COLLAPSED);
     assert.equal(mutated && mutated.id, 'blocks-mutated');
     assert.equal(collapsed && collapsed.id, 'blocks-collapsed');
+});
+
+test('every (mode, complexity) combination resolves to a tier (no un-ranked combos)', () => {
+    // Bug report was that blocks-classic scores weren't saved because
+    // the tier list only had 6 entries. Pin that every mode x complexity
+    // combo now has a leaderboard so no future selection silently drops
+    // the run at game-over.
+    const modes = Object.values(GAME_MODES);
+    const complexities = Object.values(PIECE_COMPLEXITY);
+    for (const mode of modes) {
+        for (const complexity of complexities) {
+            const tier = findTier(mode, complexity);
+            assert.ok(
+                tier,
+                `missing tier for (${mode}, ${complexity}) -- every legal start-screen pick must rank`,
+            );
+        }
+    }
+    // 3 modes x 3 complexities = 9 tiers. Guard against accidental pruning.
+    assert.equal(HIGHSCORE_TIERS.length, modes.length * complexities.length);
 });
 
 // ---------------------------------------------------------------------------
