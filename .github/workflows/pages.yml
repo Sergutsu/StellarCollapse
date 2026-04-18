@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+
+# Publishes the game as a static site on GitHub Pages. The game is already
+# a static HTML+JS bundle (no build step), so we just upload the repo
+# contents as an artifact and let actions/deploy-pages handle the rest.
+#
+# Before this workflow can run, GitHub Pages must be enabled in the repo
+# settings with "GitHub Actions" selected as the source:
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deploy at a time. New runs queue behind an in-progress deploy
+# rather than cancelling it -- cancelling a half-finished Pages deploy can
+# leave the live site in a broken state, so queueing is the safer default.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Publish the whole repo -- index.html at the root loads src/*.js
+          # via relative module imports and works as-is over HTTPS.
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
