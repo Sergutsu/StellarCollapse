@@ -106,6 +106,10 @@ async function boot() {
         fieldSizeId: DEFAULT_SIZE_ID,
     });
     const engine = selectEngine();
+    // Mark the body so CSS can hide the DOM title bar + HUD columns when
+    // Pixi owns the HUD. Everything outside the engine-pixi selectors
+    // stays in DOM (start screen, sound/exit buttons).
+    if (engine === 'pixi') document.body.classList.add('engine-pixi');
     const view = engine === 'pixi'
         ? new PixiView({ state, elements })
         : new GameView({ state, elements });
@@ -203,7 +207,11 @@ async function boot() {
         return pool[(level - 1) % pool.length];
     }
     function refreshTip() {
-        if (levelTipEl) levelTipEl.textContent = pickTip(state.mode, state.level);
+        const text = pickTip(state.mode, state.level);
+        if (levelTipEl) levelTipEl.textContent = text;
+        // Pixi HUD owns the tip panel when engine=pixi; let the view
+        // mirror the same text without reaching back into DOM.
+        if (typeof view.setTip === 'function') view.setTip(text);
     }
     state.on('game-started', refreshTip);
     state.on('level-up',     refreshTip);
