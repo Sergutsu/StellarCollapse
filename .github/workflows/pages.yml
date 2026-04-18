@@ -18,8 +18,9 @@ permissions:
   pages: write
   id-token: write
 
-# Only one deploy at a time. Queue new runs, cancel in-progress ones if a
-# newer commit has already been pushed.
+# Only one deploy at a time. New runs queue behind an in-progress deploy
+# rather than cancelling it -- cancelling a half-finished Pages deploy can
+# leave the live site in a broken state, so queueing is the safer default.
 concurrency:
   group: pages
   cancel-in-progress: false
