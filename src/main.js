@@ -4,6 +4,7 @@
 
 import { GameState } from './game-state.js';
 import { GameView } from './game-view.js';
+import { PixiView } from './pixi-view.js';
 import { Audio } from './audio.js';
 import { HighScores } from './highscores.js';
 import { bindInput } from './input.js';
@@ -50,7 +51,20 @@ const DEFAULT_MODE = GAME_MODES.STELLAR;
 const DEFAULT_COMPLEXITY = PIECE_COMPLEXITY.CLASSIC;
 const DEFAULT_SIZE_ID = DEFAULT_FIELD_SIZE_ID;
 
-function boot() {
+// Renderer selection. Default is the original DOM GameView; pass
+// `?engine=pixi` in the URL to opt into the Pixi.js board (PR #15
+// experiment). This lets us ship the Pixi port without disrupting the
+// default gameplay until the port has full visual parity.
+function selectEngine() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const engine = (params.get('engine') || '').toLowerCase();
+        if (engine === 'pixi') return 'pixi';
+    } catch (_err) { /* no window / location; fall through */ }
+    return 'dom';
+}
+
+async function boot() {
     injectEffectKeyframes();
     createStarsBackground(document.getElementById('starsContainer'));
 
@@ -91,7 +105,15 @@ function boot() {
         complexity: DEFAULT_COMPLEXITY,
         fieldSizeId: DEFAULT_SIZE_ID,
     });
-    const view = new GameView({ state, elements });
+    const engine = selectEngine();
+    const view = engine === 'pixi'
+        ? new PixiView({ state, elements })
+        : new GameView({ state, elements });
+    if (engine === 'pixi') {
+        // Pixi needs an async bootstrap. Await it before createBoard so
+        // the stage/ticker are ready before any state event fires.
+        await view.init();
+    }
     // Per-level flavor text. Short enough to not steal attention from the
     // board. Indexed by level (1-based); levels beyond the list wrap to
     // the last entry so veterans still get something to read.
