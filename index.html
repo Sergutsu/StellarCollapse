@@ -121,27 +121,29 @@
             position: relative;
             width: 300px;
             height: 600px;
-            border: 3px solid #00d4ff;
+            border: 2px solid #00d4ff;
             border-radius: 8px;
-            box-shadow: 
-                0 0 30px rgba(0, 212, 255, 0.5),
-                0 0 60px rgba(0, 212, 255, 0.3);
+            /* Glow dialed back from 30px/60px so the board outline stays
+               crisp against the HUD panels instead of bleeding into them. */
+            box-shadow:
+                0 0 10px rgba(0, 212, 255, 0.35),
+                0 0 22px rgba(0, 212, 255, 0.15);
             overflow: hidden;
             animation: borderPulse 4s ease-in-out infinite;
         }
-        
+
         @keyframes borderPulse {
             0%, 100% {
                 border-color: #00d4ff;
-                box-shadow: 
-                    0 0 30px rgba(0, 212, 255, 0.5),
-                    0 0 60px rgba(0, 212, 255, 0.3);
+                box-shadow:
+                    0 0 10px rgba(0, 212, 255, 0.35),
+                    0 0 22px rgba(0, 212, 255, 0.15);
             }
             50% {
                 border-color: #00b8e6;
-                box-shadow: 
-                    0 0 40px rgba(0, 212, 255, 0.7),
-                    0 0 80px rgba(0, 212, 255, 0.4);
+                box-shadow:
+                    0 0 14px rgba(0, 212, 255, 0.5),
+                    0 0 28px rgba(0, 212, 255, 0.22);
             }
         }
         
@@ -935,6 +937,145 @@
                 0 0 15px currentColor,
                 0 0 20px currentColor;
         }
+
+        /* ---- In-game title bar (above the board) ---------------------- */
+        /* Matches the start-screen headline (same gradient + icon) so the
+           two screens feel continuous. The star here is bigger than the
+           start-screen one because it's also the "game actor" that
+           flashes on gameplay events -- see .title-star--* below. */
+        .game-title-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        .game-title-bar h1 {
+            font-size: 2.75rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            background: linear-gradient(90deg, #22d3ee, #facc15, #f87171);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow: 0 0 18px rgba(250, 204, 21, 0.15);
+        }
+        .title-star {
+            font-size: 2.5rem;
+            color: #facc15;
+            filter: drop-shadow(0 0 10px rgba(250, 204, 21, 0.8))
+                    drop-shadow(0 0 22px rgba(250, 204, 21, 0.35));
+            transform-origin: center;
+            transition:
+                color 0.25s ease,
+                filter 0.25s ease,
+                transform 0.25s ease;
+            will-change: transform, filter;
+        }
+        /* Idle pulse so the star looks alive even when nothing's happening. */
+        .title-star:not(.title-star--reacting) {
+            animation: titleStarIdle 3.5s ease-in-out infinite;
+        }
+        @keyframes titleStarIdle {
+            0%, 100% { transform: scale(1); }
+            50%      { transform: scale(1.08); }
+        }
+        /* Event-specific reactions. A single .title-star--reacting class
+           disables the idle pulse; the modifier picks the animation. */
+        .title-star--reacting { animation-play-state: paused; }
+        .title-star--lock    { animation: titleStarLock 0.28s ease-out; }
+        .title-star--line    { animation: titleStarLine 0.55s ease-out;    color: #22d3ee; }
+        .title-star--match   { animation: titleStarMatch 0.55s ease-out;   color: #34d399; }
+        .title-star--bomb    { animation: titleStarBomb 0.75s ease-out;    color: #f97316; }
+        .title-star--snake   { animation: titleStarSnake 0.9s ease-in-out; color: #a855f7; }
+        .title-star--gameover{ animation: titleStarDown 0.9s ease-out;     color: #f87171; }
+        .title-star--levelup { animation: titleStarLevel 0.75s ease-out;   color: #fde68a; }
+        @keyframes titleStarLock {
+            0%   { transform: scale(1); }
+            40%  { transform: scale(1.25); }
+            100% { transform: scale(1); }
+        }
+        @keyframes titleStarLine {
+            0%   { transform: scale(1) rotate(0deg); }
+            50%  { transform: scale(1.35) rotate(12deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+        @keyframes titleStarMatch {
+            0%   { transform: scale(1); filter: drop-shadow(0 0 8px rgba(52, 211, 153, 0.7)); }
+            50%  { transform: scale(1.5); filter: drop-shadow(0 0 22px rgba(52, 211, 153, 1)); }
+            100% { transform: scale(1); filter: drop-shadow(0 0 8px rgba(52, 211, 153, 0.7)); }
+        }
+        @keyframes titleStarBomb {
+            0%   { transform: scale(1) rotate(0deg); }
+            25%  { transform: scale(1.55) rotate(-10deg); }
+            50%  { transform: scale(0.9)  rotate(10deg); }
+            75%  { transform: scale(1.35) rotate(-6deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+        @keyframes titleStarSnake {
+            0%   { transform: scale(1) rotate(0deg); }
+            25%  { transform: scale(1.2) rotate(-25deg); }
+            50%  { transform: scale(1.1) rotate(25deg); }
+            75%  { transform: scale(1.2) rotate(-15deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+        @keyframes titleStarLevel {
+            0%   { transform: scale(1)   rotate(0deg); filter: drop-shadow(0 0 8px rgba(253, 230, 138, 0.7)); }
+            50%  { transform: scale(1.6) rotate(180deg); filter: drop-shadow(0 0 26px rgba(253, 230, 138, 1)); }
+            100% { transform: scale(1)   rotate(360deg); filter: drop-shadow(0 0 8px rgba(253, 230, 138, 0.7)); }
+        }
+        @keyframes titleStarDown {
+            0%   { transform: scale(1)   rotate(0deg);   opacity: 1; }
+            100% { transform: scale(0.6) rotate(-90deg); opacity: 0.45; }
+        }
+
+        /* ---- HUD side columns ----------------------------------------- */
+        /* Both side columns are the same narrow width so left (LEVEL +
+           NEXT) and right (SCORE + TIPS + CONTROLS) visually balance the
+           board. Width matches the preview block below it (4x30 + padding). */
+        .hud-column {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            width: 176px;
+        }
+        .hud-panel {
+            padding: 0.75rem;
+        }
+        .hud-panel h2,
+        .hud-panel h3,
+        .hud-panel h4 {
+            letter-spacing: 1px;
+        }
+        .hud-stat-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+        .hud-stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+        .hud-multiplier {
+            display: inline-block;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            padding: 2px 8px;
+            border-radius: 999px;
+            border: 1px solid currentColor;
+            margin-top: 4px;
+        }
+        .hud-tip-text {
+            font-size: 0.8rem;
+            line-height: 1.35;
+            color: #cbd5f5;
+            min-height: 3.5em;
+        }
+        .hud-controls-row {
+            font-size: 0.78rem;
+        }
     </style>
 </head>
 <body class="text-white flex items-center justify-center min-h-screen p-4">
@@ -1063,67 +1204,89 @@
         </div>
         
         <div class="flex flex-col items-center">
-            <div class="flex justify-between w-full max-w-2xl mb-4">
-                <div class="text-center hologram-panel p-4">
-                    <h2 class="text-2xl font-bold glow-text text-yellow-300">SCORE</h2>
-                    <div id="score" class="text-4xl font-bold score-display">0</div>
-                </div>
-                
-                <div class="text-center hologram-panel p-4">
-                    <h2 class="text-2xl font-bold glow-text text-blue-300">LEVEL</h2>
-                    <div id="level" class="text-4xl font-bold score-display">1</div>
-                </div>
-                
-                <div class="text-center hologram-panel p-4">
-                    <h2 class="text-2xl font-bold glow-text text-green-300">LINES</h2>
-                    <div id="lines" class="text-4xl font-bold score-display">0</div>
-                </div>
+            <!-- Shiny title (mirrors start screen) with a bigger star that
+                 reacts to gameplay events -- see main.js star actor. -->
+            <div class="game-title-bar">
+                <i id="titleStar" class="fas fa-star title-star"></i>
+                <h1 class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-yellow-400 to-red-400">
+                    STELLAR COLLAPSE
+                </h1>
             </div>
-            
-            <div class="flex gap-8">
-                <div class="hologram-panel p-4">
-                    <h3 class="text-center mb-2 font-bold glow-text text-cyan-300">NEXT</h3>
-                    <div class="preview" id="nextPiece"></div>
-                    
-                    <h4 class="text-center mt-4 mb-2 text-sm font-bold text-cyan-400">COMING UP</h4>
-                    <div class="space-y-2">
-                        <div class="preview-small" id="nextPiece2"></div>
-                        <div class="preview-small" id="nextPiece3"></div>
-                        <div class="preview-small" id="nextPiece4"></div>
+
+            <div class="flex gap-6 items-start">
+                <!-- LEFT COLUMN: Level (top) + previews (bottom) share the
+                     same narrow width so the stack feels like one object. -->
+                <div class="hud-column">
+                    <div class="hologram-panel hud-panel text-center">
+                        <div class="hud-stat-label glow-text text-blue-300">LEVEL</div>
+                        <div id="level" class="hud-stat-value score-display">1</div>
+                        <div id="levelInfo" class="text-xs text-blue-200 mt-1">Cosmic dust</div>
+                        <div class="text-[0.7rem] text-blue-300 mt-1" id="levelProgress">0 / 10 lines</div>
+                    </div>
+
+                    <div class="hologram-panel hud-panel text-center">
+                        <h3 class="font-bold glow-text text-cyan-300 mb-2">NEXT</h3>
+                        <div class="preview mx-auto" id="nextPiece"></div>
+
+                        <h4 class="text-cyan-400 text-xs font-bold mt-3 mb-2">COMING UP</h4>
+                        <div class="space-y-2">
+                            <div class="preview-small mx-auto" id="nextPiece2"></div>
+                            <div class="preview-small mx-auto" id="nextPiece3"></div>
+                            <div class="preview-small mx-auto" id="nextPiece4"></div>
+                        </div>
                     </div>
                 </div>
-                
+
+                <!-- CENTER: the board itself. -->
                 <div class="relative">
                     <!-- Multi-layer game container -->
                     <div class="game-container" id="gameContainer">
                         <!-- Layer 1: Static background grid -->
                         <div class="game-grid-background" id="gridBackground"></div>
-                        
+
                         <!-- Layer 2: Locked pieces (board state) -->
                         <div class="game-grid-board" id="gameBoard"></div>
-                        
+
                         <!-- Layer 3: Active/falling piece -->
                         <div class="game-grid-active" id="activePiece"></div>
-                        
+
                         <!-- Layer 4: Effects and animations -->
                         <div class="game-grid-effects" id="gameEffects"></div>
-                        
+
                         <!-- Layer 5: UI overlay -->
                         <div class="game-grid-ui" id="gameUI"></div>
                     </div>
-                    
-
                 </div>
-                
-                <div class="hologram-panel p-4">
-                    <h3 class="text-center mb-2 font-bold glow-text text-cyan-300">CONTROLS</h3>
-                    <div class="space-y-2 text-sm">
-                        <p class="flex items-center"><i class="fas fa-arrow-up text-yellow-300 mr-2 w-4"></i> Rotate</p>
-                        <p class="flex items-center"><i class="fas fa-arrow-left text-yellow-300 mr-2 w-4"></i> Move Left</p>
-                        <p class="flex items-center"><i class="fas fa-arrow-right text-yellow-300 mr-2 w-4"></i> Move Right</p>
-                        <p class="flex items-center"><i class="fas fa-arrow-down text-yellow-300 mr-2 w-4"></i> Move Down</p>
-                        <p class="flex items-center"><i class="fas fa-space-shuttle text-yellow-300 mr-2 w-4"></i> Drop</p>
-                        <p class="flex items-center" id="matchControlHint"><i class="fas fa-mouse-pointer text-yellow-300 mr-2 w-4"></i> Match 4+ Colors</p>
+
+                <!-- RIGHT COLUMN: Score/Lines (top) + Tips (middle) +
+                     Controls (bottom). -->
+                <div class="hud-column">
+                    <div class="hologram-panel hud-panel text-center">
+                        <div class="hud-stat-label glow-text text-yellow-300">SCORE</div>
+                        <div id="score" class="hud-stat-value score-display">0</div>
+                        <div class="border-t border-cyan-900 my-2"></div>
+                        <div class="hud-stat-label glow-text text-green-300">LINES</div>
+                        <div id="lines" class="hud-stat-value score-display">0</div>
+                        <div class="border-t border-cyan-900 my-2"></div>
+                        <div class="hud-stat-label glow-text text-pink-300">MULTIPLIER</div>
+                        <div id="multiplier" class="hud-multiplier text-pink-300" title="Score multiplier: difficulty × level">×1.0</div>
+                    </div>
+
+                    <div class="hologram-panel hud-panel">
+                        <h3 class="text-center font-bold glow-text text-cyan-300 mb-2">MISSION TIP</h3>
+                        <p id="levelTip" class="hud-tip-text text-center">Drop pieces to clear lines and climb the tier.</p>
+                    </div>
+
+                    <div class="hologram-panel hud-panel">
+                        <h3 class="text-center font-bold glow-text text-cyan-300 mb-2">CONTROLS</h3>
+                        <div class="space-y-1 hud-controls-row">
+                            <p class="flex items-center"><i class="fas fa-arrow-up text-yellow-300 mr-2 w-4"></i> Rotate</p>
+                            <p class="flex items-center"><i class="fas fa-arrow-left text-yellow-300 mr-2 w-4"></i> Move Left</p>
+                            <p class="flex items-center"><i class="fas fa-arrow-right text-yellow-300 mr-2 w-4"></i> Move Right</p>
+                            <p class="flex items-center"><i class="fas fa-arrow-down text-yellow-300 mr-2 w-4"></i> Soft Drop</p>
+                            <p class="flex items-center"><i class="fas fa-space-shuttle text-yellow-300 mr-2 w-4"></i> Hard Drop</p>
+                            <p class="flex items-center" id="matchControlHint"><i class="fas fa-mouse-pointer text-yellow-300 mr-2 w-4"></i><span id="matchControlHintText">Match 4+ Colors</span></p>
+                        </div>
                     </div>
                 </div>
             </div>

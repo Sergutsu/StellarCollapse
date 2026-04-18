@@ -224,6 +224,22 @@ export class GameView {
         this.el.score.textContent = String(this.state.score);
         this.el.level.textContent = String(this.state.level);
         this.el.lines.textContent = String(this.state.lines);
+        // Optional HUD elements -- not every host page wires them up (the
+        // unit tests don't), so guard every access.
+        if (this.el.multiplier) {
+            this.el.multiplier.textContent = `x${this.state.level}.0`;
+        }
+        if (this.el.levelProgress) {
+            // Lines-per-level is the cadence from constants.js (currently 10).
+            // Showing "N / 10" gives the player a clear progress bar to the
+            // next level without needing a dedicated bar element.
+            const perLevel = 10;
+            const into = this.state.lines % perLevel;
+            this.el.levelProgress.textContent = `${into} / ${perLevel} lines`;
+        }
+        if (this.el.levelInfo && typeof this._levelInfoFor === 'function') {
+            this.el.levelInfo.textContent = this._levelInfoFor(this.state.level);
+        }
     }
 
     _flashScore() {
