@@ -1010,11 +1010,16 @@ export class PixiView {
             this._redrawBoard();
             this._reactStar('lock');
         });
-        s.on('match-detected', ({ cells, color }) => {
+        s.on('match-detected', ({ cells, color, special }) => {
             for (let i = 0; i < cells.length; i++) {
                 const m = cells[i];
                 this._addExplosionEffect(m.x, m.y, m.color || color);
             }
+            // A 4-cell match in COLLAPSED spawns a snake; the snake run
+            // has its own star reaction (see snake-activated below), so
+            // suppress the generic 'match' one. Mirrors the DOM guard in
+            // main.js:166-170.
+            if (special && special.type === 'snake') return;
             this._reactStar('match');
         });
         s.on('match-cleared', () => {
@@ -1605,9 +1610,12 @@ export class PixiView {
         if (!cfg) return;
         // Reset base transform before kicking off a new reaction so the
         // animation starts from a known state (avoids stacking tints /
-        // scales if two events land on the same frame).
+        // scales / positions if two events land on the same frame --
+        // the 'fall' kind is the only one that mutates star.y but the
+        // reset has to cover it or a subsequent reaction starts low).
         star.scale.set(1);
         star.rotation = 0;
+        star.y = TITLE_H / 2;
         star.tint = cfg.color;
 
         this._starReactionTween = {
