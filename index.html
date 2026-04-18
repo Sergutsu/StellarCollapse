@@ -1234,12 +1234,19 @@
             ]
         ];
         
+        // Debug flag. Set to true to re-enable verbose console logging.
+        const DEBUG = false;
+        const debugLog = DEBUG ? console.log.bind(console) : () => {};
+
         // Game state
         let score = 0;
         let level = 1;
         let lines = 0;
         let gameOver = false;
         let board = [];
+        // Cached DOM references for O(1) cell access; built once in createBoard().
+        let boardCells = [];   // boardCells[y][x]  -> locked-piece layer cell
+        let activeCells = [];  // activeCells[y][x] -> falling-piece layer cell
         let currentPiece = null;
         let nextPiece = null;
         let pieceQueue = []; // Queue for upcoming pieces
@@ -1247,6 +1254,8 @@
         let dropInterval = 1000;
         let lastTime = 0;
         let highScores = [];
+        // Cells currently painted on the active-piece layer (for narrow clears).
+        let activePaintedCells = [];
         
         // Sound system
         let audioContext = null;
@@ -1288,41 +1297,37 @@
         const startScreenScoreList = document.getElementById('startScreenScoreList');
         const playerNameInput = document.getElementById('playerName');
         
-        // Create animated stars background
+        // Create animated stars background.
+        // Reduced from 200 to 100 nodes; the full-screen fixed layer plus
+        // per-element box-shadow/gradient paints adds up quickly.
+        // Uses a document fragment to batch insertion.
         function createStarsBackground() {
             const starsContainer = document.getElementById('starsContainer');
-            const numStars = 200; // Increased for more effects
-            
-            // Create twinkling stars
+            const numStars = 100;
+
+            const types = ['small', 'medium', 'large', 'nebula', 'asteroid', 'supernova'];
+            const weights = [0.45, 0.25, 0.15, 0.09, 0.05, 0.01];
+
+            const frag = document.createDocumentFragment();
             for (let i = 0; i < numStars; i++) {
                 const star = document.createElement('div');
                 star.className = 'star';
-                
-                // Random star types with new asteroids and supernovas
-                const types = ['small', 'medium', 'large', 'nebula', 'asteroid', 'supernova'];
-                const weights = [0.4, 0.25, 0.15, 0.1, 0.08, 0.02]; // Probability weights
+
                 let random = Math.random();
                 let type = 'small';
-                
                 for (let j = 0; j < types.length; j++) {
-                    if (random < weights[j]) {
-                        type = types[j];
-                        break;
-                    }
+                    if (random < weights[j]) { type = types[j]; break; }
                     random -= weights[j];
                 }
-                
                 star.classList.add(type);
-                
-                // Random position
+
                 star.style.left = Math.random() * 100 + '%';
                 star.style.top = Math.random() * 100 + '%';
-                
-                // Random animation delay for natural twinkling
                 star.style.animationDelay = Math.random() * 3 + 's';
-                
-                starsContainer.appendChild(star);
+
+                frag.appendChild(star);
             }
+            starsContainer.appendChild(frag);
         }
         
         // Audio System Functions
@@ -1639,34 +1644,43 @@
             gameBoard.innerHTML = '';
             activePiece.innerHTML = '';
             gameEffects.innerHTML = '';
-            
+
             board = [];
-            
-            // Create board state layer (locked pieces)
+            boardCells = [];
+            activeCells = [];
+            activePaintedCells = [];
+
+            // Build both layers in one pass and cache DOM refs for O(1) lookup.
+            const boardFrag = document.createDocumentFragment();
+            const activeFrag = document.createDocumentFragment();
+
             for (let y = 0; y < ROWS; y++) {
                 board[y] = [];
+                boardCells[y] = [];
+                activeCells[y] = [];
                 for (let x = 0; x < COLS; x++) {
                     board[y][x] = null;
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    cell.dataset.x = x;
-                    cell.dataset.y = y;
-                    gameBoard.appendChild(cell);
+
+                    const boardCell = document.createElement('div');
+                    boardCell.className = 'cell';
+                    boardCell.dataset.x = x;
+                    boardCell.dataset.y = y;
+                    boardFrag.appendChild(boardCell);
+                    boardCells[y][x] = boardCell;
+
+                    const activeCell = document.createElement('div');
+                    activeCell.className = 'cell';
+                    activeCell.dataset.x = x;
+                    activeCell.dataset.y = y;
+                    activeCell.style.background = 'transparent';
+                    activeCell.style.border = 'none';
+                    activeFrag.appendChild(activeCell);
+                    activeCells[y][x] = activeCell;
                 }
             }
-            
-            // Create active piece layer (transparent cells for current piece)
-            for (let y = 0; y < ROWS; y++) {
-                for (let x = 0; x < COLS; x++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    cell.dataset.x = x;
-                    cell.dataset.y = y;
-                    cell.style.background = 'transparent';
-                    cell.style.border = 'none';
-                    activePiece.appendChild(cell);
-                }
-            }
+
+            gameBoard.appendChild(boardFrag);
+            activePiece.appendChild(activeFrag);
         }
         
         // Create next piece preview
@@ -1761,8 +1775,8 @@
         
         // End game early (from end game button)
         function endGameEarly() {
-            console.log('EARLY EXIT TRIGGERED!');
-            console.log('Setting gameOver = true');
+            debugLog('EARLY EXIT TRIGGERED!');
+            debugLog('Setting gameOver = true');
             gameOver = true;
             
             // Clear current piece to stop any ongoing movement
@@ -1847,22 +1861,19 @@
         // Game loop
         function gameLoop(time = 0) {
             if (gameOver) return;
-            
+
             requestAnimationFrame(gameLoop);
-            
+
             const deltaTime = time - lastTime;
             lastTime = time;
-            
+
             dropCounter += deltaTime;
             if (dropCounter > dropInterval) {
                 movePiece(0, 1);
                 dropCounter = 0;
             }
-            
-            // Ensure current piece is always visible
-            if (currentPiece) {
-                drawPiece();
-            }
+            // Note: the active piece is only redrawn when it actually moves,
+            // rotates, locks, or respawns -- not every frame.
         }
         
         // Create a new piece
@@ -1870,7 +1881,7 @@
             const type = Math.floor(Math.random() * SHAPES.length);
             const shape = SHAPES[type];
             
-            console.log(`Creating piece type ${type} of ${SHAPES.length} total shapes`);
+            debugLog(`Creating piece type ${type} of ${SHAPES.length} total shapes`);
             
             // Create color matrix for multi-colored pieces
             const colorMatrix = [];
@@ -1891,7 +1902,7 @@
                 }
             }
             
-            console.log(`Piece colors:`, colorCount);
+            debugLog(`Piece colors:`, colorCount);
             
             return {
                 x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2),
@@ -1923,49 +1934,46 @@
             }
         }
         
-        // Clear the current piece from active layer
+        // Clear the current piece from the active layer.
+        // Only resets the cells we actually painted (max ~16), not all 200.
         function clearPiece() {
-            if (!currentPiece) return;
-            
-            // Clear all cells in the active piece layer
-            const activeCells = activePiece.querySelectorAll('.cell');
-            activeCells.forEach(cell => {
+            if (activePaintedCells.length === 0) return;
+            for (let i = 0; i < activePaintedCells.length; i++) {
+                const cell = activePaintedCells[i];
                 cell.className = 'cell';
                 cell.style.background = 'transparent';
                 cell.style.border = 'none';
-            });
+            }
+            activePaintedCells.length = 0;
         }
-        
+
         // Draw the current piece on active layer
         function drawPiece() {
             if (!currentPiece) return;
-            
-            // First clear the active layer
+
+            // Clear previously painted cells first.
             clearPiece();
-            
+
             const shape = currentPiece.shape;
             const colorMatrix = currentPiece.colorMatrix;
-            
+
             for (let y = 0; y < shape.length; y++) {
-                for (let x = 0; x < shape[y].length; x++) {
-                    if (shape[y][x]) {
-                        const boardX = currentPiece.x + x;
-                        const boardY = currentPiece.y + y;
-                        
-                        if (boardY >= 0 && boardX >= 0 && boardX < COLS && boardY < ROWS) {
-                            // Use the active piece layer
-                            const cell = activePiece.querySelector(`.cell[data-x="${boardX}"][data-y="${boardY}"]`);
-                            if (cell && !board[boardY][boardX]) {
-                                cell.className = 'cell';
-                                if (colorMatrix[y][x]) {
-                                    cell.classList.add(colorMatrix[y][x]);
-                                }
-                                // Remove transparent styling for visible pieces
-                                cell.style.background = '';
-                                cell.style.border = '';
-                            }
-                        }
-                    }
+                const row = shape[y];
+                for (let x = 0; x < row.length; x++) {
+                    if (!row[x]) continue;
+                    const boardX = currentPiece.x + x;
+                    const boardY = currentPiece.y + y;
+                    if (boardY < 0 || boardX < 0 || boardX >= COLS || boardY >= ROWS) continue;
+                    if (board[boardY][boardX]) continue;
+
+                    const cell = activeCells[boardY][boardX];
+                    cell.className = 'cell';
+                    const color = colorMatrix[y][x];
+                    if (color) cell.classList.add(color);
+                    // Remove transparent styling for visible pieces
+                    cell.style.background = '';
+                    cell.style.border = '';
+                    activePaintedCells.push(cell);
                 }
             }
         }
@@ -2171,103 +2179,85 @@
         // Lock the piece in place
         function lockPiece() {
             if (!currentPiece) return;
-            
-            console.log('=== LOCKING PIECE ===');
-            if (isBoardAlmostFull()) {
-                console.log('WARNING: Board is almost full!');
-            }
-            
+
+            debugLog('=== LOCKING PIECE ===');
+
             const shape = currentPiece.shape;
             const colorMatrix = currentPiece.colorMatrix;
-            for (let y = 0; y < shape.length; y++) {
-                for (let x = 0; x < shape[y].length; x++) {
-                    if (shape[y][x]) {
-                        const boardX = currentPiece.x + x;
-                        const boardY = currentPiece.y + y;
-                        
-                        if (boardY < 0) {
-                            // Game over
-                            console.log('PIECE COLLISION AT TOP - ENDING GAME');
-                            endGame();
-                            return;
-                        }
-                        
-                        board[boardY][boardX] = colorMatrix[y][x];
-                        const cell = document.querySelector(`.cell[data-x="${boardX}"][data-y="${boardY}"]`);
-                        if (cell) {
-                            cell.className = 'cell filled';
-                            if (colorMatrix[y][x]) {
-                                cell.classList.add(colorMatrix[y][x]);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Simple and reliable board full check after locking piece
-            console.log('=== LOCK PIECE: Checking if game should end ===');
-            
-            // Count total filled cells
             let filledCells = 0;
+
+            for (let y = 0; y < shape.length; y++) {
+                const row = shape[y];
+                for (let x = 0; x < row.length; x++) {
+                    if (!row[x]) continue;
+                    const boardX = currentPiece.x + x;
+                    const boardY = currentPiece.y + y;
+
+                    if (boardY < 0) {
+                        // Piece locked above the top row -> game over.
+                        debugLog('PIECE COLLISION AT TOP - ENDING GAME');
+                        endGame();
+                        return;
+                    }
+
+                    const color = colorMatrix[y][x];
+                    board[boardY][boardX] = color;
+                    const cell = boardCells[boardY][boardX];
+                    if (cell) {
+                        cell.className = 'cell filled';
+                        if (color) cell.classList.add(color);
+                    }
+                }
+            }
+
+            // Any active-piece overlay for this piece is now obsolete.
+            clearPiece();
+
+            // Count filled cells in a single pass.
             const totalCells = COLS * ROWS;
-            
             for (let y = 0; y < ROWS; y++) {
+                const rowArr = board[y];
                 for (let x = 0; x < COLS; x++) {
-                    if (board[y][x]) {
-                        filledCells++;
-                    }
+                    if (rowArr[x]) filledCells++;
                 }
             }
-            
-            const fillPercentage = (filledCells / totalCells) * 100;
-            console.log(`Board filled: ${filledCells}/${totalCells} (${fillPercentage.toFixed(1)}%)`);
-            
-            // End game if board is completely full OR if top 2 rows are blocked
-            const boardCompleteFull = filledCells === totalCells;
-            
+
+            if (filledCells === totalCells) {
+                debugLog('BOARD COMPLETELY FULL - ENDING GAME');
+                endGame();
+                return;
+            }
+
+            // End game if the top 2 rows are fully blocked.
             let topRowsBlocked = true;
-            for (let y = 0; y < 2; y++) {
+            for (let y = 0; y < 2 && topRowsBlocked; y++) {
                 for (let x = 0; x < COLS; x++) {
-                    if (!board[y][x]) {
-                        topRowsBlocked = false;
-                        break;
-                    }
+                    if (!board[y][x]) { topRowsBlocked = false; break; }
                 }
-                if (!topRowsBlocked) break;
             }
-            
-            if (boardCompleteFull) {
-                console.log('BOARD COMPLETELY FULL - ENDING GAME');
-                endGame();
-                return;
-            }
-            
             if (topRowsBlocked) {
-                console.log('TOP 2 ROWS COMPLETELY BLOCKED - ENDING GAME');
+                debugLog('TOP 2 ROWS BLOCKED - ENDING GAME');
                 endGame();
                 return;
             }
-            
+
             // Check for completed lines
-            console.log('Game continues, checking for completed lines...');
             checkLines();
-            
+
             // Create new piece
-            if (gameOver) return; // Don't create new pieces if game is over
-            
-            console.log('Creating new piece...');
+            if (gameOver) return;
+
             currentPiece = nextPiece;
             nextPiece = getNextPieceFromQueue();
             updateAllPreviews();
-            
-            // Simple check: if new piece immediately collides, game over
+
+            // If new piece immediately collides, game over.
             if (currentPiece && isCollision()) {
-                console.log('NEW PIECE COLLISION - GAME OVER');
+                debugLog('NEW PIECE COLLISION - GAME OVER');
                 endGame();
                 return;
             }
-            
-            // Draw the new piece
+
             drawPiece();
         }
         
@@ -2533,8 +2523,8 @@
             const filledCells = totalCells - emptyCount;
             const isFull = emptyCount === 0;
             
-            // Log when getting close to full or when full
-            if (emptyCount <= 10 || isFull) {
+            // Log when getting close to full or when full (debug only)
+            if (DEBUG && (emptyCount <= 10 || isFull)) {
                 console.log(`Board status: ${emptyCount}/${totalCells} empty cells (${filledCells} filled). Full: ${isFull}`);
                 if (isFull) {
                     console.log('TRIGGERING ENDGAME - BOARD IS COMPLETELY FULL!');
@@ -2544,40 +2534,39 @@
             return isFull;
         }
         
-        // Apply gravity to make pieces fall down
+        // Apply gravity to make pieces fall down.
+        // Runs to a fixed point in a single pass per column (O(ROWS) each),
+        // then redraws once and re-checks completed lines.
         function applyGravity() {
             let piecesMovedDown = false;
-            
-            // Work from bottom to top for each column
+
             for (let x = 0; x < COLS; x++) {
-                // Find empty spots and move pieces down
-                for (let y = ROWS - 1; y >= 0; y--) {
-                    if (!board[y][x]) {
-                        // Found empty spot, look for piece above to fall
-                        for (let aboveY = y - 1; aboveY >= 0; aboveY--) {
-                            if (board[aboveY][x]) {
-                                // Move piece down
-                                board[y][x] = board[aboveY][x];
-                                board[aboveY][x] = null;
-                                piecesMovedDown = true;
-                                break;
-                            }
+                let writeY = ROWS - 1;
+                for (let readY = ROWS - 1; readY >= 0; readY--) {
+                    const v = board[readY][x];
+                    if (v) {
+                        if (writeY !== readY) {
+                            board[writeY][x] = v;
+                            board[readY][x] = null;
+                            piecesMovedDown = true;
                         }
+                        writeY--;
+                    }
+                }
+                // Null out any remaining top cells left after compaction.
+                for (let y = writeY; y >= 0; y--) {
+                    if (board[y][x]) {
+                        board[y][x] = null;
+                        piecesMovedDown = true;
                     }
                 }
             }
-            
+
             if (piecesMovedDown) {
-                // Redraw board after gravity
                 redrawBoard();
-                
-                // Apply gravity again until no more pieces can fall
-                setTimeout(() => applyGravity(), 100);
+                setTimeout(checkLines, 150);
             } else {
-                // When gravity is done, check for completed lines
-                setTimeout(() => {
-                    checkLines();
-                }, 150);
+                setTimeout(checkLines, 150);
             }
         }
         
@@ -2608,84 +2597,62 @@
         
         // Handle bomb explosion in 5x5 area
         function explodeBomb(centerX, centerY) {
-            console.log(`Bomb exploding at (${centerX}, ${centerY})`);
-            
-            // Play bomb explosion sound
+            debugLog(`Bomb exploding at (${centerX}, ${centerY})`);
+
             playSound('bombExplosion');
-            
+
             const explosionCells = [];
             const explosionRadius = 2; // 5x5 area (center ± 2)
-            
-            // Find all cells in 5x5 area around bomb
+
             for (let dy = -explosionRadius; dy <= explosionRadius; dy++) {
                 for (let dx = -explosionRadius; dx <= explosionRadius; dx++) {
                     const explodeX = centerX + dx;
                     const explodeY = centerY + dy;
-                    
-                    // Check if coordinates are within board bounds
-                    if (explodeX >= 0 && explodeX < COLS && explodeY >= 0 && explodeY < ROWS) {
-                        if (board[explodeY][explodeX]) {
-                            explosionCells.push({x: explodeX, y: explodeY, color: board[explodeY][explodeX]});
-                        }
+                    if (explodeX < 0 || explodeX >= COLS || explodeY < 0 || explodeY >= ROWS) continue;
+                    if (board[explodeY][explodeX]) {
+                        explosionCells.push({ x: explodeX, y: explodeY, color: board[explodeY][explodeX] });
                     }
                 }
             }
-            
-            console.log(`Bomb will destroy ${explosionCells.length} cells`);
-            
-            // Highlight all cells that will be destroyed
-            explosionCells.forEach(cell => {
-                const domCell = gameBoard.querySelector(`.cell[data-x="${cell.x}"][data-y="${cell.y}"]`);
-                if (domCell) {
-                    domCell.classList.add('highlight');
-                }
-            });
-            
-            // Create bomb explosion effects
-            explosionCells.forEach(cell => {
-                addBombExplosionEffect(cell.x, cell.y);
-            });
-            
-            // Remove all exploded cells after delay
+
+            // Highlight and add effects in a single pass using cached cells.
+            for (let i = 0; i < explosionCells.length; i++) {
+                const c = explosionCells[i];
+                const domCell = boardCells[c.y][c.x];
+                if (domCell) domCell.classList.add('highlight');
+                addBombExplosionEffect(c.x, c.y);
+            }
+
             setTimeout(() => {
-                explosionCells.forEach(cell => {
-                    board[cell.y][cell.x] = null;
-                    const domCell = gameBoard.querySelector(`.cell[data-x="${cell.x}"][data-y="${cell.y}"]`);
-                    if (domCell) {
-                        domCell.className = 'cell';
-                    }
-                });
-                
-                // Calculate massive bomb bonus score
-                const bombBonus = explosionCells.length * 25 * level; // Higher multiplier for bomb
+                for (let i = 0; i < explosionCells.length; i++) {
+                    const c = explosionCells[i];
+                    board[c.y][c.x] = null;
+                    const domCell = boardCells[c.y][c.x];
+                    if (domCell) domCell.className = 'cell';
+                }
+
+                // Bomb score bonus
+                const bombBonus = explosionCells.length * 25 * level;
                 score += bombBonus;
                 scoreEl.textContent = score;
-                
-                // Add animation to score
+
                 scoreEl.classList.add('score-animation');
                 setTimeout(() => scoreEl.classList.remove('score-animation'), 500);
-                
-                // Apply gravity after explosion
-                setTimeout(() => {
-                    applyGravity();
-                }, 100);
-                
-            }, 500); // Longer delay for bomb explosion
+
+                setTimeout(applyGravity, 100);
+            }, 500);
         }
         
         // Activate snake trail animation
         function activateSnake(startX, startY) {
-            console.log(`Snake activated at (${startX}, ${startY})`);
-            
-            // Play snake trail sound
+            debugLog(`Snake activated at (${startX}, ${startY})`);
+
             playSound('snakeTrail');
-            
+
             // Remove the snake block from the board
             board[startY][startX] = null;
-            const snakeCell = gameBoard.querySelector(`.cell[data-x="${startX}"][data-y="${startY}"]`);
-            if (snakeCell) {
-                snakeCell.className = 'cell';
-            }
+            const snakeCell = boardCells[startY][startX];
+            if (snakeCell) snakeCell.className = 'cell';
             
             // Generate a path through all filled blocks on the board
             const allBlocks = [];
@@ -2698,7 +2665,7 @@
             }
             
             if (allBlocks.length === 0) {
-                console.log('No blocks to recolor, snake disappears');
+                debugLog('No blocks to recolor, snake disappears');
                 return;
             }
             
@@ -2731,93 +2698,93 @@
             const totalAnimationTime = 5000; // 5 seconds
             const stepInterval = Math.max(50, totalAnimationTime / (allBlocks.length + snakeLength * 2));
             
-            console.log(`Snake will visit ${allBlocks.length} blocks over ${totalAnimationTime}ms with ${stepInterval}ms per step`);
+            debugLog(`Snake will visit ${allBlocks.length} blocks over ${totalAnimationTime}ms with ${stepInterval}ms per step`);
             
+            // Pre-create and reuse trail segment DOM nodes instead of
+            // recreating them every step.
+            const trailNodes = [];
+            for (let i = 0; i < snakeLength; i++) {
+                const n = document.createElement('div');
+                n.className = 'snake-trail';
+                n.style.position = 'absolute';
+                n.style.width = `${100 / COLS}%`;
+                n.style.height = `${100 / ROWS}%`;
+                n.style.borderRadius = '50%';
+                n.style.transform = 'rotate(45deg)';
+                n.style.pointerEvents = 'none';
+                n.style.zIndex = '15';
+                n.style.animation = 'snakeGlow 0.3s ease-in-out';
+                n.style.background = i === 0
+                    ? 'radial-gradient(circle, rgba(0, 255, 136, 0.9) 0%, rgba(0, 102, 68, 0.7) 50%, transparent 70%)'
+                    : `radial-gradient(circle, rgba(0, 255, 136, ${0.6 - i * 0.1}) 0%, transparent 70%)`;
+                n.style.display = 'none';
+                gameEffects.appendChild(n);
+                trailNodes.push(n);
+            }
+
             // Function to update snake position and recolor blocks
             function moveSnake() {
-                // Clear previous snake trail visuals
-                document.querySelectorAll('.snake-trail').forEach(element => {
-                    element.remove();
-                });
-                
                 // Move snake forward
                 if (currentBlockIndex < allBlocks.length) {
                     const targetBlock = allBlocks[currentBlockIndex];
-                    
+
                     // Move each segment of the snake
                     for (let i = snakeLength - 1; i > 0; i--) {
-                        snakeTrail[i] = {...snakeTrail[i - 1]};
+                        snakeTrail[i] = { ...snakeTrail[i - 1] };
                     }
-                    
+
                     // Head moves to current target
-                    snakeTrail[0] = {x: targetBlock.x, y: targetBlock.y, visible: true};
-                    
+                    snakeTrail[0] = { x: targetBlock.x, y: targetBlock.y, visible: true };
+
                     // Recolor the block randomly
                     const normalColors = ['red', 'blue', 'green', 'yellow'];
                     const newColor = normalColors[Math.floor(Math.random() * normalColors.length)];
                     board[targetBlock.y][targetBlock.x] = newColor;
-                    
-                    // Update DOM
-                    const cell = gameBoard.querySelector(`.cell[data-x="${targetBlock.x}"][data-y="${targetBlock.y}"]`);
-                    if (cell) {
-                        cell.className = `cell ${newColor} filled`;
-                    }
-                    
+
+                    const cell = boardCells[targetBlock.y][targetBlock.x];
+                    if (cell) cell.className = `cell ${newColor} filled`;
+
                     currentBlockIndex++;
                 } else {
                     // Snake is exiting - move towards exit edge
                     const exitEdges = [
-                        {x: -2, y: snakeTrail[0].y}, // Exit left
-                        {x: COLS + 1, y: snakeTrail[0].y}, // Exit right
-                        {x: snakeTrail[0].x, y: -2}, // Exit top
-                        {x: snakeTrail[0].x, y: ROWS + 1} // Exit bottom
+                        { x: -2, y: snakeTrail[0].y },
+                        { x: COLS + 1, y: snakeTrail[0].y },
+                        { x: snakeTrail[0].x, y: -2 },
+                        { x: snakeTrail[0].x, y: ROWS + 1 }
                     ];
-                    
                     const exitEdge = exitEdges[Math.floor(Math.random() * exitEdges.length)];
-                    
-                    // Move snake towards exit
                     for (let i = snakeLength - 1; i > 0; i--) {
-                        snakeTrail[i] = {...snakeTrail[i - 1]};
+                        snakeTrail[i] = { ...snakeTrail[i - 1] };
                     }
-                    snakeTrail[0] = {x: exitEdge.x, y: exitEdge.y, visible: false};
+                    snakeTrail[0] = { x: exitEdge.x, y: exitEdge.y, visible: false };
                 }
-                
-                // Draw snake trail
-                snakeTrail.forEach((segment, index) => {
-                    if (segment.visible && segment.x >= 0 && segment.x < COLS && segment.y >= 0 && segment.y < ROWS) {
-                        const trailEffect = document.createElement('div');
-                        trailEffect.className = 'snake-trail';
-                        trailEffect.style.position = 'absolute';
-                        trailEffect.style.left = `${(segment.x * 100) / COLS}%`;
-                        trailEffect.style.top = `${(segment.y * 100) / ROWS}%`;
-                        trailEffect.style.width = `${100 / COLS}%`;
-                        trailEffect.style.height = `${100 / ROWS}%`;
-                        trailEffect.style.background = index === 0 ? 
-                            'radial-gradient(circle, rgba(0, 255, 136, 0.9) 0%, rgba(0, 102, 68, 0.7) 50%, transparent 70%)' :
-                            `radial-gradient(circle, rgba(0, 255, 136, ${0.6 - index * 0.1}) 0%, transparent 70%)`;
-                        trailEffect.style.borderRadius = '50%';
-                        trailEffect.style.transform = 'rotate(45deg)';
-                        trailEffect.style.pointerEvents = 'none';
-                        trailEffect.style.zIndex = '15';
-                        trailEffect.style.animation = `snakeGlow 0.3s ease-in-out`;
-                        
-                        gameEffects.appendChild(trailEffect);
+
+                // Position existing trail nodes instead of recreating them.
+                for (let i = 0; i < snakeLength; i++) {
+                    const segment = snakeTrail[i];
+                    const node = trailNodes[i];
+                    if (segment.visible &&
+                        segment.x >= 0 && segment.x < COLS &&
+                        segment.y >= 0 && segment.y < ROWS) {
+                        node.style.left = `${(segment.x * 100) / COLS}%`;
+                        node.style.top = `${(segment.y * 100) / ROWS}%`;
+                        node.style.display = '';
+                    } else {
+                        node.style.display = 'none';
                     }
-                });
-                
+                }
+
                 // Continue animation or end
                 if (currentBlockIndex < allBlocks.length + snakeLength) {
                     setTimeout(moveSnake, stepInterval);
                 } else {
-                    // Snake animation complete
-                    console.log('Snake trail animation complete');
-                    // Clean up any remaining visual effects
+                    debugLog('Snake trail animation complete');
                     setTimeout(() => {
-                        document.querySelectorAll('.snake-trail').forEach(element => {
-                            element.remove();
-                        });
-                        
-                        // Apply gravity after snake finishes
+                        for (let i = 0; i < trailNodes.length; i++) {
+                            const node = trailNodes[i];
+                            if (node.parentNode) node.parentNode.removeChild(node);
+                        }
                         applyGravity();
                     }, 500);
                 }
@@ -2830,36 +2797,21 @@
         // Handle grid click for matching
         function handleGridClick(event) {
             if (gameOver) return;
-            
-            // Get the clicked element and traverse up to find a cell
-            let cell = event.target;
-            
-            // If clicked on pseudo-element (::before), get the parent cell
-            while (cell && !cell.classList.contains('cell')) {
-                cell = cell.parentElement;
-                if (!cell || cell === gameContainer) {
-                    return; // No valid cell found
-                }
-            }
-            
-            // Must be a filled cell from the board layer
-            if (!cell || !cell.classList.contains('filled')) return;
-            
-            // Get coordinates
-            const x = parseInt(cell.dataset.x);
-            const y = parseInt(cell.dataset.y);
-            
-            // Validate coordinates
-            if (isNaN(x) || isNaN(y) || x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
-            
-            // Must have a color in the board data
-            if (!board[y][x]) return;
-            
-            // Find matching colors from board data (more reliable than DOM classes)
+
+            // Walk up from the click target to the nearest filled board cell.
+            const cell = event.target && event.target.closest
+                ? event.target.closest('.cell.filled')
+                : null;
+            if (!cell || !gameBoard.contains(cell)) return;
+
+            const x = +cell.dataset.x;
+            const y = +cell.dataset.y;
+            if (!(x >= 0 && x < COLS && y >= 0 && y < ROWS)) return;
+
             const color = board[y][x];
-            if (!COLORS.includes(color)) return;
-            
-            console.log(`Clicked cell at (${x}, ${y}) with color: ${color}`);
+            if (!color || !COLORS.includes(color)) return;
+
+            debugLog(`Clicked cell at (${x}, ${y}) with color: ${color}`);
             
             // Special handling for bomb clicks
             if (color === 'bomb') {
@@ -2890,115 +2842,58 @@
                 matchesToRemove = verticalMatches;
             }
             
-            console.log(`Found ${matchesToRemove.length} matches to remove`);
-            
-            // If we have matches to remove
-            if (matchesToRemove.length >= 4) {
-                // Play color match sound
-                playSound('colorMatch');
-                
-                // Check for special piece creation
-                let bombCreated = false;
-                let snakeCreated = false;
-                
-                if (matchesToRemove.length >= 5) {
-                    // 5+ match creates bomb at center
-                    const centerIndex = Math.floor(matchesToRemove.length / 2);
-                    const centerPos = matchesToRemove[centerIndex];
-                    bombCreated = true;
-                    
-                    console.log(`Creating bomb at center position (${centerPos.x}, ${centerPos.y})`);
-                } else if (matchesToRemove.length === 4) {
-                    // 4-match creates snake at a random position within the match
-                    const randomIndex = Math.floor(Math.random() * matchesToRemove.length);
-                    const snakePos = matchesToRemove[randomIndex];
-                    snakeCreated = true;
-                    
-                    console.log(`Creating snake at position (${snakePos.x}, ${snakePos.y})`);
-                }
-                
-                // Highlight matched cells
-                matchesToRemove.forEach(match => {
-                    const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
-                    if (cell) {
-                        cell.classList.add('highlight');
-                    }
-                });
-                
-                // Add explosion effects to each matched cell
-                matchesToRemove.forEach(match => {
-                    addExplosionEffect(match.x, match.y, color);
-                });
-                
-                // Remove matches after a delay
-                setTimeout(() => {
-                    if (bombCreated && matchesToRemove.length >= 5) {
-                        // Place bomb at center position
-                        const centerIndex = Math.floor(matchesToRemove.length / 2);
-                        const centerPos = matchesToRemove[centerIndex];
-                        
-                        // Remove all matches first
-                        matchesToRemove.forEach(match => {
-                            board[match.y][match.x] = null;
-                            const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
-                            if (cell) {
-                                cell.className = 'cell';
-                            }
-                        });
-                        
-                        // Place bomb at center
-                        board[centerPos.y][centerPos.x] = 'bomb';
-                        const bombCell = gameBoard.querySelector(`.cell[data-x="${centerPos.x}"][data-y="${centerPos.y}"]`);
-                        if (bombCell) {
-                            bombCell.className = 'cell bomb filled';
-                        }
-                    } else if (snakeCreated && matchesToRemove.length === 4) {
-                        // Place snake at random position within the match
-                        const randomIndex = Math.floor(Math.random() * matchesToRemove.length);
-                        const snakePos = matchesToRemove[randomIndex];
-                        
-                        // Remove all matches first
-                        matchesToRemove.forEach(match => {
-                            board[match.y][match.x] = null;
-                            const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
-                            if (cell) {
-                                cell.className = 'cell';
-                            }
-                        });
-                        
-                        // Place snake at chosen position
-                        board[snakePos.y][snakePos.x] = 'snake';
-                        const snakeCell = gameBoard.querySelector(`.cell[data-x="${snakePos.x}"][data-y="${snakePos.y}"]`);
-                        if (snakeCell) {
-                            snakeCell.className = 'cell snake filled';
-                        }
-                    } else {
-                        // Normal match removal
-                        matchesToRemove.forEach(match => {
-                            board[match.y][match.x] = null;
-                            const cell = gameBoard.querySelector(`.cell[data-x="${match.x}"][data-y="${match.y}"]`);
-                            if (cell) {
-                                cell.className = 'cell';
-                            }
-                        });
-                    }
-                    
-                    // Add score
-                    const points = matchesToRemove.length * 10 * level;
-                    score += points;
-                    scoreEl.textContent = score;
-                    
-                    // Add animation to score
-                    scoreEl.classList.add('score-animation');
-                    setTimeout(() => scoreEl.classList.remove('score-animation'), 500);
-                    
-                    // Apply gravity to make remaining pieces fall
-                    setTimeout(() => {
-                        applyGravity();
-                    }, 100);
-                    
-                }, 300);
+            debugLog(`Found ${matchesToRemove.length} matches to remove`);
+
+            if (matchesToRemove.length < 4) return;
+
+            playSound('colorMatch');
+
+            // Decide on any special piece that replaces the removed run.
+            let specialColor = null;
+            let specialPos = null;
+            if (matchesToRemove.length >= 5) {
+                specialColor = 'bomb';
+                specialPos = matchesToRemove[Math.floor(matchesToRemove.length / 2)];
+                debugLog(`Creating bomb at (${specialPos.x}, ${specialPos.y})`);
+            } else if (matchesToRemove.length === 4) {
+                specialColor = 'snake';
+                specialPos = matchesToRemove[Math.floor(Math.random() * matchesToRemove.length)];
+                debugLog(`Creating snake at (${specialPos.x}, ${specialPos.y})`);
             }
+
+            // Highlight + add explosion effects in a single pass.
+            for (let i = 0; i < matchesToRemove.length; i++) {
+                const m = matchesToRemove[i];
+                const domCell = boardCells[m.y][m.x];
+                if (domCell) domCell.classList.add('highlight');
+                addExplosionEffect(m.x, m.y, color);
+            }
+
+            setTimeout(() => {
+                // Remove all matched cells using cached refs.
+                for (let i = 0; i < matchesToRemove.length; i++) {
+                    const m = matchesToRemove[i];
+                    board[m.y][m.x] = null;
+                    const domCell = boardCells[m.y][m.x];
+                    if (domCell) domCell.className = 'cell';
+                }
+
+                // Drop in any special piece.
+                if (specialColor && specialPos) {
+                    board[specialPos.y][specialPos.x] = specialColor;
+                    const sCell = boardCells[specialPos.y][specialPos.x];
+                    if (sCell) sCell.className = `cell ${specialColor} filled`;
+                }
+
+                // Add score
+                const points = matchesToRemove.length * 10 * level;
+                score += points;
+                scoreEl.textContent = score;
+                scoreEl.classList.add('score-animation');
+                setTimeout(() => scoreEl.classList.remove('score-animation'), 500);
+
+                setTimeout(applyGravity, 100);
+            }, 300);
         }
         
         // Add explosion effect to effects layer
@@ -3126,31 +3021,30 @@
         // Initialize explosion CSS
         addExplosionCSS();
         
-        // Redraw the entire board using layered system
+        // Redraw the entire board using layered system.
+        // Uses cached cell references and skips cells whose rendered state is
+        // already correct, which avoids re-applying heavy .filled box-shadows.
         function redrawBoard() {
-            // Redraw board layer (locked pieces only)
             for (let y = 0; y < ROWS; y++) {
+                const rowCells = boardCells[y];
+                const rowState = board[y];
                 for (let x = 0; x < COLS; x++) {
-                    const cell = gameBoard.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
-                    if (cell) {
-                        cell.className = 'cell';
-                        if (board[y][x]) {
-                            cell.classList.add(board[y][x], 'filled');
-                        }
-                    }
+                    const cell = rowCells[x];
+                    if (!cell) continue;
+                    const color = rowState[x];
+                    const desired = color ? `cell filled ${color}` : 'cell';
+                    if (cell.className !== desired) cell.className = desired;
                 }
             }
-            
-            // Redraw active piece on its own layer
-            if (currentPiece) {
-                drawPiece();
-            }
+
+            // The active-piece overlay is handled independently.
+            if (currentPiece) drawPiece();
         }
         
         // End the game
         function endGame() {
-            console.log('ENDGAME TRIGGERED!');
-            console.log('Setting gameOver = true');
+            debugLog('ENDGAME TRIGGERED!');
+            debugLog('Setting gameOver = true');
             gameOver = true;
             
             // Play game over sound
@@ -3172,7 +3066,7 @@
         // Save score to high scores
         function saveScore(score) {
             const playerName = playerNameInput.value.trim() || 'Pilot';
-            console.log(`Saving score: ${score} for player: ${playerName}`);
+            debugLog(`Saving score: ${score} for player: ${playerName}`);
             
             highScores.push({name: playerName, score: score});
             highScores.sort((a, b) => b.score - a.score);
