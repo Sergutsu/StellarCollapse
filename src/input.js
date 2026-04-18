@@ -1,0 +1,45 @@
+// Keyboard + click wiring. Translates raw DOM events into GameState verbs.
+// Stays in one small file so changing the control scheme (or adding a
+// touch layer later) doesn't touch state or view internals.
+
+import { COLS, ROWS } from './constants.js';
+
+export function bindInput({ state, elements }) {
+    document.addEventListener('keydown', (event) => {
+        if (state.gameOver) return;
+        switch (event.key) {
+            case 'ArrowLeft':
+                event.preventDefault();
+                state.move(-1, 0);
+                break;
+            case 'ArrowRight':
+                event.preventDefault();
+                state.move(1, 0);
+                break;
+            case 'ArrowDown':
+                event.preventDefault();
+                state.move(0, 1);
+                break;
+            case 'ArrowUp':
+                event.preventDefault();
+                state.rotate();
+                break;
+            case ' ':
+                event.preventDefault();
+                state.hardDrop();
+                break;
+        }
+    });
+
+    elements.container.addEventListener('click', (event) => {
+        if (state.gameOver) return;
+        const cell = event.target && event.target.closest
+            ? event.target.closest('.cell.filled')
+            : null;
+        if (!cell || !elements.board.contains(cell)) return;
+        const x = Number(cell.dataset.x);
+        const y = Number(cell.dataset.y);
+        if (!(x >= 0 && x < COLS && y >= 0 && y < ROWS)) return;
+        state.clickCell(x, y);
+    });
+}
