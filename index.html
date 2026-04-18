@@ -6,6 +6,17 @@
     <title>Stellar Collapse - Cosmic Block Puzzle</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Pixi.js via ESM import map so `import { Application } from 'pixi.js'`
+         resolves to the CDN bundle. Keeps the no-build deploy flow intact;
+         GitHub Pages serves the HTML verbatim and the browser fetches
+         pixi.mjs on first load. -->
+    <script type="importmap">
+    {
+        "imports": {
+            "pixi.js": "https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.mjs"
+        }
+    }
+    </script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
