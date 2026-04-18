@@ -184,37 +184,12 @@
             opacity: 0.6;
         }
         
-        .game-grid-background::after {
-            content: '';
-            position: absolute;
-            top: -30%;
-            left: -30%;
-            width: 160%;
-            height: 160%;
-            background: linear-gradient(
-                45deg,
-                transparent 0%,
-                transparent 48%,
-                rgba(0, 212, 255, 0.3) 49%,
-                rgba(0, 212, 255, 0.5) 50%,
-                rgba(0, 212, 255, 0.3) 51%,
-                transparent 52%,
-                transparent 100%
-            );
-            mix-blend-mode: overlay;
-            animation: gridScan 12s linear infinite;
-            pointer-events: none;
-            opacity: 0.4;
-        }
-        
-        @keyframes gridScan {
-            0% {
-                transform: translate(-30%, -30%);
-            }
-            100% {
-                transform: translate(30%, 30%);
-            }
-        }
+        /* Previously the background layer rendered a 45deg "scanner line"
+           pseudo-element via mix-blend-mode: overlay + a translate
+           animation. The blend mode produced visible gaps where the line
+           crossed filled cells and the animation chewed compositing
+           budget for a purely decorative touch. Dropped entirely -- the
+           static ::before grid pattern is enough of a vibe. */
         
         /* Layer 2: Board state (locked pieces).
            Integer-pixel cell sizes (30px) with zero gap keep both grid layers
@@ -645,207 +620,145 @@
             z-index: 1;
         }
         
+        /* Previews (NEXT + COMING UP) render as real 4x4 board cells so
+           the upcoming piece looks identical to the pieces on the board.
+           Integer 30px cells with gap: 0 mirror the main grid. */
         .preview {
+            box-sizing: content-box;
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            grid-template-rows: repeat(4, 1fr);
+            grid-template-columns: repeat(4, 30px);
+            grid-template-rows: repeat(4, 30px);
+            gap: 0;
             width: 120px;
             height: 120px;
             border: 2px solid #00d4ff;
-            background: 
+            background:
                 radial-gradient(circle at 20% 20%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
                 linear-gradient(135deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 20, 40, 0.9) 100%);
-            box-shadow: 
+            box-shadow:
                 0 0 20px rgba(0, 212, 255, 0.4),
                 inset 0 0 15px rgba(0, 212, 255, 0.1);
             border-radius: 6px;
-            position: relative;
         }
-        
-        .preview::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: 
-                repeating-linear-gradient(
-                    0deg,
-                    transparent 0px,
-                    rgba(0, 212, 255, 0.03) 1px,
-                    transparent 2px
-                ),
-                repeating-linear-gradient(
-                    90deg,
-                    transparent 0px,
-                    rgba(0, 212, 255, 0.03) 1px,
-                    transparent 2px
-                );
-            pointer-events: none;
-            border-radius: 4px;
-        }
-        
-        .preview-cell {
-            background: rgba(0, 212, 255, 0.02);
-            border: 1px solid rgba(0, 212, 255, 0.08);
-            border-radius: 2px;
-        }
-        
+
         .preview-small {
+            box-sizing: content-box;
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            grid-template-rows: repeat(4, 1fr);
-            width: 120px;
-            height: 120px;
+            grid-template-columns: repeat(4, 22px);
+            grid-template-rows: repeat(4, 22px);
+            gap: 0;
+            width: 88px;
+            height: 88px;
             border: 1px solid #00d4ff;
-            background: 
+            background:
                 radial-gradient(circle at 20% 20%, rgba(0, 212, 255, 0.08) 0%, transparent 50%),
                 linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 20, 40, 0.7) 100%);
-            box-shadow: 
+            box-shadow:
                 0 0 10px rgba(0, 212, 255, 0.2),
                 inset 0 0 8px rgba(0, 212, 255, 0.05);
             border-radius: 4px;
-            position: relative;
+        }
+
+        /* Shrink the small previews' cell font so the 22px cells don't
+           get cropped by the normal 16px board-cell emoji. The larger
+           NEXT preview keeps the board's native font-size. */
+        .preview-small .cell.preview-slot::before {
+            font-size: 11px;
         }
         
-        .preview-small::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: 
-                repeating-linear-gradient(
-                    0deg,
-                    transparent 0px,
-                    rgba(0, 212, 255, 0.02) 1px,
-                    transparent 2px
-                ),
-                repeating-linear-gradient(
-                    90deg,
-                    transparent 0px,
-                    rgba(0, 212, 255, 0.02) 1px,
-                    transparent 2px
-                );
-            pointer-events: none;
-            border-radius: 3px;
-        }
-        
-        .preview-small-cell {
-            background: rgba(0, 212, 255, 0.01);
-            border: 1px solid rgba(0, 212, 255, 0.05);
-            border-radius: 1px;
-            font-size: 8px;
-        }
-        
-        /* Color styles for preview cells */
-        .preview-cell.red, .preview-small-cell.red {
-            background: radial-gradient(circle at 30% 30%, #ff6b4a, #cc2200);
+        /* Previews used to have their own color styles; they now reuse
+           `.cell` so every color/emoji treatment lives in a single place. */
+
+        /* Start-screen toggle rows (mode + piece complexity). */
+        .toggle-row {
             display: flex;
-            align-items: center;
+            gap: 8px;
             justify-content: center;
-            color: rgba(255, 255, 255, 0.9);
+            flex-wrap: wrap;
         }
-        
-        .preview-cell.red::before, .preview-small-cell.red::before {
-            content: '🔥';
+
+        .toggle-btn {
+            flex: 1 1 0;
+            min-width: 110px;
+            padding: 8px 12px;
+            border: 1px solid rgba(0, 212, 255, 0.4);
+            background: rgba(0, 20, 40, 0.7);
+            color: #9ae6ff;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+        }
+
+        .toggle-btn:hover {
+            border-color: #00d4ff;
+            color: #e0f7ff;
+        }
+
+        .toggle-btn.active {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.35), rgba(255, 0, 128, 0.25));
+            border-color: #00d4ff;
+            color: #ffffff;
+            box-shadow: 0 0 12px rgba(0, 212, 255, 0.45);
+        }
+
+        .toggle-label {
+            text-align: left;
             font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #67e8f9;
+            margin-bottom: 6px;
+            text-transform: uppercase;
         }
-        
-        .preview-small-cell.red::before {
-            font-size: 8px;
+
+        /* High-score tier tabs. The icon color comes from the per-tier
+           color defined in constants.js (set via inline style). */
+        .tier-tabs {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 6px;
+            margin-bottom: 12px;
         }
-        
-        .preview-cell.blue, .preview-small-cell.blue {
-            background: radial-gradient(circle at 35% 25%, #4a9eff, #0055cc);
+
+        .tier-tab {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            justify-content: center;
-            color: rgba(255, 255, 255, 0.9);
+            gap: 4px;
+            padding: 8px 4px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s, transform 0.15s;
         }
-        
-        .preview-cell.blue::before, .preview-small-cell.blue::before {
-            content: '💎';
-            font-size: 12px;
+
+        .tier-tab:hover {
+            transform: translateY(-1px);
         }
-        
-        .preview-small-cell.blue::before {
-            font-size: 8px;
+
+        .tier-tab.active {
+            background: rgba(0, 0, 0, 0.55);
+            border-color: currentColor;
+            box-shadow: 0 0 10px currentColor;
         }
-        
-        .preview-cell.green, .preview-small-cell.green {
-            background: radial-gradient(circle at 40% 30%, #4aff6b, #00cc22);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: rgba(255, 255, 255, 0.9);
+
+        .tier-tab .tier-icon {
+            font-size: 20px;
+            line-height: 1;
+            text-shadow: 0 0 10px currentColor;
         }
-        
-        .preview-cell.green::before, .preview-small-cell.green::before {
-            content: '🌟';
-            font-size: 12px;
+
+        .tier-tab .tier-short {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.85);
         }
-        
-        .preview-small-cell.green::before {
-            font-size: 8px;
-        }
-        
-        .preview-cell.yellow, .preview-small-cell.yellow {
-            background: radial-gradient(circle at 30% 40%, #ffeb4a, #cc9900);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: rgba(255, 255, 255, 0.9);
-        }
-        
-        .preview-cell.yellow::before, .preview-small-cell.yellow::before {
-            content: '⚡';
-            font-size: 12px;
-        }
-        
-        .preview-small-cell.yellow::before {
-            font-size: 8px;
-        }
-        
-        .preview-cell.bomb, .preview-small-cell.bomb {
-            background: radial-gradient(circle at 30% 30%, #ff4444, #990000);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: rgba(255, 255, 255, 0.9);
-            animation: bombPulse 1s ease-in-out infinite;
-        }
-        
-        .preview-cell.bomb::before, .preview-small-cell.bomb::before {
-            content: '💣';
-            font-size: 12px;
-        }
-        
-        .preview-small-cell.bomb::before {
-            font-size: 8px;
-        }
-        
-        .preview-cell.snake, .preview-small-cell.snake {
-            background: radial-gradient(circle at 30% 30%, #00ff88, #006644);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: rgba(255, 255, 255, 0.9);
-            animation: snakePulse 1.5s ease-in-out infinite;
-            transform: rotate(45deg);
-        }
-        
-        .preview-cell.snake::before, .preview-small-cell.snake::before {
-            content: '🐍';
-            font-size: 12px;
-            transform: rotate(-45deg);
-        }
-        
-        .preview-small-cell.snake::before {
-            font-size: 8px;
-        }
+
         
         .screen {
             transition: all 0.5s ease;
@@ -1019,14 +932,38 @@
                            placeholder="Pilot" maxlength="15" value="Pilot">
                 </div>
                 
-                <div class="instructions p-4 rounded-lg mb-6">
-                    <h2 class="text-xl font-bold mb-3 text-cyan-300">Mission Briefing</h2>
-                    <ul class="text-left text-gray-200 space-y-2">
-                        <li><i class="fas fa-rocket text-cyan-400 mr-2"></i> Standard stellar physics apply</li>
-                        <li><i class="fas fa-rocket text-cyan-400 mr-2"></i> Match 4 stellar fragments (horizontal or vertical) to trigger collapse</li>
-                        <li><i class="fas fa-rocket text-cyan-400 mr-2"></i> Complete stellar lines create massive explosions</li>
-                        <li><i class="fas fa-rocket text-cyan-400 mr-2"></i> Use SPACE to rotate, ARROWS to navigate</li>
-                    </ul>
+                <div class="instructions p-4 rounded-lg mb-6 text-left">
+                    <h2 class="text-xl font-bold mb-3 text-cyan-300 text-center">Mission Configuration</h2>
+
+                    <div class="mb-4">
+                        <div class="toggle-label"><i class="fas fa-gamepad mr-1"></i> Gameplay</div>
+                        <div class="toggle-row" id="modeToggle" role="radiogroup" aria-label="Gameplay mode">
+                            <button type="button" class="toggle-btn active" data-mode="classic" title="Manual click-to-match, just like the original">
+                                Classic
+                            </button>
+                            <button type="button" class="toggle-btn" data-mode="auto-match" title="4+ runs auto-clear when a piece locks">
+                                Auto-Match
+                            </button>
+                            <button type="button" class="toggle-btn" data-mode="tetris" title="Pure tetris: only full lines score">
+                                Tetris
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="toggle-label"><i class="fas fa-shapes mr-1"></i> Piece Complexity</div>
+                        <div class="toggle-row" id="complexityToggle" role="radiogroup" aria-label="Piece complexity">
+                            <button type="button" class="toggle-btn active" data-complexity="classic" title="7 standard tetrominoes, single color each">
+                                Classic
+                            </button>
+                            <button type="button" class="toggle-btn" data-complexity="mutated" title="15 shape pool, per-cell random colors">
+                                Mutated
+                            </button>
+                            <button type="button" class="toggle-btn" data-complexity="collapsed" title="Mutated pool + bombs + chaotic specials">
+                                Totally Collapsed
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 
                 <button id="startBtn" class="btn bg-gradient-to-r from-cyan-500 to-yellow-500 hover:from-cyan-400 hover:to-yellow-400 text-white font-bold py-3 px-8 rounded-full text-xl shadow-lg shadow-cyan-500/25">
@@ -1045,10 +982,16 @@
                 </div>
                 <!-- Content with higher z-index -->
                 <div class="relative z-10">
-                <h2 class="text-3xl font-bold mb-6 text-center text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-green-400 to-red-400">
+                <h2 class="text-3xl font-bold mb-4 text-center text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-yellow-400 to-red-500">
                     <i class="fas fa-medal"></i> STELLAR RANKINGS
                 </h2>
-                
+
+                <!-- Per-tier tab strip. Populated by main.js from
+                     HIGHSCORE_TIERS (easy -> hard, green -> red). -->
+                <div class="tier-tabs" id="tierTabs" role="tablist"></div>
+
+                <div class="mb-4 text-center text-xs text-cyan-300" id="tierLabel"></div>
+
                 <div class="mb-6">
                     <div class="flex justify-between border-b border-cyan-600 pb-2 mb-4 font-bold text-cyan-300">
                         <span>Rank</span>
@@ -1059,10 +1002,9 @@
                         <!-- Scores will be inserted here -->
                     </div>
                 </div>
-                
+
                 <div class="text-center text-cyan-400 text-sm">
-                    <p>Master stellar collapse chains for maximum points!</p>
-                    <p class="mt-2">Top 5 pilots are immortalized in the cosmos</p>
+                    <p>Each tier keeps its own top 5.</p>
                 </div>
                 </div> <!-- Close content wrapper -->
             </div>
@@ -1142,7 +1084,7 @@
                         <p class="flex items-center"><i class="fas fa-arrow-right text-yellow-300 mr-2 w-4"></i> Move Right</p>
                         <p class="flex items-center"><i class="fas fa-arrow-down text-yellow-300 mr-2 w-4"></i> Move Down</p>
                         <p class="flex items-center"><i class="fas fa-space-shuttle text-yellow-300 mr-2 w-4"></i> Drop</p>
-                        <p class="flex items-center"><i class="fas fa-mouse-pointer text-yellow-300 mr-2 w-4"></i> Match 4+ Colors</p>
+                        <p class="flex items-center" id="matchControlHint"><i class="fas fa-mouse-pointer text-yellow-300 mr-2 w-4"></i> Match 4+ Colors</p>
                     </div>
                 </div>
             </div>

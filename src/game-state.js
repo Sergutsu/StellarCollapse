@@ -10,7 +10,7 @@
 // with `move`, `rotate`, `hardDrop`, `clickCell`, and `tick`.
 
 import { Emitter } from './emitter.js';
-import { SHAPES, rotateMatrix } from './shapes.js';
+import { getShapePool, rotateMatrix } from './shapes.js';
 import {
     COLS as DEFAULT_COLS,
     ROWS as DEFAULT_ROWS,
@@ -27,6 +27,9 @@ import {
     SNAKE_LENGTH,
     SNAKE_TOTAL_MS,
     SNAKE_MIN_STEP_MS,
+    GAME_MODES,
+    PIECE_COMPLEXITY,
+    COLLAPSED_BOMB_CHANCE,
 } from './constants.js';
 
 // Animation timing for match removal / gravity. These are part of the
@@ -54,6 +57,8 @@ export class GameState extends Emitter {
         rows = DEFAULT_ROWS,
         rng = Math.random,
         schedule = immediateSchedule,
+        mode = GAME_MODES.CLASSIC,
+        complexity = PIECE_COMPLEXITY.MUTATED,
     } = {}) {
         super();
         this.cols = cols;
@@ -63,6 +68,8 @@ export class GameState extends Emitter {
         // (or synchronously, in the immediate/test case). It doesn't need
         // to return a cancellation handle.
         this.schedule = schedule;
+        this.mode = mode;
+        this.complexity = complexity;
 
         this.board = this._emptyBoard();
         this.score = 0;
@@ -74,6 +81,13 @@ export class GameState extends Emitter {
         this.currentPiece = null;
         this.nextPiece = null;
         this.pieceQueue = [];
+    }
+
+    // Let the UI reconfigure mode/complexity between runs without
+    // constructing a new state object. Safe to call only while gameOver.
+    configure({ mode, complexity } = {}) {
+        if (mode) this.mode = mode;
+        if (complexity) this.complexity = complexity;
     }
 
     _emptyBoard() {
@@ -120,17 +134,30 @@ export class GameState extends Emitter {
     // -------------------------------------------------------------------
 
     _createPiece() {
-        const type = Math.floor(this.rng() * SHAPES.length);
-        const shape = SHAPES[type].map((row) => row.slice());
+        const pool = getShapePool(this.complexity);
+        const type = Math.floor(this.rng() * pool.length);
+        const shape = pool[type].map((row) => row.slice());
         const colorMatrix = [];
+        // Classic complexity -> one color for the whole piece (keeps it
+        // obviously tetromino-ish). Mutated/Collapsed -> per-cell color.
+        const monochrome = this.complexity === PIECE_COMPLEXITY.CLASSIC;
+        const pieceColor = monochrome
+            ? NORMAL_COLORS[Math.floor(this.rng() * NORMAL_COLORS.length)]
+            : null;
+        const mayBomb = this.complexity === PIECE_COMPLEXITY.COLLAPSED;
         for (let y = 0; y < shape.length; y++) {
             colorMatrix[y] = [];
             for (let x = 0; x < shape[y].length; x++) {
-                if (shape[y][x]) {
-                    const color = NORMAL_COLORS[Math.floor(this.rng() * NORMAL_COLORS.length)];
-                    colorMatrix[y][x] = color;
-                } else {
+                if (!shape[y][x]) {
                     colorMatrix[y][x] = null;
+                    continue;
+                }
+                if (mayBomb && this.rng() < COLLAPSED_BOMB_CHANCE) {
+                    colorMatrix[y][x] = 'bomb';
+                } else if (monochrome) {
+                    colorMatrix[y][x] = pieceColor;
+                } else {
+                    colorMatrix[y][x] = NORMAL_COLORS[Math.floor(this.rng() * NORMAL_COLORS.length)];
                 }
             }
         }
@@ -310,7 +337,36 @@ export class GameState extends Emitter {
         const cleared = this._checkLines();
         if (cleared > 0) this._applyGravity();
         if (this.gameOver) return;
+        if (this.mode === GAME_MODES.AUTO_MATCH) this._autoMatchSweep();
         this._spawnNextPiece();
+    }
+
+    // Auto-Match mode: after a piece locks, find every 4+ run of same-color
+    // cells and trigger the same clear path a manual click would. Each run
+    // schedules its own animation/gravity via `schedule`, so chains play
+    // out visually similarly to rapid manual matching.
+    _autoMatchSweep() {
+        const visited = new Set();
+        for (let y = 0; y < this.rows; y++) {
+            for (let x = 0; x < this.cols; x++) {
+                const key = y * this.cols + x;
+                if (visited.has(key)) continue;
+                const color = this.board[y][x];
+                if (!color || color === 'bomb' || color === 'snake') continue;
+                const horizontal = this._findMatches(x, y, color, 1, 0);
+                const vertical = this._findMatches(x, y, color, 0, 1);
+                let run = null;
+                if (horizontal.length >= 4) run = horizontal;
+                else if (vertical.length >= 4) run = vertical;
+                if (!run) continue;
+                for (let i = 0; i < run.length; i++) {
+                    visited.add(run[i].y * this.cols + run[i].x);
+                }
+                // Trigger through the normal click path so all side effects
+                // (scoring, special-block spawn, events, gravity) match.
+                this.clickCell(run[0].x, run[0].y);
+            }
+        }
     }
 
     _spawnNextPiece() {
@@ -426,6 +482,12 @@ export class GameState extends Emitter {
         const color = this.board[y][x];
         if (!color) return { handled: false };
 
+        // Tetris mode: click-to-match is disabled entirely. Line clears are
+        // the only scoring path. Special cells (bomb/snake) can't form
+        // organically in this mode, but if they somehow exist we still
+        // ignore them for consistency.
+        if (this.mode === GAME_MODES.TETRIS) return { handled: false, kind: 'disabled' };
+
         if (color === 'bomb') {
             this._explodeBomb(x, y);
             return { handled: true, kind: 'bomb' };
@@ -442,13 +504,18 @@ export class GameState extends Emitter {
         else if (vertical.length >= 4) matches = vertical;
         if (matches.length < 4) return { handled: false };
 
+        // Specials (snake on 4-match, bomb on 5+ match) are a COLLAPSED-
+        // complexity mechanic. In classic/mutated complexities the match
+        // just clears cleanly and rewards the base points -- no chaos.
         let special = null;
-        if (matches.length >= 5) {
-            const pos = matches[Math.floor(matches.length / 2)];
-            special = { x: pos.x, y: pos.y, type: 'bomb' };
-        } else if (matches.length === 4) {
-            const pos = matches[Math.floor(this.rng() * matches.length)];
-            special = { x: pos.x, y: pos.y, type: 'snake' };
+        if (this.complexity === PIECE_COMPLEXITY.COLLAPSED) {
+            if (matches.length >= 5) {
+                const pos = matches[Math.floor(matches.length / 2)];
+                special = { x: pos.x, y: pos.y, type: 'bomb' };
+            } else if (matches.length === 4) {
+                const pos = matches[Math.floor(this.rng() * matches.length)];
+                special = { x: pos.x, y: pos.y, type: 'snake' };
+            }
         }
 
         this.emit('match-detected', { cells: matches, color, special });

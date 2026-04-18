@@ -12,7 +12,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GameState } from '../src/game-state.js';
-import { COLS, ROWS, LINE_POINTS } from '../src/constants.js';
+import { COLS, ROWS, LINE_POINTS, GAME_MODES, PIECE_COMPLEXITY } from '../src/constants.js';
+import { CLASSIC_SHAPES, MUTATED_SHAPES } from '../src/shapes.js';
 
 function mulberry32(seed) {
     let a = seed >>> 0;
@@ -25,10 +26,11 @@ function mulberry32(seed) {
     };
 }
 
-function makeState(seed = 1) {
+function makeState(seed = 1, opts = {}) {
     return new GameState({
         rng: mulberry32(seed),
         schedule: (fn) => fn(),
+        ...opts,
     });
 }
 
@@ -162,8 +164,8 @@ test('applyGravity compacts floating columns', () => {
     assert.equal(state.board[5][0], null);
 });
 
-test('clickCell on a 4-run triggers match-cleared, +40 score, snake spawn', () => {
-    const state = makeState(9);
+test('clickCell on a 4-run triggers match-cleared, +40 score, snake spawn (collapsed)', () => {
+    const state = makeState(9, { complexity: PIECE_COMPLEXITY.COLLAPSED });
     state.start();
     const baseline = { score: state.score, level: state.level };
     fillBoard(state, [
@@ -192,8 +194,8 @@ test('clickCell on a 4-run triggers match-cleared, +40 score, snake spawn', () =
     }
 });
 
-test('clickCell on a 5-run spawns a bomb at the middle', () => {
-    const state = makeState(11);
+test('clickCell on a 5-run spawns a bomb at the middle (collapsed)', () => {
+    const state = makeState(11, { complexity: PIECE_COMPLEXITY.COLLAPSED });
     state.start();
     fillBoard(state, ['bbbbb.....']);
     let cleared = null;
@@ -221,7 +223,7 @@ test('clickCell on a 3-run does nothing', () => {
 });
 
 test('clickCell on a bomb explodes a 5x5 area', () => {
-    const state = makeState(13);
+    const state = makeState(13, { complexity: PIECE_COMPLEXITY.COLLAPSED });
     state.start();
     // Put a bomb at (2, 18) surrounded by blocks; the board below/beside
     // it should all clear.
@@ -294,6 +296,147 @@ test('endGameEarly fires game-over once and clears currentPiece', () => {
     state.endGameEarly();
     assert.equal(count, 1);
     assert.equal(state.currentPiece, null);
+});
+
+// ---------------------------------------------------------------------------
+// Mode + complexity tests (added with the gameplay-mode feature).
+// ---------------------------------------------------------------------------
+
+test('mutated complexity does NOT spawn snake on a 4-match', () => {
+    const state = makeState(17, { complexity: PIECE_COMPLEXITY.MUTATED });
+    state.start();
+    fillBoard(state, ['rrrr......']);
+    let cleared = null;
+    state.on('match-cleared', (e) => { cleared = e; });
+    const result = state.clickCell(1, ROWS - 1);
+    assert.equal(result.kind, 'match');
+    assert.equal(result.matchLength, 4);
+    assert.equal(cleared.special, null, 'no snake in non-collapsed complexity');
+    for (let x = 0; x < 4; x++) {
+        assert.equal(state.board[ROWS - 1][x], null);
+    }
+});
+
+test('mutated complexity does NOT spawn bomb on a 5-match', () => {
+    const state = makeState(19, { complexity: PIECE_COMPLEXITY.MUTATED });
+    state.start();
+    fillBoard(state, ['bbbbb.....']);
+    let cleared = null;
+    state.on('match-cleared', (e) => { cleared = e; });
+    const result = state.clickCell(2, ROWS - 1);
+    assert.equal(result.kind, 'match');
+    assert.equal(result.matchLength, 5);
+    assert.equal(cleared.special, null, 'no bomb in non-collapsed complexity');
+});
+
+test('tetris mode ignores clickCell; score stays at 0', () => {
+    const state = makeState(23, {
+        mode: GAME_MODES.TETRIS,
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+    });
+    state.start();
+    fillBoard(state, ['rrrr......']);
+    const before = state.score;
+    const result = state.clickCell(1, ROWS - 1);
+    assert.equal(result.handled, false);
+    assert.equal(result.kind, 'disabled');
+    assert.equal(state.score, before);
+    // Cells are untouched -- no auto clearing from a click.
+    for (let x = 0; x < 4; x++) assert.equal(state.board[ROWS - 1][x], 'red');
+});
+
+test('auto-match mode auto-clears a 4+ run created by a locking piece', () => {
+    const state = makeState(29, {
+        mode: GAME_MODES.AUTO_MATCH,
+        complexity: PIECE_COMPLEXITY.CLASSIC,
+    });
+    state.start();
+    // Prefill the bottom row with three reds so that when a fourth-column
+    // red cell is locked in, auto-match should clear the full 4-run. We do
+    // this by directly placing a piece via _lockPiece mechanics:
+    state.board[ROWS - 1][0] = 'red';
+    state.board[ROWS - 1][1] = 'red';
+    state.board[ROWS - 1][2] = 'red';
+    // Stand up a fake 1x1 red piece at (3, ROWS-1) and lock it.
+    state.currentPiece = {
+        x: 3,
+        y: ROWS - 1,
+        shape: [[1]],
+        colorMatrix: [['red']],
+        type: 0,
+    };
+    const baseline = state.score;
+    state._lockPiece();
+    // After lock, the 4-run should have been auto-cleared and the bottom
+    // row should be empty. Score should have gained at least the 4-match
+    // reward (40 * level 1).
+    let filled = 0;
+    for (let x = 0; x < COLS; x++) if (state.board[ROWS - 1][x]) filled++;
+    assert.equal(filled, 0, 'auto-match should clear the run on lock');
+    assert.ok(state.score - baseline >= 40, `score should grow by >=40 (got ${state.score - baseline})`);
+});
+
+test('classic mode does NOT auto-match on lock (manual click still required)', () => {
+    const state = makeState(31, {
+        mode: GAME_MODES.CLASSIC,
+        complexity: PIECE_COMPLEXITY.CLASSIC,
+    });
+    state.start();
+    state.board[ROWS - 1][0] = 'red';
+    state.board[ROWS - 1][1] = 'red';
+    state.board[ROWS - 1][2] = 'red';
+    state.currentPiece = {
+        x: 3,
+        y: ROWS - 1,
+        shape: [[1]],
+        colorMatrix: [['red']],
+        type: 0,
+    };
+    const baseline = state.score;
+    state._lockPiece();
+    // Classic mode: run stays on the board until the player clicks it.
+    let filled = 0;
+    for (let x = 0; x < 4; x++) if (state.board[ROWS - 1][x] === 'red') filled++;
+    assert.equal(filled, 4);
+    assert.equal(state.score, baseline);
+});
+
+test('classic-complexity pieces are monochrome and drawn from the 7-tetromino pool', () => {
+    const state = makeState(37, { complexity: PIECE_COMPLEXITY.CLASSIC });
+    state.start();
+    for (let i = 0; i < 30; i++) {
+        const piece = state.currentPiece;
+        assert.ok(piece.type < CLASSIC_SHAPES.length,
+            `piece.type ${piece.type} should index into classic pool`);
+        let color = null;
+        for (let y = 0; y < piece.colorMatrix.length; y++) {
+            for (let x = 0; x < piece.colorMatrix[y].length; x++) {
+                const c = piece.colorMatrix[y][x];
+                if (!c) continue;
+                assert.notEqual(c, 'bomb', 'classic pieces never contain bombs');
+                if (color === null) color = c;
+                else assert.equal(c, color, 'classic piece should be monochrome');
+            }
+        }
+        state.hardDrop();
+        if (state.gameOver) break;
+    }
+});
+
+test('mutated-complexity pieces can draw from the full 15-shape pool', () => {
+    // With enough spawns a mutated state should see at least one shape
+    // that isn't in the classic 7-piece pool. Iterate until we either
+    // confirm it or exhaust a sensible budget.
+    const state = makeState(43, { complexity: PIECE_COMPLEXITY.MUTATED });
+    state.start();
+    let sawMutatedOnly = false;
+    for (let i = 0; i < 80 && !state.gameOver; i++) {
+        const type = state.currentPiece.type;
+        assert.ok(type < MUTATED_SHAPES.length);
+        if (type >= CLASSIC_SHAPES.length) { sawMutatedOnly = true; break; }
+        state.hardDrop();
+    }
+    assert.ok(sawMutatedOnly, 'expected at least one mutated-only shape across 80 spawns');
 });
 
 function sameMatrix(a, b) {
