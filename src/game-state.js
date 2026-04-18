@@ -12,8 +12,6 @@
 import { Emitter } from './emitter.js';
 import { getShapePool, rotateMatrix } from './shapes.js';
 import {
-    COLS as DEFAULT_COLS,
-    ROWS as DEFAULT_ROWS,
     NORMAL_COLORS,
     LINE_POINTS,
     MATCH_POINTS,
@@ -30,6 +28,8 @@ import {
     GAME_MODES,
     PIECE_COMPLEXITY,
     COLLAPSED_BOMB_CHANCE,
+    resolveFieldSize,
+    DEFAULT_FIELD_SIZE_ID,
 } from './constants.js';
 
 // Animation timing for match removal / gravity. These are part of the
@@ -53,16 +53,28 @@ function immediateSchedule(fn) {
 
 export class GameState extends Emitter {
     constructor({
-        cols = DEFAULT_COLS,
-        rows = DEFAULT_ROWS,
+        cols,
+        rows,
+        fieldSizeId = DEFAULT_FIELD_SIZE_ID,
         rng = Math.random,
         schedule = immediateSchedule,
         mode = GAME_MODES.STELLAR,
         complexity = PIECE_COMPLEXITY.MUTATED,
     } = {}) {
         super();
-        this.cols = cols;
-        this.rows = rows;
+        // Explicit cols/rows win (handy for unit tests that exercise
+        // gravity on a hand-rolled small grid); otherwise the size comes
+        // from the (complexity, fieldSizeId) lookup table.
+        if (Number.isFinite(cols) && Number.isFinite(rows)) {
+            this.cols = cols;
+            this.rows = rows;
+            this.fieldSizeId = fieldSizeId;
+        } else {
+            const resolved = resolveFieldSize(complexity, fieldSizeId);
+            this.cols = resolved.cols;
+            this.rows = resolved.rows;
+            this.fieldSizeId = resolved.id;
+        }
         this.rng = rng;
         // `schedule(fn, ms)` must call fn() at some point in the future
         // (or synchronously, in the immediate/test case). It doesn't need
@@ -83,11 +95,19 @@ export class GameState extends Emitter {
         this.pieceQueue = [];
     }
 
-    // Let the UI reconfigure mode/complexity between runs without
-    // constructing a new state object. Safe to call only while gameOver.
-    configure({ mode, complexity } = {}) {
+    // Let the UI reconfigure mode/complexity/field-size between runs
+    // without constructing a new state object. Safe to call only while
+    // gameOver.
+    configure({ mode, complexity, fieldSizeId } = {}) {
         if (mode) this.mode = mode;
         if (complexity) this.complexity = complexity;
+        if (fieldSizeId) this.fieldSizeId = fieldSizeId;
+        // Resolve grid size off whatever complexity + size we now have.
+        const resolved = resolveFieldSize(this.complexity, this.fieldSizeId);
+        this.cols = resolved.cols;
+        this.rows = resolved.rows;
+        this.fieldSizeId = resolved.id;
+        this.board = this._emptyBoard();
     }
 
     _emptyBoard() {
@@ -549,11 +569,11 @@ export class GameState extends Emitter {
         const color = this.board[y][x];
         if (!color) return { handled: false };
 
-        // Tetris mode: click-to-match is disabled entirely. Line clears are
+        // Blocks mode: click-to-match is disabled entirely. Line clears are
         // the only scoring path. Special cells (bomb/snake) can't form
         // organically in this mode, but if they somehow exist we still
         // ignore them for consistency.
-        if (this.mode === GAME_MODES.TETRIS) return { handled: false, kind: 'disabled' };
+        if (this.mode === GAME_MODES.BLOCKS) return { handled: false, kind: 'disabled' };
 
         if (color === 'bomb') {
             this._explodeBomb(x, y);

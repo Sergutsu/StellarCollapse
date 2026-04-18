@@ -12,8 +12,28 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GameState } from '../src/game-state.js';
-import { COLS, ROWS, LINE_POINTS, GAME_MODES, PIECE_COMPLEXITY } from '../src/constants.js';
+import {
+    LINE_POINTS,
+    GAME_MODES,
+    PIECE_COMPLEXITY,
+    FIELD_SIZES,
+    DEFAULT_FIELD_SIZE_ID,
+    resolveFieldSize,
+    HIGHSCORE_TIERS,
+    findTier,
+    BLOCK_SIZE_FOR,
+    BLOCK_SIZE,
+    MIN_BLOCK_SIZE,
+    MAX_BOARD_HEIGHT,
+} from '../src/constants.js';
 import { CLASSIC_SHAPES, MUTATED_SHAPES } from '../src/shapes.js';
+
+// Most legacy assertions were written against the historical 10x20
+// board. We pin that geometry for those tests by passing cols/rows
+// explicitly -- the default field sizes (driven by complexity) are
+// exercised in their own dedicated tests further down.
+const COLS = 10;
+const ROWS = 20;
 
 function mulberry32(seed) {
     let a = seed >>> 0;
@@ -28,6 +48,8 @@ function mulberry32(seed) {
 
 function makeState(seed = 1, opts = {}) {
     return new GameState({
+        cols: COLS,
+        rows: ROWS,
         rng: mulberry32(seed),
         schedule: (fn) => fn(),
         ...opts,
@@ -52,7 +74,7 @@ function fillBoard(state, layout) {
     }
 }
 
-test('start() populates a fresh 20x10 board and spawns a piece', () => {
+test('start() populates a fresh board at the configured size and spawns a piece', () => {
     const state = makeState(42);
     state.start();
     assert.equal(state.board.length, ROWS);
@@ -142,7 +164,7 @@ test('checkLines clears a full bottom row and awards LINE_POINTS[1] * level', ()
     assert.equal(foundBlue, true);
 });
 
-test('tetris (4 full rows) awards LINE_POINTS[4]', () => {
+test('four full rows in one clear award LINE_POINTS[4]', () => {
     const state = makeState(3);
     state.start();
     for (let y = ROWS - 4; y < ROWS; y++) {
@@ -329,9 +351,9 @@ test('mutated complexity does NOT spawn bomb on a 5-match', () => {
     assert.equal(cleared.special, null, 'no bomb in non-collapsed complexity');
 });
 
-test('tetris mode ignores clickCell; score stays at 0', () => {
+test('blocks mode ignores clickCell; score stays at 0', () => {
     const state = makeState(23, {
-        mode: GAME_MODES.TETRIS,
+        mode: GAME_MODES.BLOCKS,
         complexity: PIECE_COMPLEXITY.COLLAPSED,
     });
     state.start();
@@ -413,6 +435,8 @@ test('auto-match does NOT game-over when match is in the spawn zone', () => {
     // and spawned the next piece synchronously, so a 4-run near the top
     // would still be on the board during the spawn-collision check.
     const realTimeoutState = new GameState({
+        cols: COLS,
+        rows: ROWS,
         rng: mulberry32(51),
         // Production-style scheduler: defers via setTimeout. If the sweep
         // still deferred anything, the spawn check would see the match-cells.
@@ -582,6 +606,105 @@ test('default mode is STELLAR when none is supplied', () => {
     const state = makeState(101);
     assert.equal(state.mode, GAME_MODES.STELLAR);
     assert.equal(GAME_MODES.STELLAR, 'stellar');
+});
+
+// ---------------------------------------------------------------------------
+// Mode rename (Tetris -> Blocks) for copyright compliance.
+// ---------------------------------------------------------------------------
+
+test('GAME_MODES exposes BLOCKS (renamed from TETRIS) and no longer exposes TETRIS', () => {
+    assert.equal(GAME_MODES.BLOCKS, 'blocks');
+    assert.equal(GAME_MODES.TETRIS, undefined, 'TETRIS alias must be removed for copyright safety');
+});
+
+test('leaderboard tier ids use blocks-* (no tetris-* ids remain)', () => {
+    const ids = HIGHSCORE_TIERS.map((t) => t.id);
+    assert.ok(ids.includes('blocks-mutated'), 'blocks-mutated tier id missing');
+    assert.ok(ids.includes('blocks-collapsed'), 'blocks-collapsed tier id missing');
+    for (const id of ids) {
+        assert.ok(!/tetris/i.test(id), `tier id should not contain "tetris": ${id}`);
+    }
+    for (const t of HIGHSCORE_TIERS) {
+        assert.ok(!/tetris/i.test(t.label), `tier label should not contain "Tetris": ${t.label}`);
+    }
+});
+
+test('findTier maps BLOCKS mode to the correct blocks-* tier ids', () => {
+    const mutated = findTier(GAME_MODES.BLOCKS, PIECE_COMPLEXITY.MUTATED);
+    const collapsed = findTier(GAME_MODES.BLOCKS, PIECE_COMPLEXITY.COLLAPSED);
+    assert.equal(mutated && mutated.id, 'blocks-mutated');
+    assert.equal(collapsed && collapsed.id, 'blocks-collapsed');
+});
+
+// ---------------------------------------------------------------------------
+// Field sizes (3 per complexity; none use the original 10x20 grid).
+// ---------------------------------------------------------------------------
+
+test('FIELD_SIZES exposes 3 sizes per complexity and none of them are 10x20', () => {
+    for (const complexity of Object.values(PIECE_COMPLEXITY)) {
+        const sizes = FIELD_SIZES[complexity];
+        assert.ok(Array.isArray(sizes), `sizes missing for ${complexity}`);
+        assert.equal(sizes.length, 3, `expected 3 sizes for ${complexity}`);
+        const ids = sizes.map((s) => s.id);
+        assert.deepEqual(ids, ['small', 'medium', 'large']);
+        for (const s of sizes) {
+            assert.ok(s.cols > 0 && s.rows > 0, 'sizes must be positive');
+            assert.ok(!(s.cols === 10 && s.rows === 20), `10x20 is forbidden (got ${s.cols}x${s.rows} for ${complexity})`);
+        }
+    }
+});
+
+test('resolveFieldSize returns the medium entry when given an unknown size id', () => {
+    const r = resolveFieldSize(PIECE_COMPLEXITY.CLASSIC, 'does-not-exist');
+    assert.equal(r.id, DEFAULT_FIELD_SIZE_ID);
+    // Medium classic is 9x18 per FIELD_SIZES; assert from the table
+    // instead of hard-coding numbers so this stays in sync.
+    const medium = FIELD_SIZES[PIECE_COMPLEXITY.CLASSIC].find((s) => s.id === 'medium');
+    assert.equal(r.cols, medium.cols);
+    assert.equal(r.rows, medium.rows);
+});
+
+test('GameState constructor resolves cols/rows from (complexity, fieldSizeId)', () => {
+    const state = new GameState({
+        rng: mulberry32(1),
+        schedule: (fn) => fn(),
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+        fieldSizeId: 'large',
+    });
+    const expected = resolveFieldSize(PIECE_COMPLEXITY.COLLAPSED, 'large');
+    assert.equal(state.cols, expected.cols);
+    assert.equal(state.rows, expected.rows);
+    assert.equal(state.board.length, expected.rows);
+    assert.equal(state.board[0].length, expected.cols);
+});
+
+test('configure() rebuilds the board for the new field size', () => {
+    const state = new GameState({
+        rng: mulberry32(2),
+        schedule: (fn) => fn(),
+        complexity: PIECE_COMPLEXITY.CLASSIC,
+        fieldSizeId: 'small',
+    });
+    const smallExpected = resolveFieldSize(PIECE_COMPLEXITY.CLASSIC, 'small');
+    assert.equal(state.cols, smallExpected.cols);
+    state.configure({ complexity: PIECE_COMPLEXITY.MUTATED, fieldSizeId: 'large' });
+    const largeExpected = resolveFieldSize(PIECE_COMPLEXITY.MUTATED, 'large');
+    assert.equal(state.cols, largeExpected.cols);
+    assert.equal(state.rows, largeExpected.rows);
+    assert.equal(state.board.length, largeExpected.rows);
+    assert.equal(state.board[0].length, largeExpected.cols);
+});
+
+test('BLOCK_SIZE_FOR keeps the board within MAX_BOARD_HEIGHT and clamps to MIN_BLOCK_SIZE', () => {
+    // Short grid -> full-size blocks.
+    assert.equal(BLOCK_SIZE_FOR(10), BLOCK_SIZE);
+    // Tall grids shrink but never go below MIN_BLOCK_SIZE.
+    const tall = BLOCK_SIZE_FOR(28);
+    assert.ok(tall <= BLOCK_SIZE);
+    assert.ok(tall >= MIN_BLOCK_SIZE);
+    assert.ok(28 * tall <= MAX_BOARD_HEIGHT, `${28 * tall} should fit under ${MAX_BOARD_HEIGHT}`);
+    // Absurdly tall grid bottoms out at the floor, not below.
+    assert.equal(BLOCK_SIZE_FOR(1000), MIN_BLOCK_SIZE);
 });
 
 function sameMatrix(a, b) {

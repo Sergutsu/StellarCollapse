@@ -2,9 +2,20 @@
 // These are values that both the pure game-state module and the DOM view
 // module agree on. Nothing in this file should import from the DOM.
 
-export const COLS = 10;
-export const ROWS = 20;
+// Default block size in CSS pixels. Larger grids downscale this so the
+// board always fits the layout (see BLOCK_SIZE_FOR below).
 export const BLOCK_SIZE = 30;
+export const MIN_BLOCK_SIZE = 22;
+// Target maximum board height in CSS pixels; block size is clamped so
+// rows * block_size never exceeds this.
+export const MAX_BOARD_HEIGHT = 720;
+
+// Scale block size down for taller grids so the board doesn't overflow the
+// layout. Returns an integer >= MIN_BLOCK_SIZE.
+export function BLOCK_SIZE_FOR(rows) {
+    const fit = Math.floor(MAX_BOARD_HEIGHT / rows);
+    return Math.max(MIN_BLOCK_SIZE, Math.min(BLOCK_SIZE, fit));
+}
 
 // Colors that can appear on the board. The first four are the normal
 // block colors generated when a piece spawns; 'bomb' and 'snake' are only
@@ -48,11 +59,12 @@ export const SNAKE_MIN_STEP_MS = 50;
 // Gameplay mode: how color matches are triggered.
 //  - STELLAR   : player must click a 4+ run to clear (the original flow).
 //  - AUTO_MATCH: every 4+ run is auto-cleared when a piece locks.
-//  - TETRIS    : click-to-match is disabled entirely; only line clears score.
+//  - BLOCKS    : click-to-match is disabled entirely; only full horizontal
+//                line clears score. Pure block-stacking gameplay.
 export const GAME_MODES = Object.freeze({
     STELLAR: 'stellar',
     AUTO_MATCH: 'auto-match',
-    TETRIS: 'tetris',
+    BLOCKS: 'blocks',
 });
 
 // Piece complexity: which shape pool the RNG draws from, and whether each
@@ -109,22 +121,56 @@ export const HIGHSCORE_TIERS = Object.freeze([
         color: '#fb923c', // orange-400
     },
     {
-        id: 'tetris-mutated',
-        mode: GAME_MODES.TETRIS,
+        id: 'blocks-mutated',
+        mode: GAME_MODES.BLOCKS,
         complexity: PIECE_COMPLEXITY.MUTATED,
-        label: 'Tetris / Mutated',
-        short: 'T·M',
+        label: 'Blocks / Mutated',
+        short: 'B·M',
         color: '#f87171', // red-400
     },
     {
-        id: 'tetris-collapsed',
-        mode: GAME_MODES.TETRIS,
+        id: 'blocks-collapsed',
+        mode: GAME_MODES.BLOCKS,
         complexity: PIECE_COMPLEXITY.COLLAPSED,
-        label: 'Tetris / Collapsed',
-        short: 'T·X',
+        label: 'Blocks / Collapsed',
+        short: 'B·X',
         color: '#dc2626', // red-600
     },
 ]);
+
+// Three field sizes per piece complexity. None use the 10x20 grid.
+// Sizes were picked so pieces spawn centered, the widest shape in the pool
+// fits comfortably, and the board stays tall enough for meaningful stacking.
+// Each entry: { id, cols, rows, label }.
+export const FIELD_SIZES = Object.freeze({
+    [PIECE_COMPLEXITY.CLASSIC]: Object.freeze([
+        { id: 'small',  cols: 7,  rows: 14, label: 'Small  7x14' },
+        { id: 'medium', cols: 9,  rows: 18, label: 'Medium 9x18' },
+        { id: 'large',  cols: 12, rows: 22, label: 'Large  12x22' },
+    ]),
+    [PIECE_COMPLEXITY.MUTATED]: Object.freeze([
+        { id: 'small',  cols: 8,  rows: 16, label: 'Small  8x16' },
+        { id: 'medium', cols: 11, rows: 22, label: 'Medium 11x22' },
+        { id: 'large',  cols: 13, rows: 26, label: 'Large  13x26' },
+    ]),
+    [PIECE_COMPLEXITY.COLLAPSED]: Object.freeze([
+        { id: 'small',  cols: 9,  rows: 18, label: 'Small  9x18' },
+        { id: 'medium', cols: 12, rows: 24, label: 'Medium 12x24' },
+        { id: 'large',  cols: 15, rows: 28, label: 'Large  15x28' },
+    ]),
+});
+
+// Default field size id (applied per complexity). Medium is the balanced
+// starting point.
+export const DEFAULT_FIELD_SIZE_ID = 'medium';
+
+// Resolve a { cols, rows } for a complexity + size-id pair. Falls back to
+// the medium entry if anything is out of range.
+export function resolveFieldSize(complexity, sizeId) {
+    const list = FIELD_SIZES[complexity] || FIELD_SIZES[PIECE_COMPLEXITY.CLASSIC];
+    const pick = list.find((s) => s.id === sizeId) || list.find((s) => s.id === DEFAULT_FIELD_SIZE_ID) || list[0];
+    return { cols: pick.cols, rows: pick.rows, id: pick.id, label: pick.label };
+}
 
 // Look up a tier id from a (mode, complexity) pair. Returns null if the
 // combination isn't a ranked tier (the user can still play it, it just

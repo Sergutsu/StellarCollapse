@@ -95,6 +95,26 @@ test('renames legacy classic-* tier ids into stellar-* on load', () => {
     assert.equal(persisted['classic-mutated'], undefined);
 });
 
+test('renames legacy tetris-* tier ids into blocks-* on load', () => {
+    // Players who played under the old "Tetris" label should keep their
+    // scores under the renamed "Blocks" tier ids.
+    const storage = memStorage({
+        stellarCollapseScoresV2: JSON.stringify({
+            'tetris-mutated': [{ name: 'T1', score: 1200 }],
+            'tetris-collapsed': [{ name: 'T2', score: 3400 }],
+            'blocks-mutated': [{ name: 'B1', score: 800 }],
+        }),
+    });
+    const hs = new HighScores(storage);
+    const mutated = hs.top('blocks-mutated');
+    assert.equal(mutated.length, 2);
+    assert.equal(mutated[0].score, 1200);
+    assert.equal(hs.top('blocks-collapsed')[0].score, 3400);
+    const persisted = JSON.parse(storage._dump().stellarCollapseScoresV2);
+    assert.equal(persisted['tetris-mutated'], undefined);
+    assert.equal(persisted['tetris-collapsed'], undefined);
+});
+
 test('corrupt payload falls back to empty tiers without throwing', () => {
     const storage = memStorage({ stellarCollapseScoresV2: '{not json' });
     const hs = new HighScores(storage);

@@ -3,7 +3,7 @@
 // animations. It does not read game rules; anything it needs to know it
 // learns from event payloads.
 
-import { COLS, ROWS, SNAKE_LENGTH, PIECE_COMPLEXITY } from './constants.js';
+import { SNAKE_LENGTH, PIECE_COMPLEXITY, BLOCK_SIZE_FOR } from './constants.js';
 
 export class GameView {
     constructor({ state, elements }) {
@@ -32,13 +32,38 @@ export class GameView {
         this.activeCells = [];
         this.activePaintedCells = [];
 
+        const cols = this.state.cols;
+        const rows = this.state.rows;
+        // Make the grid dimensions drive the CSS so cell size, column count,
+        // and row count all stay in sync with the current field size.
+        const blockPx = BLOCK_SIZE_FOR(rows);
+        const applyGridStyle = (el) => {
+            el.style.gridTemplateColumns = `repeat(${cols}, ${blockPx}px)`;
+            el.style.gridTemplateRows = `repeat(${rows}, ${blockPx}px)`;
+            el.style.width = `${cols * blockPx}px`;
+            el.style.height = `${rows * blockPx}px`;
+        };
+        applyGridStyle(board);
+        applyGridStyle(active);
+        // The effects overlay is absolutely positioned inside the grid
+        // wrapper, so it just needs the same bounding box.
+        effects.style.width = `${cols * blockPx}px`;
+        effects.style.height = `${rows * blockPx}px`;
+        // Size the outer container to the grid so the glowing border,
+        // background gradient, and overflow-hidden clip all fit the
+        // chosen field size exactly.
+        if (this.el.container) {
+            this.el.container.style.width = `${cols * blockPx}px`;
+            this.el.container.style.height = `${rows * blockPx}px`;
+        }
+
         const boardFrag = document.createDocumentFragment();
         const activeFrag = document.createDocumentFragment();
 
-        for (let y = 0; y < ROWS; y++) {
+        for (let y = 0; y < rows; y++) {
             this.boardCells[y] = [];
             this.activeCells[y] = [];
-            for (let x = 0; x < COLS; x++) {
+            for (let x = 0; x < cols; x++) {
                 const boardCell = document.createElement('div');
                 boardCell.className = 'cell';
                 boardCell.dataset.x = String(x);
@@ -106,7 +131,7 @@ export class GameView {
                 if (!shape[y][x]) continue;
                 const bx = piece.x + x;
                 const by = piece.y + y;
-                if (by < 0 || bx < 0 || bx >= COLS || by >= ROWS) continue;
+                if (by < 0 || bx < 0 || bx >= this.state.cols || by >= this.state.rows) continue;
                 if (this.state.board[by][bx]) continue;
                 const cell = this.activeCells[by][bx];
                 cell.className = 'cell';
@@ -131,21 +156,23 @@ export class GameView {
         // gameplay routinely produces column gaps under locked pieces
         // (before a line clear), so the same scan would false-positive
         // there -- leave the floating array all-false in that case.
-        const floating = new Array(ROWS);
-        for (let y = 0; y < ROWS; y++) floating[y] = new Array(COLS).fill(false);
+        const cols = this.state.cols;
+        const rows = this.state.rows;
+        const floating = new Array(rows);
+        for (let y = 0; y < rows; y++) floating[y] = new Array(cols).fill(false);
         if (this.state.complexity === PIECE_COMPLEXITY.COLLAPSED) {
-            for (let x = 0; x < COLS; x++) {
+            for (let x = 0; x < cols; x++) {
                 let sawGap = false;
-                for (let y = ROWS - 1; y >= 0; y--) {
+                for (let y = rows - 1; y >= 0; y--) {
                     if (!this.state.board[y][x]) sawGap = true;
                     else if (sawGap) floating[y][x] = true;
                 }
             }
         }
-        for (let y = 0; y < ROWS; y++) {
+        for (let y = 0; y < rows; y++) {
             const rowCells = this.boardCells[y];
             const rowState = this.state.board[y];
-            for (let x = 0; x < COLS; x++) {
+            for (let x = 0; x < cols; x++) {
                 const cell = rowCells[x];
                 if (!cell) continue;
                 const color = rowState[x];
@@ -214,10 +241,10 @@ export class GameView {
         const effect = document.createElement('div');
         effect.className = 'explosion-effect';
         effect.style.position = 'absolute';
-        effect.style.left = `${(x * 100) / COLS}%`;
-        effect.style.top = `${(y * 100) / ROWS}%`;
-        effect.style.width = `${100 / COLS}%`;
-        effect.style.height = `${100 / ROWS}%`;
+        effect.style.left = `${(x * 100) / this.state.cols}%`;
+        effect.style.top = `${(y * 100) / this.state.rows}%`;
+        effect.style.width = `${100 / this.state.cols}%`;
+        effect.style.height = `${100 / this.state.rows}%`;
         effect.style.background = `radial-gradient(circle, ${this._colorGradient(color)} 0%, transparent 70%)`;
         effect.style.animation = 'explode 0.6s ease-out forwards';
         effect.style.pointerEvents = 'none';
@@ -232,10 +259,10 @@ export class GameView {
         const effect = document.createElement('div');
         effect.className = 'bomb-explosion-effect';
         effect.style.position = 'absolute';
-        effect.style.left = `${(x * 100) / COLS}%`;
-        effect.style.top = `${(y * 100) / ROWS}%`;
-        effect.style.width = `${100 / COLS}%`;
-        effect.style.height = `${100 / ROWS}%`;
+        effect.style.left = `${(x * 100) / this.state.cols}%`;
+        effect.style.top = `${(y * 100) / this.state.rows}%`;
+        effect.style.width = `${100 / this.state.cols}%`;
+        effect.style.height = `${100 / this.state.rows}%`;
         effect.style.background = 'radial-gradient(circle, rgba(255, 100, 0, 1) 0%, rgba(255, 200, 0, 0.8) 30%, transparent 70%)';
         effect.style.animation = 'bombExplode 0.8s ease-out forwards';
         effect.style.pointerEvents = 'none';
@@ -266,8 +293,8 @@ export class GameView {
             const n = document.createElement('div');
             n.className = 'snake-trail';
             n.style.position = 'absolute';
-            n.style.width = `${100 / COLS}%`;
-            n.style.height = `${100 / ROWS}%`;
+            n.style.width = `${100 / this.state.cols}%`;
+            n.style.height = `${100 / this.state.rows}%`;
             n.style.borderRadius = '50%';
             n.style.transform = 'rotate(45deg)';
             n.style.pointerEvents = 'none';
@@ -298,9 +325,9 @@ export class GameView {
             } else {
                 const exitEdges = [
                     { x: -2, y: trail[0].y },
-                    { x: COLS + 1, y: trail[0].y },
+                    { x: this.state.cols + 1, y: trail[0].y },
                     { x: trail[0].x, y: -2 },
-                    { x: trail[0].x, y: ROWS + 1 },
+                    { x: trail[0].x, y: this.state.rows + 1 },
                 ];
                 const exit = exitEdges[Math.floor(Math.random() * exitEdges.length)];
                 for (let i = segments - 1; i > 0; i--) trail[i] = { ...trail[i - 1] };
@@ -310,9 +337,9 @@ export class GameView {
             for (let i = 0; i < segments; i++) {
                 const seg = trail[i];
                 const node = trailNodes[i];
-                if (seg.visible && seg.x >= 0 && seg.x < COLS && seg.y >= 0 && seg.y < ROWS) {
-                    node.style.left = `${(seg.x * 100) / COLS}%`;
-                    node.style.top = `${(seg.y * 100) / ROWS}%`;
+                if (seg.visible && seg.x >= 0 && seg.x < this.state.cols && seg.y >= 0 && seg.y < this.state.rows) {
+                    node.style.left = `${(seg.x * 100) / this.state.cols}%`;
+                    node.style.top = `${(seg.y * 100) / this.state.rows}%`;
                     node.style.display = '';
                 } else {
                     node.style.display = 'none';
