@@ -124,6 +124,20 @@ export class GameView {
     // -------------------------------------------------------------------
 
     _redrawBoard() {
+        // A cell is "floating" if there is an empty cell anywhere below it
+        // in the same column. In COLLAPSED complexity, color-match and bomb
+        // clears never trigger gravity, so survivors can be visibly
+        // suspended until a snake run unlocks them. In other modes gravity
+        // always runs after any clear, so no cells end up marked floating.
+        const floating = new Array(ROWS);
+        for (let y = 0; y < ROWS; y++) floating[y] = new Array(COLS).fill(false);
+        for (let x = 0; x < COLS; x++) {
+            let sawGap = false;
+            for (let y = ROWS - 1; y >= 0; y--) {
+                if (!this.state.board[y][x]) sawGap = true;
+                else if (sawGap) floating[y][x] = true;
+            }
+        }
         for (let y = 0; y < ROWS; y++) {
             const rowCells = this.boardCells[y];
             const rowState = this.state.board[y];
@@ -131,7 +145,10 @@ export class GameView {
                 const cell = rowCells[x];
                 if (!cell) continue;
                 const color = rowState[x];
-                const desired = color ? `cell filled ${color}` : 'cell';
+                let desired;
+                if (!color) desired = 'cell';
+                else if (floating[y][x]) desired = `cell filled ${color} floating`;
+                else desired = `cell filled ${color}`;
                 if (cell.className !== desired) cell.className = desired;
             }
         }
@@ -370,6 +387,7 @@ export class GameView {
             this._animateSnake(plan);
         });
         s.on('gravity-applied', () => this._redrawBoard());
+        s.on('floating-changed', () => this._redrawBoard());
         s.on('lines-cleared', () => {
             this._redrawBoard();
             this._updateHUD();

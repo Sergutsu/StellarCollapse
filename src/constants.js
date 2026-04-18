@@ -46,11 +46,11 @@ export const SNAKE_TOTAL_MS = 5000;
 export const SNAKE_MIN_STEP_MS = 50;
 
 // Gameplay mode: how color matches are triggered.
-//  - CLASSIC   : player must click a 4+ run to clear (default, as-was).
+//  - STELLAR   : player must click a 4+ run to clear (the original flow).
 //  - AUTO_MATCH: every 4+ run is auto-cleared when a piece locks.
 //  - TETRIS    : click-to-match is disabled entirely; only line clears score.
 export const GAME_MODES = Object.freeze({
-    CLASSIC: 'classic',
+    STELLAR: 'stellar',
     AUTO_MATCH: 'auto-match',
     TETRIS: 'tetris',
 });
@@ -77,19 +77,19 @@ export const COLLAPSED_BOMB_CHANCE = 0.04;
 // can render a green -> red gradient straight off the array index.
 export const HIGHSCORE_TIERS = Object.freeze([
     {
-        id: 'classic-classic',
-        mode: GAME_MODES.CLASSIC,
+        id: 'stellar-classic',
+        mode: GAME_MODES.STELLAR,
         complexity: PIECE_COMPLEXITY.CLASSIC,
-        label: 'Classic / Classic',
-        short: 'C·C',
+        label: 'Stellar / Classic',
+        short: 'S·C',
         color: '#34d399', // green-400
     },
     {
-        id: 'classic-mutated',
-        mode: GAME_MODES.CLASSIC,
+        id: 'stellar-mutated',
+        mode: GAME_MODES.STELLAR,
         complexity: PIECE_COMPLEXITY.MUTATED,
-        label: 'Classic / Mutated',
-        short: 'C·M',
+        label: 'Stellar / Mutated',
+        short: 'S·M',
         color: '#a3e635', // lime-400
     },
     {

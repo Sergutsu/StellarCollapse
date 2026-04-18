@@ -342,6 +342,38 @@
                 inset -2px -2px 4px rgba(0, 0, 0, 0.6),
                 0 4px 12px rgba(0, 212, 255, 0.4);
         }
+
+        /* Floating cells: a filled cell with an empty cell below it in its
+           column. Only possible in COLLAPSED complexity, where match/bomb
+           clears don't trigger gravity and survivors hang suspended until a
+           snake unlocks them. We don't animate position (that would desync
+           the grid for the click handler and the active-piece overlay) --
+           just a cyan outline + gentle breathing glow so the player can see
+           what's defying gravity. */
+        .cell.filled.floating {
+            outline: 1px dashed rgba(125, 211, 252, 0.8);
+            outline-offset: -2px;
+            animation: floatPulse 1.8s ease-in-out infinite;
+        }
+        @keyframes floatPulse {
+            0%, 100% {
+                filter: brightness(1);
+                box-shadow:
+                    inset 2px 2px 4px rgba(255, 255, 255, 0.2),
+                    inset -2px -2px 4px rgba(0, 0, 0, 0.5),
+                    0 2px 8px rgba(0, 0, 0, 0.3),
+                    0 0 6px rgba(125, 211, 252, 0.35);
+            }
+            50% {
+                filter: brightness(1.18);
+                box-shadow:
+                    inset 2px 2px 4px rgba(255, 255, 255, 0.3),
+                    inset -2px -2px 4px rgba(0, 0, 0, 0.5),
+                    0 2px 10px rgba(0, 0, 0, 0.3),
+                    0 0 14px rgba(125, 211, 252, 0.7);
+            }
+        }
+
         
         /* Asteroid-like block styles */
         .cell.red { 
@@ -938,8 +970,8 @@
                     <div class="mb-4">
                         <div class="toggle-label"><i class="fas fa-gamepad mr-1"></i> Gameplay</div>
                         <div class="toggle-row" id="modeToggle" role="radiogroup" aria-label="Gameplay mode">
-                            <button type="button" class="toggle-btn active" data-mode="classic" title="Manual click-to-match, just like the original">
-                                Classic
+                            <button type="button" class="toggle-btn active" data-mode="stellar" title="Manual click-to-match: pick your own 4+ runs to clear">
+                                Stellar
                             </button>
                             <button type="button" class="toggle-btn" data-mode="auto-match" title="4+ runs auto-clear when a piece locks">
                                 Auto-Match

@@ -18,10 +18,11 @@ A cosmic block puzzle that mashes Tetris with color-match mechanics. Drop pieces
 
 ## Highlights
 
-- **3 gameplay modes** — Classic click-match, Auto-Match (4+ runs clear on lock), Tetris (line clears only).
+- **3 gameplay modes** — Stellar click-match, Auto-Match (4+ runs clear on lock), Tetris (line clears only).
 - **3 piece-complexity tiers** — Classic (7 tetrominoes, monochrome), Mutated (15 shapes, multicolor), Totally Collapsed (adds bomb cells + chaos).
 - **6-tier leaderboard** — each (mode × complexity) combo has its own top-5, with a green → red difficulty gradient.
 - **Specials in the top tier only** — snakes (4-match) and bombs (5+ match) only fire in Totally Collapsed. Easier tiers stay clean.
+- **Gravity-freeze in Totally Collapsed** — color matches and bomb blasts don't drop survivors; cells hang suspended (visibly outlined) until a snake run recolors the board and unlocks gravity.
 - **No build step** — pure ES modules in the browser. Clone and run.
 - **Unit-tested core** — `GameState` is fully decoupled from DOM/audio; `npm test` runs a `node --test` suite with zero dependencies.
 
@@ -41,13 +42,13 @@ Or run it locally (see [Local Development](#local-development) below).
 | `↓`              | Soft drop                          |
 | `↑`              | Rotate                             |
 | `SPACE`          | Hard drop                          |
-| **Mouse click**  | Trigger a color match (Classic mode only; disabled in Tetris, automated in Auto-Match) |
+| **Mouse click**  | Trigger a color match (Stellar mode only; disabled in Tetris, automated in Auto-Match) |
 
 ### Game modes
 
 Pick one on the start screen:
 
-- **Classic** — Runs of 4+ matching cells only clear when you *click* one of them. As-was.
+- **Stellar** — Runs of 4+ matching cells only clear when you *click* one of them. The classic Stellar Collapse flow.
 - **Auto-Match** — Every 4+ run clears automatically the moment a piece locks. No clicking.
 - **Tetris** — Click-to-match is disabled. Only full horizontal line clears score. Pure tetris.
 
@@ -57,7 +58,7 @@ Also on the start screen:
 
 - **Classic** — 7 standard tetrominoes (I, J, L, O, S, T, Z). Each piece is a single color.
 - **Mutated** — 15-shape pool, per-cell random color. More chaos, more combos.
-- **Totally Collapsed** — Mutated pool + occasional **bomb cells** in freshly spawned pieces + **snake/bomb specials** on 4/5-matches. Hardest tier.
+- **Totally Collapsed** — Mutated pool + occasional **bomb cells** in freshly spawned pieces + **snake/bomb specials** on 4/5-matches. Color matches and bombs clear cells but **don't trigger gravity** — survivors stay suspended until a snake runs across the board. Hardest tier.
 
 ### Scoring
 
@@ -73,8 +74,8 @@ The start screen shows a tab strip with one tab per tier. Each tab keeps its own
 
 | # | Mode         | Complexity          | Icon color |
 | - | ------------ | ------------------- | ---------- |
-| 1 | Classic      | Classic             | green      |
-| 2 | Classic      | Mutated             | lime       |
+| 1 | Stellar      | Classic             | green      |
+| 2 | Stellar      | Mutated             | lime       |
 | 3 | Auto-Match   | Classic             | yellow     |
 | 4 | Auto-Match   | Totally Collapsed   | orange     |
 | 5 | Tetris       | Mutated             | red        |

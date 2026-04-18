@@ -73,6 +73,28 @@ test('migrates legacy single-list store into the easiest tier', () => {
     assert.ok(storage._dump().stellarCollapseScoresV2);
 });
 
+test('renames legacy classic-* tier ids into stellar-* on load', () => {
+    // Scores saved under the old "classic" gameplay-mode tier ids should
+    // be absorbed into the renamed "stellar" tiers so players don't lose
+    // their history after the mode rename.
+    const storage = memStorage({
+        stellarCollapseScoresV2: JSON.stringify({
+            'classic-classic': [{ name: 'Old1', score: 900 }],
+            'classic-mutated': [{ name: 'Old2', score: 750 }],
+            'stellar-classic': [{ name: 'New', score: 500 }],
+        }),
+    });
+    const hs = new HighScores(storage);
+    const cc = hs.top('stellar-classic');
+    assert.equal(cc.length, 2, 'old + new entries merge');
+    assert.equal(cc[0].score, 900);
+    assert.equal(hs.top('stellar-mutated')[0].score, 750);
+    // Old ids no longer appear in persisted payload.
+    const persisted = JSON.parse(storage._dump().stellarCollapseScoresV2);
+    assert.equal(persisted['classic-classic'], undefined);
+    assert.equal(persisted['classic-mutated'], undefined);
+});
+
 test('corrupt payload falls back to empty tiers without throwing', () => {
     const storage = memStorage({ stellarCollapseScoresV2: '{not json' });
     const hs = new HighScores(storage);
