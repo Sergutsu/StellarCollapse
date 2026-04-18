@@ -3,7 +3,7 @@
 // animations. It does not read game rules; anything it needs to know it
 // learns from event payloads.
 
-import { SNAKE_LENGTH, PIECE_COMPLEXITY, BLOCK_SIZE_FOR } from './constants.js';
+import { SNAKE_LENGTH, PIECE_COMPLEXITY, BLOCK_SIZE_FOR, LINES_PER_LEVEL } from './constants.js';
 
 export class GameView {
     constructor({ state, elements }) {
@@ -230,12 +230,11 @@ export class GameView {
             this.el.multiplier.textContent = `x${this.state.level}.0`;
         }
         if (this.el.levelProgress) {
-            // Lines-per-level is the cadence from constants.js (currently 10).
-            // Showing "N / 10" gives the player a clear progress bar to the
-            // next level without needing a dedicated bar element.
-            const perLevel = 10;
-            const into = this.state.lines % perLevel;
-            this.el.levelProgress.textContent = `${into} / ${perLevel} lines`;
+            // Pull the cadence from constants.js so this stays in lockstep
+            // with the level-up math in game-state.js -- if LINES_PER_LEVEL
+            // ever moves off 10, the HUD follows automatically.
+            const into = this.state.lines % LINES_PER_LEVEL;
+            this.el.levelProgress.textContent = `${into} / ${LINES_PER_LEVEL} lines`;
         }
         if (this.el.levelInfo && typeof this._levelInfoFor === 'function') {
             this.el.levelInfo.textContent = this._levelInfoFor(this.state.level);
