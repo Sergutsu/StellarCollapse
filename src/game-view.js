@@ -335,7 +335,13 @@ export class GameView {
                 for (let i = segments - 1; i > 0; i--) trail[i] = { ...trail[i - 1] };
                 trail[0] = { x: target.x, y: target.y, visible: true };
                 const cell = this.boardCells[target.y] && this.boardCells[target.y][target.x];
-                if (cell) cell.className = `cell ${target.color} filled`;
+                // Defensive paint: only color the cell if state still agrees.
+                // If gravity or a subsequent clear has moved things while the
+                // walk was in flight, skip the paint so we don't leave stale
+                // colors on cells the game logic has already emptied/relocated.
+                if (cell && this.state.board[target.y] && this.state.board[target.y][target.x] === target.color) {
+                    cell.className = `cell ${target.color} filled`;
+                }
                 idx++;
             } else {
                 const exitEdges = [
