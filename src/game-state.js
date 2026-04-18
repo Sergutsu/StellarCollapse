@@ -57,7 +57,7 @@ export class GameState extends Emitter {
         rows = DEFAULT_ROWS,
         rng = Math.random,
         schedule = immediateSchedule,
-        mode = GAME_MODES.CLASSIC,
+        mode = GAME_MODES.STELLAR,
         complexity = PIECE_COMPLEXITY.MUTATED,
     } = {}) {
         super();
@@ -416,7 +416,24 @@ export class GameState extends Emitter {
         this.score += points;
         this.emit('match-cleared', { cells: cleared, color: null, special, points });
         this.emit('score-changed', { score: this.score, level: this.level, lines: this.lines });
-        this._applyGravity();
+        // COLLAPSED gravity-gate: matches never trigger gravity -- the
+        // survivors stay suspended until a snake runs across the board.
+        if (this._gravityAllowedAfterMatch()) this._applyGravity();
+        else this._emitFloatingChanged();
+    }
+
+    // Gravity gate: in COLLAPSED complexity, color-match and bomb clears
+    // leave cells floating in place. Only snake runs (and line clears, which
+    // are structurally row-based) can restore gravity. All other complexity
+    // levels always drop.
+    _gravityAllowedAfterMatch() {
+        return this.complexity !== PIECE_COMPLEXITY.COLLAPSED;
+    }
+
+    // Tell the view the suspended-cells set may have changed so it can
+    // repaint the floating overlay. Safe no-op when nothing is floating.
+    _emitFloatingChanged() {
+        this.emit('floating-changed', {});
     }
 
     _spawnNextPiece() {
@@ -583,10 +600,14 @@ export class GameState extends Emitter {
             this.score += points;
             this.emit('match-cleared', { cells: matches, color, special, points });
             this.emit('score-changed', { score: this.score, level: this.level, lines: this.lines });
-            this.schedule(() => {
-                if (this.gameOver) return;
-                this._applyGravity();
-            }, POST_CLEAR_GRAVITY_MS);
+            if (this._gravityAllowedAfterMatch()) {
+                this.schedule(() => {
+                    if (this.gameOver) return;
+                    this._applyGravity();
+                }, POST_CLEAR_GRAVITY_MS);
+            } else {
+                this._emitFloatingChanged();
+            }
         }, MATCH_CLEAR_MS);
 
         return { handled: true, kind: 'match', matchLength: matches.length };
@@ -639,10 +660,14 @@ export class GameState extends Emitter {
                 points,
             });
             this.emit('score-changed', { score: this.score, level: this.level, lines: this.lines });
-            this.schedule(() => {
-                if (this.gameOver) return;
-                this._applyGravity();
-            }, POST_BOMB_GRAVITY_MS);
+            if (this._gravityAllowedAfterMatch()) {
+                this.schedule(() => {
+                    if (this.gameOver) return;
+                    this._applyGravity();
+                }, POST_BOMB_GRAVITY_MS);
+            } else {
+                this._emitFloatingChanged();
+            }
         }, BOMB_EXPLODE_MS);
     }
 

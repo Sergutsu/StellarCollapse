@@ -26,11 +26,35 @@ export class HighScores {
             try {
                 const parsed = JSON.parse(raw);
                 if (parsed && typeof parsed === 'object') {
+                    // Rename map for tier IDs that have changed over time.
+                    // When the "Classic" gameplay mode was renamed to
+                    // "Stellar", the two classic-* tiers were renamed too.
+                    // Absorb any leftover scores under the old IDs into the
+                    // new ones so players' history isn't lost.
+                    const renames = {
+                        'classic-classic': 'stellar-classic',
+                        'classic-mutated': 'stellar-mutated',
+                    };
+                    let mutated = false;
+                    for (const oldId of Object.keys(renames)) {
+                        if (Array.isArray(parsed[oldId]) && parsed[oldId].length) {
+                            const newId = renames[oldId];
+                            const merged = (Array.isArray(parsed[newId]) ? parsed[newId] : [])
+                                .concat(parsed[oldId])
+                                .filter((e) => e && typeof e.score === 'number')
+                                .sort((a, b) => b.score - a.score)
+                                .slice(0, MAX_SCORES);
+                            parsed[newId] = merged;
+                            delete parsed[oldId];
+                            mutated = true;
+                        }
+                    }
                     for (let i = 0; i < HIGHSCORE_TIERS.length; i++) {
                         const id = HIGHSCORE_TIERS[i].id;
                         const list = Array.isArray(parsed[id]) ? parsed[id] : [];
                         this.entries[id] = list.slice(0, MAX_SCORES);
                     }
+                    if (mutated) this._persist();
                 }
                 return;
             } catch {

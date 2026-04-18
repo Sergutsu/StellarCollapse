@@ -43,7 +43,7 @@ function renderLeaderboard(listEl, entries) {
 // Default selections the first time the UI opens. Mode/complexity default
 // to a tier that actually exists (tier 1 -- Classic/Classic) so the start
 // button always maps to a valid leaderboard.
-const DEFAULT_MODE = GAME_MODES.CLASSIC;
+const DEFAULT_MODE = GAME_MODES.STELLAR;
 const DEFAULT_COMPLEXITY = PIECE_COMPLEXITY.CLASSIC;
 
 function boot() {

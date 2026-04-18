@@ -443,7 +443,7 @@ test('auto-match does NOT game-over when match is in the spawn zone', () => {
 
 test('classic mode does NOT auto-match on lock (manual click still required)', () => {
     const state = makeState(31, {
-        mode: GAME_MODES.CLASSIC,
+        mode: GAME_MODES.STELLAR,
         complexity: PIECE_COMPLEXITY.CLASSIC,
     });
     state.start();
@@ -502,6 +502,86 @@ test('mutated-complexity pieces can draw from the full 15-shape pool', () => {
         state.hardDrop();
     }
     assert.ok(sawMutatedOnly, 'expected at least one mutated-only shape across 80 spawns');
+});
+
+test('COLLAPSED complexity: click-match leaves survivors floating (no gravity)', () => {
+    const state = makeState(91, {
+        mode: GAME_MODES.STELLAR,
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+    });
+    state.start();
+    // 4-red run at bottom, blue floater 5 rows above col 0.
+    state.board[ROWS - 1][0] = 'red';
+    state.board[ROWS - 1][1] = 'red';
+    state.board[ROWS - 1][2] = 'red';
+    state.board[ROWS - 1][3] = 'red';
+    state.board[ROWS - 6][0] = 'blue';
+    let floatingChanged = 0;
+    state.on('floating-changed', () => { floatingChanged++; });
+    state.clickCell(0, ROWS - 1);
+    // Reds cleared (one of the 4 slots becomes a snake in COLLAPSED).
+    let redsRemaining = 0;
+    for (let x = 0; x < 4; x++) if (state.board[ROWS - 1][x] === 'red') redsRemaining++;
+    assert.equal(redsRemaining, 0, 'all red cells should be cleared');
+    // Blue floater MUST still be at its original y: gravity skipped.
+    assert.equal(state.board[ROWS - 6][0], 'blue', 'blue floater stays suspended');
+    assert.equal(state.board[ROWS - 1][0], null, 'nothing fell into the gap');
+    assert.ok(floatingChanged > 0, 'floating-changed should have been emitted');
+});
+
+test('COLLAPSED complexity: bomb explosion leaves survivors floating', () => {
+    const state = makeState(93, {
+        mode: GAME_MODES.STELLAR,
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+    });
+    state.start();
+    // Bomb at (5, ROWS-3). Blue floater in same column 6 rows up.
+    state.board[ROWS - 3][5] = 'bomb';
+    state.board[ROWS - 9][5] = 'blue';
+    state.clickCell(5, ROWS - 3);
+    assert.equal(state.board[ROWS - 3][5], null, 'bomb cell consumed');
+    assert.equal(state.board[ROWS - 9][5], 'blue', 'bomb blast does not drop floaters in COLLAPSED');
+});
+
+test('COLLAPSED complexity: snake run DOES unlock gravity (survivors drop)', () => {
+    const state = makeState(97, {
+        mode: GAME_MODES.STELLAR,
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+    });
+    state.start();
+    // Seed a snake cell to activate directly, plus a blue floater.
+    state.board[ROWS - 1][4] = 'snake';
+    state.board[ROWS - 10][0] = 'blue';
+    state.clickCell(4, ROWS - 1);
+    // Snake recolors everything, then gravity runs (sync scheduler). The
+    // surviving block in column 0 should end up at the bottom of that
+    // column -- snake unlocks the floating state.
+    assert.equal(state.board[ROWS - 10][0], null, 'blue no longer at its original row');
+    const bottom = state.board[ROWS - 1][0];
+    assert.ok(bottom !== null, 'column 0 bottom should now hold the dropped block');
+});
+
+test('non-COLLAPSED complexity: matches still trigger gravity (no regression)', () => {
+    const state = makeState(99, {
+        mode: GAME_MODES.STELLAR,
+        complexity: PIECE_COMPLEXITY.MUTATED,
+    });
+    state.start();
+    state.board[ROWS - 1][0] = 'red';
+    state.board[ROWS - 1][1] = 'red';
+    state.board[ROWS - 1][2] = 'red';
+    state.board[ROWS - 1][3] = 'red';
+    state.board[ROWS - 6][0] = 'blue';
+    state.clickCell(0, ROWS - 1);
+    // MUTATED drops: the blue floater should settle at the bottom of col 0.
+    assert.equal(state.board[ROWS - 6][0], null, 'blue should have fallen out of its row');
+    assert.equal(state.board[ROWS - 1][0], 'blue', 'blue dropped to the floor');
+});
+
+test('default mode is STELLAR when none is supplied', () => {
+    const state = makeState(101);
+    assert.equal(state.mode, GAME_MODES.STELLAR);
+    assert.equal(GAME_MODES.STELLAR, 'stellar');
 });
 
 function sameMatrix(a, b) {

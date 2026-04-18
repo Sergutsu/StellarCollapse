@@ -3,7 +3,7 @@
 // animations. It does not read game rules; anything it needs to know it
 // learns from event payloads.
 
-import { COLS, ROWS, SNAKE_LENGTH } from './constants.js';
+import { COLS, ROWS, SNAKE_LENGTH, PIECE_COMPLEXITY } from './constants.js';
 
 export class GameView {
     constructor({ state, elements }) {
@@ -124,6 +124,24 @@ export class GameView {
     // -------------------------------------------------------------------
 
     _redrawBoard() {
+        // A cell is "floating" if there is an empty cell anywhere below it
+        // in the same column. This indicator only applies in COLLAPSED
+        // complexity, where color-match and bomb clears skip gravity and
+        // cells genuinely hang suspended. In other complexities ordinary
+        // gameplay routinely produces column gaps under locked pieces
+        // (before a line clear), so the same scan would false-positive
+        // there -- leave the floating array all-false in that case.
+        const floating = new Array(ROWS);
+        for (let y = 0; y < ROWS; y++) floating[y] = new Array(COLS).fill(false);
+        if (this.state.complexity === PIECE_COMPLEXITY.COLLAPSED) {
+            for (let x = 0; x < COLS; x++) {
+                let sawGap = false;
+                for (let y = ROWS - 1; y >= 0; y--) {
+                    if (!this.state.board[y][x]) sawGap = true;
+                    else if (sawGap) floating[y][x] = true;
+                }
+            }
+        }
         for (let y = 0; y < ROWS; y++) {
             const rowCells = this.boardCells[y];
             const rowState = this.state.board[y];
@@ -131,7 +149,10 @@ export class GameView {
                 const cell = rowCells[x];
                 if (!cell) continue;
                 const color = rowState[x];
-                const desired = color ? `cell filled ${color}` : 'cell';
+                let desired;
+                if (!color) desired = 'cell';
+                else if (floating[y][x]) desired = `cell filled ${color} floating`;
+                else desired = `cell filled ${color}`;
                 if (cell.className !== desired) cell.className = desired;
             }
         }
@@ -370,6 +391,7 @@ export class GameView {
             this._animateSnake(plan);
         });
         s.on('gravity-applied', () => this._redrawBoard());
+        s.on('floating-changed', () => this._redrawBoard());
         s.on('lines-cleared', () => {
             this._redrawBoard();
             this._updateHUD();
