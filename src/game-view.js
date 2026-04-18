@@ -3,7 +3,7 @@
 // animations. It does not read game rules; anything it needs to know it
 // learns from event payloads.
 
-import { COLS, ROWS, SNAKE_LENGTH } from './constants.js';
+import { COLS, ROWS, SNAKE_LENGTH, PIECE_COMPLEXITY } from './constants.js';
 
 export class GameView {
     constructor({ state, elements }) {
@@ -125,17 +125,21 @@ export class GameView {
 
     _redrawBoard() {
         // A cell is "floating" if there is an empty cell anywhere below it
-        // in the same column. In COLLAPSED complexity, color-match and bomb
-        // clears never trigger gravity, so survivors can be visibly
-        // suspended until a snake run unlocks them. In other modes gravity
-        // always runs after any clear, so no cells end up marked floating.
+        // in the same column. This indicator only applies in COLLAPSED
+        // complexity, where color-match and bomb clears skip gravity and
+        // cells genuinely hang suspended. In other complexities ordinary
+        // gameplay routinely produces column gaps under locked pieces
+        // (before a line clear), so the same scan would false-positive
+        // there -- leave the floating array all-false in that case.
         const floating = new Array(ROWS);
         for (let y = 0; y < ROWS; y++) floating[y] = new Array(COLS).fill(false);
-        for (let x = 0; x < COLS; x++) {
-            let sawGap = false;
-            for (let y = ROWS - 1; y >= 0; y--) {
-                if (!this.state.board[y][x]) sawGap = true;
-                else if (sawGap) floating[y][x] = true;
+        if (this.state.complexity === PIECE_COMPLEXITY.COLLAPSED) {
+            for (let x = 0; x < COLS; x++) {
+                let sawGap = false;
+                for (let y = ROWS - 1; y >= 0; y--) {
+                    if (!this.state.board[y][x]) sawGap = true;
+                    else if (sawGap) floating[y][x] = true;
+                }
             }
         }
         for (let y = 0; y < ROWS; y++) {
