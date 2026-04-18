@@ -3,7 +3,10 @@
 // the piece; 0 is empty. Colors are assigned at spawn time, so these are
 // purely geometric.
 
-export const SHAPES = [
+import { PIECE_COMPLEXITY } from './constants.js';
+
+// The seven classic tetrominoes, in canonical order (I, J, L, O, S, T, Z).
+export const CLASSIC_SHAPES = [
     // I
     [
         [0, 0, 0, 0],
@@ -46,6 +49,12 @@ export const SHAPES = [
         [0, 1, 1],
         [0, 0, 0],
     ],
+];
+
+// The mutated pool = classic seven + eight non-standard shapes that
+// stress click-to-match chains (crosses, diamonds, windmills, etc.).
+export const MUTATED_SHAPES = [
+    ...CLASSIC_SHAPES,
     // Cross (Plus)
     [
         [0, 1, 0],
@@ -99,6 +108,22 @@ export const SHAPES = [
         [1, 0, 0, 1],
     ],
 ];
+
+// COLLAPSED uses the same 15-shape pool as MUTATED; what makes it harder
+// is spawn-time mutation (random cells become bombs). Kept as an alias so
+// the pool is a single source of truth and tests can reason about it.
+export const COLLAPSED_SHAPES = MUTATED_SHAPES;
+
+// Backward-compat export: the game-state module used to import SHAPES
+// directly. Keep it pointing at the full mutated pool so any code path we
+// didn't migrate still works.
+export const SHAPES = MUTATED_SHAPES;
+
+export function getShapePool(complexity) {
+    if (complexity === PIECE_COMPLEXITY.CLASSIC) return CLASSIC_SHAPES;
+    if (complexity === PIECE_COMPLEXITY.COLLAPSED) return COLLAPSED_SHAPES;
+    return MUTATED_SHAPES;
+}
 
 // 90-degree clockwise rotation of a rectangular matrix. Works for both
 // square and non-square pieces; callers pass shape and colorMatrix through

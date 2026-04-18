@@ -63,24 +63,20 @@ export class GameView {
 
     createPreviews() {
         const { nextPreview, smallPreviews } = this.el;
-        nextPreview.innerHTML = '';
-        for (let y = 0; y < 4; y++) {
-            for (let x = 0; x < 4; x++) {
+        // Previews render as a 4x4 grid of standard `.cell` elements so the
+        // upcoming pieces look identical to the ones on the board.
+        const fillGrid = (container) => {
+            container.innerHTML = '';
+            const frag = document.createDocumentFragment();
+            for (let i = 0; i < 16; i++) {
                 const cell = document.createElement('div');
-                cell.className = 'preview-cell';
-                nextPreview.appendChild(cell);
+                cell.className = 'cell preview-slot';
+                frag.appendChild(cell);
             }
-        }
-        smallPreviews.forEach((previewEl) => {
-            previewEl.innerHTML = '';
-            for (let y = 0; y < 4; y++) {
-                for (let x = 0; x < 4; x++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'preview-small-cell';
-                    previewEl.appendChild(cell);
-                }
-            }
-        });
+            container.appendChild(frag);
+        };
+        fillGrid(nextPreview);
+        smallPreviews.forEach(fillGrid);
     }
 
     // -------------------------------------------------------------------
@@ -142,40 +138,32 @@ export class GameView {
         this._paintActivePiece();
     }
 
-    _updateNextPreview() {
-        const cells = this.el.nextPreview.querySelectorAll('.preview-cell');
-        cells.forEach((cell) => (cell.className = 'preview-cell'));
-        const next = this.state.nextPiece;
-        if (!next) return;
-        const { shape, colorMatrix } = next;
-        for (let y = 0; y < shape.length; y++) {
-            for (let x = 0; x < shape[y].length; x++) {
+    _paintPreview(container, piece) {
+        const cells = container.children;
+        for (let i = 0; i < cells.length; i++) {
+            cells[i].className = 'cell preview-slot';
+        }
+        if (!piece) return;
+        const { shape, colorMatrix } = piece;
+        for (let y = 0; y < Math.min(shape.length, 4); y++) {
+            for (let x = 0; x < Math.min(shape[y].length, 4); x++) {
                 if (!shape[y][x]) continue;
+                const color = colorMatrix[y][x];
+                if (!color) continue;
                 const idx = y * 4 + x;
-                if (cells[idx] && colorMatrix[y][x]) {
-                    cells[idx].classList.add(colorMatrix[y][x]);
-                }
+                const cell = cells[idx];
+                if (cell) cell.className = `cell preview-slot filled ${color}`;
             }
         }
     }
 
+    _updateNextPreview() {
+        this._paintPreview(this.el.nextPreview, this.state.nextPiece);
+    }
+
     _updateSmallPreviews() {
         this.el.smallPreviews.forEach((previewEl, index) => {
-            const cells = previewEl.querySelectorAll('.preview-small-cell');
-            cells.forEach((c) => (c.className = 'preview-small-cell'));
-            const queueIndex = index + 1;
-            const piece = this.state.pieceQueue[queueIndex];
-            if (!piece) return;
-            const { shape, colorMatrix } = piece;
-            for (let y = 0; y < Math.min(shape.length, 4); y++) {
-                for (let x = 0; x < Math.min(shape[y].length, 4); x++) {
-                    if (!shape[y][x]) continue;
-                    const idx = y * 4 + x;
-                    if (cells[idx] && colorMatrix[y][x]) {
-                        cells[idx].classList.add(colorMatrix[y][x]);
-                    }
-                }
-            }
+            this._paintPreview(previewEl, this.state.pieceQueue[index + 1]);
         });
     }
 
