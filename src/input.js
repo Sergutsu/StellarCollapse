@@ -2,8 +2,6 @@
 // Stays in one small file so changing the control scheme (or adding a
 // touch layer later) doesn't touch state or view internals.
 
-import { COLS, ROWS } from './constants.js';
-
 export function bindInput({ state, elements }) {
     document.addEventListener('keydown', (event) => {
         if (state.gameOver) return;
@@ -39,7 +37,7 @@ export function bindInput({ state, elements }) {
         if (!cell || !elements.board.contains(cell)) return;
         const x = Number(cell.dataset.x);
         const y = Number(cell.dataset.y);
-        if (!(x >= 0 && x < COLS && y >= 0 && y < ROWS)) return;
+        if (!(x >= 0 && x < state.cols && y >= 0 && y < state.rows)) return;
         state.clickCell(x, y);
     });
 }

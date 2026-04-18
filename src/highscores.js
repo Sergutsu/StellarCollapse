@@ -5,7 +5,11 @@
 import { HIGHSCORE_TIERS } from './constants.js';
 
 const STORAGE_KEY = 'stellarCollapseScoresV2';
-const LEGACY_STORAGE_KEY = 'tetrisHighScores';
+// Internal-only localStorage key from the very first release, kept here
+// solely so longtime players' pre-tier scores still get migrated into a
+// tier on first load after an upgrade. Not user-facing.
+const LEGACY_STORAGE_KEY = 'stellarCollapseLegacyScores';
+const OLDEST_STORAGE_KEY = 'tetrisHighScores'; // even older v0 key, migration-only
 const MAX_SCORES = 5;
 
 export class HighScores {
@@ -32,8 +36,12 @@ export class HighScores {
                     // Absorb any leftover scores under the old IDs into the
                     // new ones so players' history isn't lost.
                     const renames = {
+                        // "Classic" gameplay mode -> "Stellar".
                         'classic-classic': 'stellar-classic',
                         'classic-mutated': 'stellar-mutated',
+                        // "Tetris" gameplay mode -> "Blocks" (trademark).
+                        'tetris-mutated': 'blocks-mutated',
+                        'tetris-collapsed': 'blocks-collapsed',
                     };
                     let mutated = false;
                     for (const oldId of Object.keys(renames)) {
@@ -61,10 +69,13 @@ export class HighScores {
                 // Corrupt payload -> fall through to legacy import.
             }
         }
-        // One-shot migration from the single-list legacy store. Put every
-        // old entry into the easiest tier so players don't feel their old
-        // scores vanished.
-        const legacyRaw = this.storage.getItem(LEGACY_STORAGE_KEY);
+        // One-shot migration from the single-list legacy store(s). Put
+        // every old entry into the easiest tier so players don't feel
+        // their old scores vanished. We try the current legacy key first,
+        // then fall back to the very first release's key.
+        const legacyRaw =
+            this.storage.getItem(LEGACY_STORAGE_KEY) ||
+            this.storage.getItem(OLDEST_STORAGE_KEY);
         if (legacyRaw) {
             try {
                 const legacy = JSON.parse(legacyRaw);

@@ -15,7 +15,7 @@ const SOUND_DEFS = {
     snakeTrail: { type: 'glide', startFreq: 200, endFreq: 800, duration: 0.3, volume: 0.25 },
     gameOver: { type: 'descent', startFreq: 440, endFreq: 110, duration: 1.2, volume: 0.4 },
     levelUp: { type: 'ascent', startFreq: 262, endFreq: 523, duration: 0.5, volume: 0.35 },
-    tetris: { type: 'fanfare', frequencies: [262, 330, 392, 523], duration: 0.8, volume: 0.45 },
+    fourLine: { type: 'fanfare', frequencies: [262, 330, 392, 523], duration: 0.8, volume: 0.45 },
 };
 
 export class Audio {
@@ -61,7 +61,7 @@ export class Audio {
             state.on('piece-rotated', () => this.play('pieceRotate')),
             state.on('piece-locked', () => this.play('pieceLock')),
             state.on('lines-cleared', ({ count }) => {
-                if (count === 4) this.play('tetris');
+                if (count === 4) this.play('fourLine');
                 else this.play('lineClear');
             }),
             state.on('match-detected', () => this.play('colorMatch')),

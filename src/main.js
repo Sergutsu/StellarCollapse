@@ -12,6 +12,8 @@ import {
     GAME_MODES,
     PIECE_COMPLEXITY,
     HIGHSCORE_TIERS,
+    FIELD_SIZES,
+    DEFAULT_FIELD_SIZE_ID,
     findTier,
 } from './constants.js';
 
@@ -41,10 +43,11 @@ function renderLeaderboard(listEl, entries) {
 }
 
 // Default selections the first time the UI opens. Mode/complexity default
-// to a tier that actually exists (tier 1 -- Classic/Classic) so the start
+// to a tier that actually exists (tier 1 -- Stellar/Classic) so the start
 // button always maps to a valid leaderboard.
 const DEFAULT_MODE = GAME_MODES.STELLAR;
 const DEFAULT_COMPLEXITY = PIECE_COMPLEXITY.CLASSIC;
+const DEFAULT_SIZE_ID = DEFAULT_FIELD_SIZE_ID;
 
 function boot() {
     injectEffectKeyframes();
@@ -69,6 +72,7 @@ function boot() {
     const tierLabel = el('tierLabel');
     const modeToggle = el('modeToggle');
     const complexityToggle = el('complexityToggle');
+    const fieldSizeToggle = el('fieldSizeToggle');
     const matchControlHint = el('matchControlHint');
     const playerNameInput = el('playerName');
     const soundIcon = el('soundToggleIcon');
@@ -80,6 +84,7 @@ function boot() {
         schedule: (fn, ms) => setTimeout(fn, ms),
         mode: DEFAULT_MODE,
         complexity: DEFAULT_COMPLEXITY,
+        fieldSizeId: DEFAULT_SIZE_ID,
     });
     const view = new GameView({ state, elements });
 
@@ -95,6 +100,7 @@ function boot() {
     const uiState = {
         mode: DEFAULT_MODE,
         complexity: DEFAULT_COMPLEXITY,
+        fieldSizeId: DEFAULT_SIZE_ID,
         selectedTierId: HIGHSCORE_TIERS[0].id,
     };
 
@@ -137,6 +143,33 @@ function boot() {
         renderLeaderboard(startScreenScoreList, highScores.top(tier.id));
     }
 
+    // --- Field size toggle ----------------------------------------------
+    // The sizes (cols x rows) are per-complexity -- rebuild the buttons
+    // whenever complexity changes. Size ids ('small' / 'medium' / 'large')
+    // are stable across complexities so the player's picked size carries
+    // through; only the actual dimensions change.
+    function renderFieldSizeToggle() {
+        if (!fieldSizeToggle) return;
+        fieldSizeToggle.innerHTML = '';
+        const sizes = FIELD_SIZES[uiState.complexity] || FIELD_SIZES[PIECE_COMPLEXITY.CLASSIC];
+        const hasCurrent = sizes.some((s) => s.id === uiState.fieldSizeId);
+        if (!hasCurrent) uiState.fieldSizeId = DEFAULT_SIZE_ID;
+        sizes.forEach((size) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'toggle-btn';
+            btn.dataset.sizeId = size.id;
+            btn.title = `${size.cols} columns x ${size.rows} rows`;
+            btn.textContent = size.label;
+            if (size.id === uiState.fieldSizeId) btn.classList.add('active');
+            btn.addEventListener('click', () => {
+                uiState.fieldSizeId = size.id;
+                applySelections();
+            });
+            fieldSizeToggle.appendChild(btn);
+        });
+    }
+
     // --- Mode / complexity toggles --------------------------------------
     function applySelections() {
         modeToggle.querySelectorAll('.toggle-btn').forEach((btn) => {
@@ -145,10 +178,11 @@ function boot() {
         complexityToggle.querySelectorAll('.toggle-btn').forEach((btn) => {
             btn.classList.toggle('active', btn.dataset.complexity === uiState.complexity);
         });
-        // Update controls-panel hint: in Tetris mode clicking does nothing
+        renderFieldSizeToggle();
+        // Update controls-panel hint: in Blocks mode clicking does nothing
         // so the "Match 4+ Colors" line is misleading.
         if (matchControlHint) {
-            matchControlHint.style.display = uiState.mode === GAME_MODES.TETRIS ? 'none' : '';
+            matchControlHint.style.display = uiState.mode === GAME_MODES.BLOCKS ? 'none' : '';
         }
         // If the current selection maps to a tier, sync the leaderboard
         // to it so the player sees the scoreboard they're about to play on.
@@ -200,7 +234,13 @@ function boot() {
     el('startBtn').addEventListener('click', () => {
         if (!audio.ctx && audio.enabled) audio.init();
         audio.resume();
-        state.configure({ mode: uiState.mode, complexity: uiState.complexity });
+        state.configure({
+            mode: uiState.mode,
+            complexity: uiState.complexity,
+            fieldSizeId: uiState.fieldSizeId,
+        });
+        // Rebuild the board DOM for the new grid dimensions before starting.
+        view.createBoard();
         state.start();
         showGame();
         lastFrame = 0;

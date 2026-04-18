@@ -309,8 +309,8 @@
             border: 1px solid rgba(0, 212, 255, 0.1);
             border-radius: 2px;
             position: relative;
-            /* Keep the cell's intrinsic 30x30 so borders live inside the box
-               and the 10x20 grid stays exactly 300x600 with zero gap. */
+            /* border-box keeps cell borders inside the cell's fixed size so
+               the grid stays pixel-aligned at any field size + block scale. */
             box-sizing: border-box;
             /* Performance optimizations for layered rendering */
             backface-visibility: hidden;
@@ -976,13 +976,13 @@
                             <button type="button" class="toggle-btn" data-mode="auto-match" title="4+ runs auto-clear when a piece locks">
                                 Auto-Match
                             </button>
-                            <button type="button" class="toggle-btn" data-mode="tetris" title="Pure tetris: only full lines score">
-                                Tetris
+                            <button type="button" class="toggle-btn" data-mode="blocks" title="Pure block-stacking: only full lines score">
+                                Blocks
                             </button>
                         </div>
                     </div>
 
-                    <div>
+                    <div class="mb-4">
                         <div class="toggle-label"><i class="fas fa-shapes mr-1"></i> Piece Complexity</div>
                         <div class="toggle-row" id="complexityToggle" role="radiogroup" aria-label="Piece complexity">
                             <button type="button" class="toggle-btn active" data-complexity="classic" title="7 standard tetrominoes, single color each">
@@ -994,6 +994,13 @@
                             <button type="button" class="toggle-btn" data-complexity="collapsed" title="Mutated pool + bombs + chaotic specials">
                                 Totally Collapsed
                             </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="toggle-label"><i class="fas fa-th mr-1"></i> Field Size</div>
+                        <div class="toggle-row" id="fieldSizeToggle" role="radiogroup" aria-label="Field size">
+                            <!-- Field size buttons are rendered by main.js because the options depend on the currently selected piece complexity. -->
                         </div>
                     </div>
                 </div>

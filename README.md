@@ -1,6 +1,6 @@
 # Stellar Collapse
 
-A cosmic block puzzle that mashes Tetris with color-match mechanics. Drop pieces, clear lines, and (if you're feeling brave) chain 4+ color runs into snakes and bombs for board-clearing combos.
+A cosmic block puzzle that mashes falling-block stacking with color-match mechanics. Drop pieces, clear lines, and (if you're feeling brave) chain 4+ color runs into snakes and bombs for board-clearing combos.
 
 ### ▶ [**Play Now**](https://sergutsu.github.io/StellarCollapse/)
 
@@ -18,8 +18,9 @@ A cosmic block puzzle that mashes Tetris with color-match mechanics. Drop pieces
 
 ## Highlights
 
-- **3 gameplay modes** — Stellar click-match, Auto-Match (4+ runs clear on lock), Tetris (line clears only).
-- **3 piece-complexity tiers** — Classic (7 tetrominoes, monochrome), Mutated (15 shapes, multicolor), Totally Collapsed (adds bomb cells + chaos).
+- **3 gameplay modes** — Stellar click-match, Auto-Match (4+ runs clear on lock), Blocks (line clears only).
+- **3 piece-complexity tiers** — Classic (7 standard shapes, monochrome), Mutated (15 shapes, multicolor), Totally Collapsed (adds bomb cells + chaos).
+- **3 field sizes per complexity** — pick Small / Medium / Large on the start screen; the grid resizes and the block scale adapts so the board still fits the viewport.
 - **6-tier leaderboard** — each (mode × complexity) combo has its own top-5, with a green → red difficulty gradient.
 - **Specials in the top tier only** — snakes (4-match) and bombs (5+ match) only fire in Totally Collapsed. Easier tiers stay clean.
 - **Gravity-freeze in Totally Collapsed** — color matches and bomb blasts don't drop survivors; cells hang suspended (visibly outlined) until a snake run recolors the board and unlocks gravity.
@@ -42,7 +43,7 @@ Or run it locally (see [Local Development](#local-development) below).
 | `↓`              | Soft drop                          |
 | `↑`              | Rotate                             |
 | `SPACE`          | Hard drop                          |
-| **Mouse click**  | Trigger a color match (Stellar mode only; disabled in Tetris, automated in Auto-Match) |
+| **Mouse click**  | Trigger a color match (Stellar mode only; disabled in Blocks, automated in Auto-Match) |
 
 ### Game modes
 
@@ -50,15 +51,27 @@ Pick one on the start screen:
 
 - **Stellar** — Runs of 4+ matching cells only clear when you *click* one of them. The classic Stellar Collapse flow.
 - **Auto-Match** — Every 4+ run clears automatically the moment a piece locks. No clicking.
-- **Tetris** — Click-to-match is disabled. Only full horizontal line clears score. Pure tetris.
+- **Blocks** — Click-to-match is disabled. Only full horizontal line clears score. Pure block-stacking.
 
 ### Piece complexity
 
 Also on the start screen:
 
-- **Classic** — 7 standard tetrominoes (I, J, L, O, S, T, Z). Each piece is a single color.
+- **Classic** — 7 standard falling-block shapes (I, J, L, O, S, T, Z). Each piece is a single color.
 - **Mutated** — 15-shape pool, per-cell random color. More chaos, more combos.
 - **Totally Collapsed** — Mutated pool + occasional **bomb cells** in freshly spawned pieces + **snake/bomb specials** on 4/5-matches. Color matches and bombs clear cells but **don't trigger gravity** — survivors stay suspended until a snake runs across the board. Hardest tier.
+
+### Field size
+
+Each complexity exposes three board sizes on the start screen. Sizes were picked so pieces still spawn centered and the widest shape in the pool fits comfortably:
+
+| Complexity        | Small  | Medium | Large  |
+| ----------------- | ------ | ------ | ------ |
+| Classic           | 7×14   | 9×18   | 12×22  |
+| Mutated           | 8×16   | 11×22  | 13×26  |
+| Totally Collapsed | 9×18   | 12×24  | 15×28  |
+
+Taller grids automatically use a smaller block size so the whole board stays within the viewport.
 
 ### Scoring
 
@@ -78,8 +91,8 @@ The start screen shows a tab strip with one tab per tier. Each tab keeps its own
 | 2 | Stellar      | Mutated             | lime       |
 | 3 | Auto-Match   | Classic             | yellow     |
 | 4 | Auto-Match   | Totally Collapsed   | orange     |
-| 5 | Tetris       | Mutated             | red        |
-| 6 | Tetris       | Totally Collapsed   | deep red   |
+| 5 | Blocks       | Mutated             | red        |
+| 6 | Blocks       | Totally Collapsed   | deep red   |
 
 ---
 
