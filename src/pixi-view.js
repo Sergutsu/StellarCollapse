@@ -18,6 +18,7 @@
 import {
     Application,
     Container,
+    FillGradient,
     Graphics,
     Text,
     TextStyle,
@@ -31,22 +32,40 @@ import {
     LOW_FX_CELL_THRESHOLD,
 } from './constants.js';
 
-// Palette. Tuned by eye to stay close to the DOM gradients without
-// going through Pixi's gradient API (which would add a per-cell render
-// texture and hurt the perf budget). `body` is the main fill and
-// `highlight` is the lighter inset used for the top-left gloss streak.
+// Palette mirrors the DOM CSS in index.html so the Pixi view reads as
+// the same game. `highlight` is the top-left gloss tint, `body` is the
+// mid-tone flat fill, `shadow` is the bottom-right darker tint, and
+// `linearStart/End` drive the background diagonal gradient.
 const CELL_PALETTE = {
-    red:    { body: 0xd12f1a, highlight: 0xff8a5c, shadow: 0x5a0d06 },
-    blue:   { body: 0x1e6fd0, highlight: 0x6fb6ff, shadow: 0x061a3a },
-    green:  { body: 0x33a84a, highlight: 0x8fe39b, shadow: 0x08331a },
-    yellow: { body: 0xe0b128, highlight: 0xffe480, shadow: 0x5a3f07 },
-    bomb:   { body: 0x8b0000, highlight: 0xff4a4a, shadow: 0x1a0000 },
-    snake:  { body: 0x00c070, highlight: 0x7fffc8, shadow: 0x003a1f },
+    red:    { highlight: 0xff6b4a, body: 0xcc2200, shadow: 0x660000,
+              linearStart: 0xff4400, linearEnd: 0xaa0000, glow: 0xff4400 },
+    blue:   { highlight: 0x4a9eff, body: 0x0055cc, shadow: 0x002266,
+              linearStart: 0x3388ff, linearEnd: 0x0044aa, glow: 0x4488ff },
+    green:  { highlight: 0x4aff6b, body: 0x00cc22, shadow: 0x006600,
+              linearStart: 0x44ff00, linearEnd: 0x00aa44, glow: 0x44ff66 },
+    yellow: { highlight: 0xffeb4a, body: 0xcc9900, shadow: 0x664400,
+              linearStart: 0xffdd00, linearEnd: 0xaa7700, glow: 0xffdd00 },
+    bomb:   { highlight: 0xff4444, body: 0x990000, shadow: 0x330000,
+              linearStart: 0xcc0000, linearEnd: 0x440000, glow: 0xff0000 },
+    snake:  { highlight: 0x00ff88, body: 0x006644, shadow: 0x002211,
+              linearStart: 0x00cc66, linearEnd: 0x004433, glow: 0x00ff64 },
+};
+
+// Emoji glyphs map 1:1 to the DOM `.cell.X::before` content rules.
+// Pixi Text renders emoji natively via the browser font stack; no
+// bitmap font or spritesheet needed.
+const ICON_EMOJI = {
+    red:    '🔥',
+    blue:   '💎',
+    green:  '🌟',
+    yellow: '⚡',
+    bomb:   '💣',
+    snake:  '🐍',
 };
 
 const FLOATING_COLOR = 0x7dd3fc; // cyan-300; matches the DOM outline
-const HIGHLIGHT_COLOR = 0xffffff;
 
+// Effect colors: [inner, outer] for the match/bomb explosion layers.
 const EFFECT_COLORS = {
     red:    [0xff6400, 0xffc864],
     blue:   [0x0096ff, 0x64c8ff],
@@ -55,6 +74,11 @@ const EFFECT_COLORS = {
     bomb:   [0xff6400, 0xffc800],
     snake:  [0x00ff88, 0x00ffcc],
 };
+
+// Pulsing bomb/snake cells share a single ticker. Frequency mirrors
+// the DOM `bombPulse` (1s) and `snakePulse` (1.5s) keyframes so the
+// cadence feels identical.
+const PULSE_PERIOD_MS = { bomb: 1000, snake: 1500 };
 
 export class PixiView {
     constructor({ state, elements }) {
@@ -67,18 +91,28 @@ export class PixiView {
         this.layers = { board: null, active: null, effects: null, overlay: null };
 
         // Per-cell reusable node pools:
-        //   boardCells[y][x] = { container, body, accent, outline, icon }
-        //   activeCells[y][x] = { container, body }
+        //   boardCells[y][x] = { container, body, accent, outline, icon, pulse }
+        //   activeCells[y][x] = same shape
         this.boardCells = [];
         this.activeCells = [];
         this.activePaintedCells = [];
 
-        // Countdown overlays for COLLAPSED bomb/snake cells. Same
-        // contract as GameView: keyed by "x,y".
+        // Special-cell countdown overlays (COLLAPSED hardcore timer).
         this._specialOverlays = new Map();
 
-        // Ongoing per-frame tween handles so we can cancel on reset.
+        // Ongoing per-frame tween handles (effects, particles) so we
+        // can cancel on reset.
         this._tweens = new Set();
+        // Free particle Graphics pool -- reused across explosions so a
+        // big chain-match doesn't churn GC.
+        this._particlePool = [];
+        // Board cells currently rendering a bomb/snake. We pulse these
+        // on the shared ticker so alpha/scale animations run on the
+        // GPU without per-cell setInterval timers.
+        this._pulsingCells = new Set();
+        // Monotonic ticker time; used for pulse sine phases.
+        this._clockMs = 0;
+
         // Whether to skip idle-pulse tickers on big boards.
         this._lowFx = false;
 
@@ -111,9 +145,6 @@ export class PixiView {
         if (mount) {
             mount.innerHTML = '';
             mount.appendChild(app.canvas);
-            // Pixi's canvas is a block element by default; the mount
-            // already centers it via flex. Ensure it doesn't introduce
-            // extra baseline whitespace.
             app.canvas.style.display = 'block';
         }
 
@@ -130,9 +161,13 @@ export class PixiView {
             this.layers.overlay,
         );
 
-        // Drive per-frame tweens off Pixi's ticker so we only have one
-        // rAF loop for all effects.
-        app.ticker.add((ticker) => this._tickTweens(ticker.deltaMS));
+        // Single ticker: advances the clock, drives pulse animations on
+        // bomb/snake cells, and runs the effects/particle tweens.
+        app.ticker.add((ticker) => {
+            this._clockMs += ticker.deltaMS;
+            this._tickPulse();
+            this._tickTweens(ticker.deltaMS);
+        });
 
         // Click-to-match input: forward canvas clicks to game state as
         // cell coordinates. Match the old DOM behavior where only
@@ -155,20 +190,20 @@ export class PixiView {
         const w = cols * this.blockPx;
         const h = rows * this.blockPx;
         this.app.renderer.resize(w, h);
-        // Keep the legacy .game-container CSS (border + box-shadow) by
-        // reading the mount's bounding size from the canvas.
         if (this.el.container) {
             this.el.container.style.width = `${w}px`;
             this.el.container.style.height = `${h}px`;
         }
 
         // Rebuild cell pools. Tear down the previous run's nodes first.
-        this.layers.board.removeChildren().forEach((c) => c.destroy({ children: true }));
-        this.layers.active.removeChildren().forEach((c) => c.destroy({ children: true }));
-        this.layers.effects.removeChildren().forEach((c) => c.destroy({ children: true }));
-        this.layers.overlay.removeChildren().forEach((c) => c.destroy({ children: true }));
+        for (const layer of Object.values(this.layers)) {
+            const kids = layer.removeChildren();
+            for (const c of kids) c.destroy({ children: true });
+        }
         this._specialOverlays.clear();
         this._tweens.clear();
+        this._pulsingCells.clear();
+        this._particlePool.length = 0;
 
         this.boardCells = [];
         this.activeCells = [];
@@ -216,117 +251,179 @@ export class PixiView {
 
     // -------------------------------------------------------------------
     // Cell factory: one reusable Container per grid slot with a
-    // pre-allocated body / accent / outline / icon. Paint is done by
-    // toggling visibility and redrawing Graphics in _paintCell.
+    // pre-allocated body / accent / outline / icon / pulse layer. Paint
+    // is done by toggling visibility and redrawing Graphics in
+    // _paintCell.
     // -------------------------------------------------------------------
 
-    _makeCell(isActive = false) {
+    _makeCell(_isActive = false) {
         const container = new Container();
-        // Make the whole cell selectable as one hit target for clicks.
         container.eventMode = 'none';
-        const body = new Graphics();
-        const accent = new Graphics();
-        const outline = new Graphics();
-        const iconStyle = new TextStyle({
-            fill: 0xffffff,
-            fontWeight: '900',
-            fontSize: Math.floor(this.blockPx * 0.55),
-            fontFamily: 'Arial, sans-serif',
-            align: 'center',
+        const pulse = new Graphics();   // outer glow (bomb/snake)
+        const body = new Graphics();    // main fill + inset stroke
+        const accent = new Graphics();  // radial highlight + shadow
+        const outline = new Graphics(); // floating dashes / highlight flash
+        const iconSize = Math.max(10, Math.floor(this.blockPx * 0.58));
+        const icon = new Text({
+            text: '',
+            style: new TextStyle({
+                fontFamily: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
+                fontSize: iconSize,
+                fill: 0xffffff,
+                align: 'center',
+                dropShadow: {
+                    color: 0x000000,
+                    alpha: 0.7,
+                    blur: 2,
+                    distance: 1,
+                    angle: Math.PI / 4,
+                },
+            }),
         });
-        const icon = new Text({ text: '', style: iconStyle });
         icon.anchor.set(0.5);
         icon.x = this.blockPx / 2;
         icon.y = this.blockPx / 2;
         icon.visible = false;
 
-        container.addChild(body, accent, outline, icon);
-        return { container, body, accent, outline, icon, isActive };
+        // Z-order inside the cell: pulse (under) -> body -> accent ->
+        // outline -> icon.
+        container.addChild(pulse, body, accent, outline, icon);
+        return { container, pulse, body, accent, outline, icon, color: null };
     }
 
     _paintCell(node, color, opts = {}) {
-        const { body, accent, outline, icon } = node;
+        const { container, pulse, body, accent, outline, icon } = node;
         const size = this.blockPx;
+        pulse.clear();
         body.clear();
         accent.clear();
         outline.clear();
         icon.visible = false;
 
+        // Remove any stale pulse registration before we re-evaluate.
+        this._pulsingCells.delete(node);
+        node.color = color || null;
+
         if (!color) {
-            node.container.visible = false;
+            container.visible = false;
             return;
         }
-        node.container.visible = true;
+        container.visible = true;
 
         const pal = CELL_PALETTE[color] || CELL_PALETTE.red;
-        // Body: main flat fill with a thin dark stroke.
-        body.roundRect(1, 1, size - 2, size - 2, Math.max(2, Math.floor(size * 0.12)))
-            .fill({ color: pal.body, alpha: 1 })
-            .stroke({ color: pal.shadow, width: 1, alignment: 1 });
-        // Accent: top-left gloss streak + bottom-right shadow triangle
-        // -- approximates the DOM radial gradients cheaply.
-        const inset = Math.max(2, Math.floor(size * 0.12));
-        accent.moveTo(inset, inset)
-            .lineTo(size - inset, inset)
-            .lineTo(inset, size - inset)
-            .closePath()
-            .fill({ color: pal.highlight, alpha: 0.18 });
-        accent.moveTo(size - inset, inset)
-            .lineTo(size - inset, size - inset)
-            .lineTo(inset, size - inset)
-            .closePath()
-            .fill({ color: pal.shadow, alpha: 0.22 });
+        const radius = Math.max(2, Math.floor(size * 0.12));
 
-        // Color-specific icon glyphs. Kept to ASCII/emoji-free
-        // primitives so the Pixi renderer doesn't need a special font.
-        if (color === 'bomb') {
-            // Dark circle + lighter core.
-            accent.circle(size / 2, size / 2, size * 0.28)
-                .fill({ color: 0x1a0000, alpha: 0.9 });
-            accent.circle(size / 2, size / 2, size * 0.18)
-                .fill({ color: 0xff5a3c, alpha: 0.95 });
-            // Fuse tick on top.
-            accent.rect(size / 2 - 1, size * 0.08, 2, size * 0.14)
-                .fill({ color: 0xffcc55, alpha: 0.9 });
-        } else if (color === 'snake') {
-            // Rotated diamond + inner band.
-            accent.moveTo(size / 2, size * 0.18)
-                .lineTo(size * 0.82, size / 2)
-                .lineTo(size / 2, size * 0.82)
-                .lineTo(size * 0.18, size / 2)
-                .closePath()
-                .fill({ color: 0x003a1f, alpha: 0.8 });
-            accent.moveTo(size / 2, size * 0.3)
-                .lineTo(size * 0.7, size / 2)
-                .lineTo(size / 2, size * 0.7)
-                .lineTo(size * 0.3, size / 2)
-                .closePath()
-                .fill({ color: 0x7fffc8, alpha: 0.9 });
+        // Body: diagonal linear gradient (matches the DOM's
+        // `linear-gradient(135deg, start, end)` backdrop). Pixi v8's
+        // FillGradient is linear -- we approximate the radial layers
+        // on top with the `accent` Graphics below.
+        const grad = new FillGradient(0, 0, size, size);
+        grad.addColorStop(0, pal.linearStart);
+        grad.addColorStop(1, pal.linearEnd);
+        body.roundRect(1, 1, size - 2, size - 2, radius)
+            .fill(grad)
+            .stroke({ color: pal.shadow, width: 1, alpha: 0.7, alignment: 1 });
+
+        // Accent radials: a bright highlight top-left and a darker
+        // pool bottom-right to approximate the two radial layers in
+        // the DOM background. Numbers mirror the `circle at 30% 30%`
+        // and `circle at 70% 75%` stops.
+        accent.circle(size * 0.3, size * 0.3, size * 0.38)
+            .fill({ color: pal.highlight, alpha: 0.45 });
+        accent.circle(size * 0.72, size * 0.78, size * 0.34)
+            .fill({ color: pal.shadow, alpha: 0.55 });
+        // Inner speculars: small bright dots pick up the "wet" look
+        // from the extra `circle at 25% 25%` / `circle at 45% 20%`
+        // after-gradients in the DOM CSS.
+        accent.circle(size * 0.26, size * 0.24, size * 0.1)
+            .fill({ color: 0xffffff, alpha: 0.3 });
+        accent.circle(size * 0.58, size * 0.35, size * 0.07)
+            .fill({ color: pal.highlight, alpha: 0.25 });
+        // Inset gloss streak under the top edge.
+        accent.roundRect(3, 3, size - 6, 2, 1)
+            .fill({ color: 0xffffff, alpha: 0.2 });
+
+        // Icon glyph. Skip the text cost when we're rendering a piece
+        // that's off-screen or tiny (icons get illegible below ~20px
+        // anyway). Font size is resampled per-block because block size
+        // varies with field size.
+        const emoji = ICON_EMOJI[color];
+        if (emoji && size >= 20) {
+            icon.text = emoji;
+            icon.style.fontSize = Math.max(10, Math.floor(size * 0.58));
+            icon.x = size / 2;
+            // Nudge the emoji down slightly so it sits visually
+            // centered (most emoji fonts render with a top-heavy
+            // bounding box).
+            icon.y = size / 2 + Math.max(1, Math.floor(size * 0.04));
+            icon.visible = true;
+        }
+
+        // Register bomb/snake for the shared pulse ticker. Skip when
+        // low-fx is on (big boards; keeps the ticker budget bounded).
+        if (!this._lowFx && (color === 'bomb' || color === 'snake')) {
+            this._pulsingCells.add(node);
         }
 
         if (opts.floating) {
-            // Dashed cyan outline -- eight short segments so it reads
-            // as dashed without per-frame draw calls.
+            // Dashed cyan outline -- eight short segments per side so
+            // it reads as dashed without the per-frame stroke cost of
+            // a shader dash pattern.
             const segs = 8;
             const step = (size - 4) / segs;
             outline.setStrokeStyle({ color: FLOATING_COLOR, width: 1.5, alpha: 0.9 });
             for (let i = 0; i < segs; i++) {
                 if (i % 2) continue;
-                // top
                 outline.moveTo(2 + i * step, 2).lineTo(2 + (i + 1) * step, 2);
-                // bottom
                 outline.moveTo(2 + i * step, size - 2).lineTo(2 + (i + 1) * step, size - 2);
-                // left
                 outline.moveTo(2, 2 + i * step).lineTo(2, 2 + (i + 1) * step);
-                // right
                 outline.moveTo(size - 2, 2 + i * step).lineTo(size - 2, 2 + (i + 1) * step);
             }
             outline.stroke();
         }
 
-        if (opts.highlight) {
-            outline.rect(0, 0, size, size)
-                .fill({ color: HIGHLIGHT_COLOR, alpha: 0.45 });
+        // Snake cells are drawn with a 45 degree rotation (diamond
+        // shape) to mirror the DOM CSS `transform: rotate(45deg)`.
+        // We rotate the container around its center; to keep the top-
+        // left grid anchor, we also shift position by size/2. The icon
+        // counter-rotates so the snake glyph stays upright. Guard both
+        // the snake->snake repaint (so we don't double-shift) and the
+        // snake->other transition (restore original anchor).
+        const wasRotated = container.rotation !== 0;
+        if (color === 'snake') {
+            if (!wasRotated) {
+                container.pivot.set(size / 2, size / 2);
+                container.position.set(container.position.x + size / 2, container.position.y + size / 2);
+                container.rotation = Math.PI / 4;
+            }
+            icon.rotation = -Math.PI / 4;
+        } else if (wasRotated) {
+            container.rotation = 0;
+            container.pivot.set(0, 0);
+            container.position.set(container.position.x - size / 2, container.position.y - size / 2);
+            icon.rotation = 0;
+        }
+    }
+
+    // Shared pulse ticker for bomb + snake cells. Computes a sine
+    // wave on the monotonic clock and bumps alpha + scale on the
+    // outer glow Graphics. O(n) where n = # pulsing cells; caps at
+    // board size anyway.
+    _tickPulse() {
+        if (this._pulsingCells.size === 0) return;
+        const t = this._clockMs;
+        for (const node of this._pulsingCells) {
+            if (!node.color) continue;
+            const period = PULSE_PERIOD_MS[node.color] || 1000;
+            const phase = (t % period) / period; // 0..1
+            // Smooth 0 -> 1 -> 0 curve.
+            const s = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
+            const pal = CELL_PALETTE[node.color];
+            const alpha = 0.35 + 0.35 * s;
+            const radius = this.blockPx * (0.52 + 0.1 * s);
+            node.pulse.clear();
+            node.pulse.circle(this.blockPx / 2, this.blockPx / 2, radius)
+                .fill({ color: pal.glow, alpha });
         }
     }
 
@@ -361,10 +458,16 @@ export class PixiView {
     _clearActiveLayer() {
         for (let i = 0; i < this.activePaintedCells.length; i++) {
             const node = this.activePaintedCells[i];
+            // Deregister pulsing active cells on clear so a bomb-cell
+            // in the falling piece doesn't keep pulsing after lock.
+            this._pulsingCells.delete(node);
+            node.color = null;
             node.container.visible = false;
+            node.pulse.clear();
             node.body.clear();
             node.accent.clear();
             node.outline.clear();
+            node.icon.visible = false;
         }
         this.activePaintedCells.length = 0;
     }
@@ -392,8 +495,8 @@ export class PixiView {
     }
 
     // -------------------------------------------------------------------
-    // Transient effects: match-explode, bomb blast, snake trail.
-    // Everything animates via _addTween so there's one ticker.
+    // Transient effects: match-explode, bomb blast, snake trail, and
+    // particle bursts. All animate off a single ticker via _addTween.
     // -------------------------------------------------------------------
 
     _addTween(obj) {
@@ -412,30 +515,83 @@ export class PixiView {
         }
     }
 
+    _acquireParticle() {
+        const g = this._particlePool.pop() || new Graphics();
+        g.visible = true;
+        this.layers.effects.addChild(g);
+        return g;
+    }
+
+    _releaseParticle(g) {
+        g.clear();
+        g.visible = false;
+        if (g.parent) g.parent.removeChild(g);
+        // Cap pool so a huge chain doesn't permanently retain refs.
+        if (this._particlePool.length < 256) this._particlePool.push(g);
+        else g.destroy();
+    }
+
+    // Explosion burst: expanding radial flare + a ring of particles
+    // flying outward and fading. Used on every cleared cell in a
+    // match. Cheap enough to run on low-fx boards too.
     _addExplosionEffect(x, y, color) {
         const [c1, c2] = EFFECT_COLORS[color] || EFFECT_COLORS.red;
-        const g = new Graphics();
-        g.x = (x + 0.5) * this.blockPx;
-        g.y = (y + 0.5) * this.blockPx;
-        this.layers.effects.addChild(g);
+        const cx = (x + 0.5) * this.blockPx;
+        const cy = (y + 0.5) * this.blockPx;
+        const flare = new Graphics();
+        flare.x = cx;
+        flare.y = cy;
+        this.layers.effects.addChild(flare);
         const baseR = this.blockPx * 0.5;
         this._addTween({
             elapsed: 0,
             duration: 600,
             update: (p) => {
-                g.clear();
-                const r = baseR * (1 + p * 1.6);
-                g.circle(0, 0, r).fill({ color: c1, alpha: 0.7 * (1 - p) });
-                g.circle(0, 0, r * 0.55).fill({ color: c2, alpha: 0.5 * (1 - p) });
+                flare.clear();
+                const r = baseR * (1 + p * 1.8);
+                flare.circle(0, 0, r).fill({ color: c1, alpha: 0.7 * (1 - p) });
+                flare.circle(0, 0, r * 0.55).fill({ color: c2, alpha: 0.5 * (1 - p) });
             },
-            done: () => { g.destroy(); },
+            done: () => { flare.destroy(); },
         });
+
+        // Skip the particle burst on low-fx to keep the ticker cheap.
+        if (this._lowFx) return;
+        const count = 8;
+        for (let i = 0; i < count; i++) {
+            const angle = (i / count) * Math.PI * 2 + Math.random() * 0.3;
+            const speed = this.blockPx * (1.2 + Math.random() * 1.2);
+            const dx = Math.cos(angle) * speed;
+            const dy = Math.sin(angle) * speed;
+            const g = this._acquireParticle();
+            g.x = cx;
+            g.y = cy;
+            const startR = this.blockPx * (0.1 + Math.random() * 0.1);
+            this._addTween({
+                elapsed: 0,
+                duration: 500 + Math.random() * 200,
+                update: (p) => {
+                    g.clear();
+                    const px = dx * p;
+                    const py = dy * p + (p * p) * this.blockPx * 0.8; // gravity-ish
+                    g.x = cx + px;
+                    g.y = cy + py;
+                    const r = startR * (1 - p * 0.5);
+                    const a = 1 - p;
+                    g.circle(0, 0, r).fill({ color: c1, alpha: a });
+                    g.circle(0, 0, r * 0.5).fill({ color: c2, alpha: a });
+                },
+                done: () => this._releaseParticle(g),
+            });
+        }
     }
 
     _addBombEffect(x, y) {
+        const cx = (x + 0.5) * this.blockPx;
+        const cy = (y + 0.5) * this.blockPx;
         const g = new Graphics();
-        g.x = (x + 0.5) * this.blockPx;
-        g.y = (y + 0.5) * this.blockPx;
+        g.x = cx;
+        g.y = cy;
         this.layers.effects.addChild(g);
         const baseR = this.blockPx * 0.6;
         this._addTween({
@@ -443,13 +599,56 @@ export class PixiView {
             duration: 800,
             update: (p) => {
                 g.clear();
-                const r = baseR * (1 + p * 2.5);
+                const r = baseR * (1 + p * 2.8);
                 g.circle(0, 0, r).fill({ color: 0xff6400, alpha: 0.85 * (1 - p) });
                 g.circle(0, 0, r * 0.6).fill({ color: 0xffc800, alpha: 0.8 * (1 - p) });
                 g.circle(0, 0, r * 0.3).fill({ color: 0xffffff, alpha: 0.9 * (1 - p) });
             },
             done: () => { g.destroy(); },
         });
+        // Shockwave ring.
+        const ring = new Graphics();
+        ring.x = cx;
+        ring.y = cy;
+        this.layers.effects.addChild(ring);
+        this._addTween({
+            elapsed: 0,
+            duration: 600,
+            update: (p) => {
+                ring.clear();
+                const r = this.blockPx * (0.5 + p * 3);
+                ring.circle(0, 0, r)
+                    .stroke({ color: 0xffe066, width: 3 * (1 - p), alpha: 0.8 * (1 - p) });
+            },
+            done: () => { ring.destroy(); },
+        });
+        // Particle shrapnel (skip in low-fx).
+        if (this._lowFx) return;
+        const count = 18;
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = this.blockPx * (1.8 + Math.random() * 2.2);
+            const dx = Math.cos(angle) * speed;
+            const dy = Math.sin(angle) * speed;
+            const p = this._acquireParticle();
+            p.x = cx;
+            p.y = cy;
+            const startR = this.blockPx * (0.12 + Math.random() * 0.1);
+            this._addTween({
+                elapsed: 0,
+                duration: 700 + Math.random() * 400,
+                update: (q) => {
+                    p.clear();
+                    p.x = cx + dx * q;
+                    p.y = cy + dy * q + (q * q) * this.blockPx * 1.2;
+                    const r = startR * (1 - q * 0.4);
+                    const a = 1 - q;
+                    p.circle(0, 0, r).fill({ color: 0xff9033, alpha: a });
+                    p.circle(0, 0, r * 0.5).fill({ color: 0xffe066, alpha: a });
+                },
+                done: () => this._releaseParticle(p),
+            });
+        }
     }
 
     _animateSnake({ start, entry, recolors, stepInterval, segments }) {
@@ -475,11 +674,13 @@ export class PixiView {
                     g.clear();
                     g.x = (seg.x + 0.5) * size;
                     g.y = (seg.y + 0.5) * size;
-                    const alpha = i === 0 ? 0.9 : Math.max(0.1, 0.6 - i * 0.1);
-                    g.circle(0, 0, size * 0.38)
+                    const alpha = i === 0 ? 0.95 : Math.max(0.1, 0.65 - i * 0.08);
+                    g.circle(0, 0, size * 0.42)
                         .fill({ color: 0x00ff88, alpha });
-                    g.circle(0, 0, size * 0.22)
-                        .fill({ color: 0xccffcc, alpha: alpha * 0.7 });
+                    g.circle(0, 0, size * 0.28)
+                        .fill({ color: 0xccffdd, alpha: alpha * 0.7 });
+                    g.circle(0, 0, size * 0.12)
+                        .fill({ color: 0xffffff, alpha: alpha * 0.8 });
                     g.visible = true;
                 } else {
                     g.visible = false;
@@ -498,7 +699,6 @@ export class PixiView {
                 }
                 idx++;
             } else {
-                // Walk off the edge with a random exit.
                 const exits = [
                     { x: -2, y: trail[0].y },
                     { x: this.state.cols + 1, y: trail[0].y },
@@ -540,6 +740,13 @@ export class PixiView {
                 fontWeight: '900',
                 fontSize: Math.floor(this.blockPx * 0.45),
                 fontFamily: 'Arial, sans-serif',
+                dropShadow: {
+                    color: 0x000000,
+                    alpha: 0.8,
+                    blur: 2,
+                    distance: 1,
+                    angle: Math.PI / 4,
+                },
             }),
         });
         digit.anchor.set(0.5);
@@ -560,7 +767,6 @@ export class PixiView {
             const remaining = Math.max(0, entry.durationMs - (performance.now() - entry.armedAt));
             const pct = entry.durationMs > 0 ? Math.max(0, remaining / entry.durationMs) : 0;
             ring.clear();
-            // Arc from -PI/2 (top) clockwise around by 2*PI*pct.
             const cx = this.blockPx / 2;
             const cy = this.blockPx / 2;
             const r = this.blockPx * 0.42;
@@ -569,14 +775,12 @@ export class PixiView {
                     .arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct)
                     .lineTo(cx, cy)
                     .closePath()
-                    .fill({ color: 0xffffff, alpha: 0.22 });
+                    .fill({ color: 0xffffff, alpha: 0.25 });
             }
             ring.circle(cx, cy, r)
-                .stroke({ color: 0xffffff, width: 1.5, alpha: 0.7 });
+                .stroke({ color: 0xffffff, width: 1.5, alpha: 0.75 });
             digit.text = String(Math.ceil(remaining / 1000));
-            if (remaining <= 0) {
-                entry.running = false;
-            }
+            if (remaining <= 0) entry.running = false;
         };
         tick();
         entry.running = true;
@@ -634,7 +838,8 @@ export class PixiView {
     }
 
     // -------------------------------------------------------------------
-    // HUD (DOM) — same as GameView since that stays DOM for PR #15.
+    // HUD (DOM). Identical to GameView's HUD path since the HUD stays
+    // in DOM for this renderer.
     // -------------------------------------------------------------------
 
     _updateHUD() {
