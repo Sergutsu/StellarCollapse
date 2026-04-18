@@ -35,12 +35,21 @@ export const BOMB_POINTS = 25;
 
 // Starting and minimum drop intervals in milliseconds, plus how much faster
 // each level gets. Keep these in one place so tuning doesn't drift.
-export const DROP_INTERVAL_START_MS = 1500;
+// Starting gravity at level 1. Classic Tetris starts near ~1000ms, which
+// feels snappier than the old 1500ms ceiling without being punishing.
+export const DROP_INTERVAL_START_MS = 1000;
+// Gravity floor -- once the player hits this level, drops won't get
+// faster. Kept at 200ms so very late game is playable.
 export const DROP_INTERVAL_MIN_MS = 200;
-export const DROP_INTERVAL_STEP_MS = 75;
+// Ms shaved off the drop interval for each level gained. 100ms is the
+// smallest step that still reads as "faster" to a player holding the
+// board with both hands; 75 (the old value) was sub-perceptual.
+export const DROP_INTERVAL_STEP_MS = 100;
 
-// Lines required to advance one level.
-export const LINES_PER_LEVEL = 10;
+// Lines required to advance one level. 8 lines gives a perceptible
+// rhythm of level-ups on every field size without making max level
+// trivially reachable.
+export const LINES_PER_LEVEL = 8;
 
 // Size of the piece preview queue (1 "next" + 3 "coming up" previews).
 export const PIECE_QUEUE_SIZE = 5;
@@ -92,9 +101,21 @@ export const COLLAPSED_BOMB_CHANCE = 0.04;
 // under a synchronous scheduler).
 export const SPECIAL_ARM_MS = 5000;
 
-// Six curated difficulty tiers for the high-score board. Each tier is a
-// unique (mode, complexity) combination. Ordered easy -> hard so the UI
-// can render a green -> red gradient straight off the array index.
+// All nine (mode, complexity) combinations get their own leaderboard so
+// every legal start-screen selection ranks. Ordered easy -> hard; the
+// UI renders a green -> red gradient straight off the array index.
+//
+// Difficulty order rationale:
+//  - Stellar (manual click-match) is the gentlest mode: the player sets
+//    their own pace on matches. Classic < Mutated < Collapsed.
+//  - Auto-Match removes match agency (good and bad -- cleared runs on
+//    lock but also surprise clears in the spawn zone), so it slots
+//    above each Stellar counterpart of the same complexity.
+//  - Blocks disables click-matching entirely; only line clears score
+//    and only line clears level you up. Hardest mode end-to-end.
+//  - Within each mode we use Classic < Mutated < Collapsed because
+//    Collapsed freezes gravity on matches/bombs, which is the harshest
+//    single modifier in the game.
 export const HIGHSCORE_TIERS = Object.freeze([
     {
         id: 'stellar-classic',
@@ -110,7 +131,7 @@ export const HIGHSCORE_TIERS = Object.freeze([
         complexity: PIECE_COMPLEXITY.MUTATED,
         label: 'Stellar / Mutated',
         short: 'S·M',
-        color: '#a3e635', // lime-400
+        color: '#86efac', // green-300 (slightly cooler lime)
     },
     {
         id: 'auto-match-classic',
@@ -118,7 +139,23 @@ export const HIGHSCORE_TIERS = Object.freeze([
         complexity: PIECE_COMPLEXITY.CLASSIC,
         label: 'Auto-Match / Classic',
         short: 'A·C',
+        color: '#a3e635', // lime-400
+    },
+    {
+        id: 'auto-match-mutated',
+        mode: GAME_MODES.AUTO_MATCH,
+        complexity: PIECE_COMPLEXITY.MUTATED,
+        label: 'Auto-Match / Mutated',
+        short: 'A·M',
         color: '#facc15', // yellow-400
+    },
+    {
+        id: 'stellar-collapsed',
+        mode: GAME_MODES.STELLAR,
+        complexity: PIECE_COMPLEXITY.COLLAPSED,
+        label: 'Stellar / Collapsed',
+        short: 'S·X',
+        color: '#fbbf24', // amber-400
     },
     {
         id: 'auto-match-collapsed',
@@ -127,6 +164,14 @@ export const HIGHSCORE_TIERS = Object.freeze([
         label: 'Auto-Match / Collapsed',
         short: 'A·X',
         color: '#fb923c', // orange-400
+    },
+    {
+        id: 'blocks-classic',
+        mode: GAME_MODES.BLOCKS,
+        complexity: PIECE_COMPLEXITY.CLASSIC,
+        label: 'Blocks / Classic',
+        short: 'B·C',
+        color: '#f97316', // orange-500
     },
     {
         id: 'blocks-mutated',

@@ -752,9 +752,20 @@
            color defined in constants.js (set via inline style). */
         .tier-tabs {
             display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 6px;
+            /* 9 tiers -- one per mode x complexity combo. Auto-fit keeps
+               the row compact on wide layouts and wraps gracefully on
+               narrow ones without us hardcoding a breakpoint. */
+            grid-template-columns: repeat(9, minmax(0, 1fr));
+            gap: 4px;
             margin-bottom: 12px;
+        }
+
+        @media (max-width: 720px) {
+            .tier-tabs {
+                /* On phone-width viewports 9 flat tabs crush unreadably;
+                   flow into two rows instead. */
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+            }
         }
 
         .tier-tab {
@@ -1221,7 +1232,7 @@
                         <div class="hud-stat-label glow-text text-blue-300">LEVEL</div>
                         <div id="level" class="hud-stat-value score-display">1</div>
                         <div id="levelInfo" class="text-xs text-blue-200 mt-1">Cosmic dust</div>
-                        <div class="text-[0.7rem] text-blue-300 mt-1" id="levelProgress">0 / 10 lines</div>
+                        <div class="text-[0.7rem] text-blue-300 mt-1" id="levelProgress">0 / 8 lines</div>
                     </div>
 
                     <div class="hologram-panel hud-panel text-center">

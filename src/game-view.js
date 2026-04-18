@@ -236,8 +236,8 @@ export class GameView {
         }
         if (this.el.levelProgress) {
             // Pull the cadence from constants.js so this stays in lockstep
-            // with the level-up math in game-state.js -- if LINES_PER_LEVEL
-            // ever moves off 10, the HUD follows automatically.
+            // with the level-up math in game-state.js -- the HUD follows
+            // whatever LINES_PER_LEVEL is set to.
             const into = this.state.lines % LINES_PER_LEVEL;
             this.el.levelProgress.textContent = `${into} / ${LINES_PER_LEVEL} lines`;
         }
