@@ -63,6 +63,9 @@ function boot() {
         score: el('score'),
         level: el('level'),
         lines: el('lines'),
+        multiplier: el('multiplier'),
+        levelInfo: el('levelInfo'),
+        levelProgress: el('levelProgress'),
     };
 
     const startScreen = el('startScreen');
@@ -74,6 +77,7 @@ function boot() {
     const complexityToggle = el('complexityToggle');
     const fieldSizeToggle = el('fieldSizeToggle');
     const matchControlHint = el('matchControlHint');
+    const matchControlHintText = el('matchControlHintText');
     const playerNameInput = el('playerName');
     const soundIcon = el('soundToggleIcon');
     const soundText = el('soundToggleText');
@@ -87,11 +91,99 @@ function boot() {
         fieldSizeId: DEFAULT_SIZE_ID,
     });
     const view = new GameView({ state, elements });
+    // Per-level flavor text. Short enough to not steal attention from the
+    // board. Indexed by level (1-based); levels beyond the list wrap to
+    // the last entry so veterans still get something to read.
+    const LEVEL_INFO = [
+        'Cosmic Dust',
+        'Stellar Nursery',
+        'Main Sequence',
+        'Red Giant',
+        'Supernova',
+        'Neutron Star',
+        'Black Hole',
+        'Quasar',
+        'Galactic Core',
+        'Heat Death',
+    ];
+    view._levelInfoFor = (lvl) => LEVEL_INFO[Math.min(lvl, LEVEL_INFO.length) - 1] || LEVEL_INFO[LEVEL_INFO.length - 1];
 
     view.createBoard();
     view.createPreviews();
     audio.bindState(state);
     bindInput({ state, elements });
+
+    // --- In-game title star: reacts to gameplay events ---------------
+    // Adds a short-lived modifier class; the CSS animation self-resets
+    // after ~1s. If a second event arrives mid-animation we force a
+    // reflow so the class is re-applied and the animation restarts.
+    const titleStar = el('titleStar');
+    let starResetTimer = 0;
+    function reactStar(modifier, ms = 700) {
+        if (!titleStar) return;
+        titleStar.classList.remove(
+            'title-star--lock', 'title-star--line', 'title-star--match',
+            'title-star--bomb', 'title-star--snake', 'title-star--levelup',
+            'title-star--gameover', 'title-star--reacting',
+        );
+        // Force reflow so re-adding the class restarts the CSS animation.
+        void titleStar.offsetWidth;
+        titleStar.classList.add('title-star--reacting', modifier);
+        clearTimeout(starResetTimer);
+        starResetTimer = setTimeout(() => {
+            titleStar.classList.remove('title-star--reacting', modifier);
+        }, ms);
+    }
+    state.on('piece-locked',    () => reactStar('title-star--lock', 320));
+    state.on('lines-cleared',   () => reactStar('title-star--line', 600));
+    state.on('match-cleared',   ({ special }) => {
+        // The "snake" run visually is its own event; handled below so we
+        // don't fire two reactions for one clear.
+        if (special && special.type === 'snake') return;
+        reactStar('title-star--match', 600);
+    });
+    state.on('bomb-exploded',   () => reactStar('title-star--bomb', 800));
+    state.on('snake-activated', () => reactStar('title-star--snake', 950));
+    state.on('level-up',        () => reactStar('title-star--levelup', 800));
+    state.on('game-over',       () => reactStar('title-star--gameover', 1200));
+
+    // --- Mission tips: short cue per level ---------------------------
+    const LEVEL_TIPS = {
+        stellar: [
+            'Click any run of 4+ same-color cells to clear.',
+            'Bigger matches score the same per cell -- but stack chain reactions.',
+            'Save a long column for a later 5-run bomb spawn.',
+            'Rotate against a wall to wedge pieces into gaps.',
+            'Lines still clear -- don\'t forget plain old stacking.',
+            'Hard drop when the next piece queue looks friendly.',
+        ],
+        'auto-match': [
+            'Lock a piece that completes 4+ in a row and it auto-clears.',
+            'Cross patterns score every unique cell once -- no double dip.',
+            'Plan colors two pieces ahead using the COMING UP preview.',
+            'On COLLAPSED, bomb cells ride in with the next piece -- watch for them.',
+            'Auto-match still triggers on vertical runs.',
+            'Fill below, not above -- a tall stack kills your spawn zone.',
+        ],
+        blocks: [
+            'Only full horizontal lines score. Colors do not matter.',
+            'Flat stacks beat fancy ones -- leave one column for line clears.',
+            'Use soft-drop to thread pieces into tight gaps.',
+            'Four-line clears still exist -- bank a tall well for the bonus.',
+            'Hard drop when you\'re confident; you can\'t undo it.',
+            'The field grows taller on Mutated and Collapsed -- pace yourself.',
+        ],
+    };
+    const levelTipEl = el('levelTip');
+    function pickTip(mode, level) {
+        const pool = LEVEL_TIPS[mode] || LEVEL_TIPS.stellar;
+        return pool[(level - 1) % pool.length];
+    }
+    function refreshTip() {
+        if (levelTipEl) levelTipEl.textContent = pickTip(state.mode, state.level);
+    }
+    state.on('game-started', refreshTip);
+    state.on('level-up',     refreshTip);
 
     // UI state: which mode + complexity are currently selected, and which
     // tier is currently shown on the leaderboard. Selecting a mode +
@@ -179,10 +271,23 @@ function boot() {
             btn.classList.toggle('active', btn.dataset.complexity === uiState.complexity);
         });
         renderFieldSizeToggle();
-        // Update controls-panel hint: in Blocks mode clicking does nothing
-        // so the "Match 4+ Colors" line is misleading.
-        if (matchControlHint) {
-            matchControlHint.style.display = uiState.mode === GAME_MODES.BLOCKS ? 'none' : '';
+        // Controls-panel hint:
+        //   - BLOCKS: click-match is disabled entirely -> hide the row.
+        //   - AUTO_MATCH: clicks still aren't required, but the mechanic
+        //     is about auto-clears on lock -- explicitly say "Auto" so
+        //     players aren't surprised when clicking does nothing.
+        //   - STELLAR: original manual click-match.
+        if (matchControlHint && matchControlHintText) {
+            if (uiState.mode === GAME_MODES.BLOCKS) {
+                matchControlHint.style.display = 'none';
+            } else {
+                matchControlHint.style.display = '';
+                if (uiState.mode === GAME_MODES.AUTO_MATCH) {
+                    matchControlHintText.textContent = 'Auto-Match on Lock';
+                } else {
+                    matchControlHintText.textContent = 'Match 4+ Colors';
+                }
+            }
         }
         // If the current selection maps to a tier, sync the leaderboard
         // to it so the player sees the scoreboard they're about to play on.
