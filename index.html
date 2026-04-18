@@ -985,6 +985,25 @@
             border-radius: 8px;
         }
         
+        /* When Pixi owns the HUD (?engine=pixi), hide the DOM title bar
+           and the three HUD columns -- PixiView draws equivalents inside
+           the canvas. We still show the sound/exit buttons in the top
+           corner (DOM overlay) because Pixi has no native button widget.
+           The game-board-slot stays in the DOM flow because Pixi mounts
+           its full-screen canvas inside #gameContainer (inside the slot).
+           We also let the slot stretch to the full HUD width so the
+           canvas can draw the side panels. */
+        body.engine-pixi .game-title-bar,
+        body.engine-pixi .hud-column {
+            display: none !important;
+        }
+        body.engine-pixi .game-board-slot {
+            width: auto;
+        }
+        body.engine-pixi #gameScreen .flex.gap-6 {
+            gap: 0 !important;
+        }
+
         /* Holographic effects for UI panels */
         .hologram-panel {
             background: 

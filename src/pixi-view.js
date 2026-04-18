@@ -20,6 +20,7 @@ import {
     Container,
     FillGradient,
     Graphics,
+    Rectangle,
     Text,
     TextStyle,
 } from 'pixi.js';
@@ -80,6 +81,55 @@ const EFFECT_COLORS = {
 // cadence feels identical.
 const PULSE_PERIOD_MS = { bomb: 1000, snake: 1500 };
 
+// --------------------------------------------------------------------
+// HUD layout. Canvas is a fixed 860x820 rectangle regardless of field
+// size; the board slot is always 400x720 centered, the three columns
+// stay put, and the title bar spans the top. Matches the DOM layout
+// defined by .game-board-slot / .hud-column / .game-title-bar.
+// --------------------------------------------------------------------
+const HUD_W = 860;
+const HUD_H = 820;
+const TITLE_H = 80;
+const COL_W = 210;
+const COL_GAP = 10;
+const BOARD_SLOT_W = 400;
+const BOARD_SLOT_H = 720;
+const LEFT_X = COL_GAP;
+const BOARD_SLOT_X = LEFT_X + COL_W + COL_GAP;
+const RIGHT_X = BOARD_SLOT_X + BOARD_SLOT_W + COL_GAP;
+const COL_Y = TITLE_H + 8;
+
+// Hologram panel tints -- picked to match the DOM CSS backdrop
+// (cyan-ish translucent gradient with a thin cyan border).
+const PANEL_BG_TOP = 0x0b1b3a;
+const PANEL_BG_BOT = 0x050a1c;
+const PANEL_BORDER = 0x00d4ff;
+const PANEL_BORDER_ALPHA = 0.28;
+const PANEL_GLOW = 0x00d4ff;
+
+// Title-bar + panel text colors, also pulled from the DOM CSS so the
+// two engines read as the same game.
+const COLOR_BLUE_300 = 0x93c5fd;
+const COLOR_BLUE_200 = 0xbfdbfe;
+const COLOR_CYAN_300 = 0x67e8f9;
+const COLOR_CYAN_400 = 0x22d3ee;
+const COLOR_YELLOW_300 = 0xfde047;
+const COLOR_GREEN_300 = 0x86efac;
+const COLOR_PINK_300 = 0xf9a8d4;
+const COLOR_WHITE = 0xffffff;
+
+// Title-star reaction -> {color, periodMs, kind}. kind drives the
+// animation shape; periodMs matches the DOM @keyframes durations.
+const STAR_REACTIONS = {
+    lock:     { color: 0xfacc15, duration: 280, kind: 'pop' },
+    line:     { color: 0x22d3ee, duration: 550, kind: 'spin' },
+    match:    { color: 0x34d399, duration: 550, kind: 'pop-big' },
+    bomb:     { color: 0xf97316, duration: 750, kind: 'shake' },
+    snake:    { color: 0xa855f7, duration: 900, kind: 'wobble' },
+    gameover: { color: 0xf87171, duration: 900, kind: 'fall' },
+    levelup:  { color: 0xfde68a, duration: 750, kind: 'burst' },
+};
+
 export class PixiView {
     constructor({ state, elements }) {
         this.state = state;
@@ -116,6 +166,14 @@ export class PixiView {
         // Whether to skip idle-pulse tickers on big boards.
         this._lowFx = false;
 
+        // HUD: containers, text nodes, preview grids. Populated in init().
+        this.hud = null;
+        // Root container for the board layers so we can position the
+        // board inside the canvas without moving every child by hand.
+        this.boardRoot = null;
+        // Star actor state: base color + active reaction tween handle.
+        this._starReactionTween = null;
+
         this._bindState();
     }
 
@@ -132,29 +190,49 @@ export class PixiView {
             // blurring on the compositor.
             resolution: Math.min(window.devicePixelRatio || 1, 2),
             autoDensity: true,
-            // Placeholder size; createBoard() calls renderer.resize().
-            width: 320,
-            height: 640,
+            // Fixed HUD canvas -- see HUD_W/HUD_H. The board slot inside
+            // scales with field size; the outer frame stays constant.
+            width: HUD_W,
+            height: HUD_H,
         });
         this.app = app;
 
         // Mount into #gameContainer. Wipe any DOM children (the old
         // board/active/effects divs) so the canvas takes the full
-        // bounding box.
+        // bounding box. Also resize the container itself to the HUD
+        // dimensions so the DOM layout in #gameScreen makes room for
+        // the wider-than-board canvas.
         const mount = this.el.container;
         if (mount) {
             mount.innerHTML = '';
             mount.appendChild(app.canvas);
             app.canvas.style.display = 'block';
+            mount.style.width = `${HUD_W}px`;
+            mount.style.height = `${HUD_H}px`;
+            // Drop the cyan border + box-shadow from .game-container --
+            // the Pixi HUD draws its own frame now.
+            mount.style.border = 'none';
+            mount.style.boxShadow = 'none';
+            mount.style.background = 'transparent';
+            mount.style.animation = 'none';
         }
 
-        // Z-order: board (locked pieces) -> active (falling piece) ->
-        // effects (transient FX) -> overlay (countdown rings).
+        // Title bar + left/right columns first so they sit behind the
+        // board. boardRoot wraps the existing cell layers so we can
+        // position the entire board inside the HUD with one container
+        // transform.
+        this._buildHud();
+
+        this.boardRoot = new Container();
+        app.stage.addChild(this.boardRoot);
+
+        // Z-order inside boardRoot: board (locked) -> active ->
+        // effects -> overlay (countdown rings).
         this.layers.board = new Container();
         this.layers.active = new Container();
         this.layers.effects = new Container();
         this.layers.overlay = new Container();
-        app.stage.addChild(
+        this.boardRoot.addChild(
             this.layers.board,
             this.layers.active,
             this.layers.effects,
@@ -166,6 +244,7 @@ export class PixiView {
         app.ticker.add((ticker) => {
             this._clockMs += ticker.deltaMS;
             this._tickPulse();
+            this._tickStar(ticker.deltaMS);
             this._tickTweens(ticker.deltaMS);
         });
 
@@ -189,11 +268,15 @@ export class PixiView {
 
         const w = cols * this.blockPx;
         const h = rows * this.blockPx;
-        this.app.renderer.resize(w, h);
-        if (this.el.container) {
-            this.el.container.style.width = `${w}px`;
-            this.el.container.style.height = `${h}px`;
+
+        // Center the board inside the fixed BOARD_SLOT area so every
+        // field size sits in the same rectangle of the canvas.
+        if (this.boardRoot) {
+            this.boardRoot.x = BOARD_SLOT_X + Math.round((BOARD_SLOT_W - w) / 2);
+            this.boardRoot.y = COL_Y + Math.round((BOARD_SLOT_H - h) / 2);
         }
+        // Redraw the board frame + background grid inside the slot.
+        this._drawBoardFrame(w, h);
 
         // Rebuild cell pools. Tear down the previous run's nodes first.
         for (const layer of Object.values(this.layers)) {
@@ -230,23 +313,12 @@ export class PixiView {
         }
     }
 
-    // Previews stay in DOM for this pass (PR #15 scope). Keep the
-    // signature so main.js doesn't branch on which view it got.
+    // Preview grids are Pixi-owned now (built inside _buildHud). The
+    // DOM el.nextPreview / el.smallPreviews stay hidden by the
+    // .engine-pixi CSS rule. Kept as a no-op so main.js's contract is
+    // unchanged.
     createPreviews() {
-        const { nextPreview, smallPreviews } = this.el;
-        const fillGrid = (container) => {
-            if (!container) return;
-            container.innerHTML = '';
-            const frag = document.createDocumentFragment();
-            for (let i = 0; i < 16; i++) {
-                const cell = document.createElement('div');
-                cell.className = 'cell preview-slot';
-                frag.appendChild(cell);
-            }
-            container.appendChild(frag);
-        };
-        fillGrid(nextPreview);
-        smallPreviews.forEach(fillGrid);
+        /* preview cells are built during _buildHud(); nothing to do. */
     }
 
     // -------------------------------------------------------------------
@@ -825,11 +897,18 @@ export class PixiView {
 
     _handleCanvasClick(ev) {
         if (!this.state || this.state.gameOver) return;
-        const rect = this.app.canvas.getBoundingClientRect();
-        const px = ev.clientX - rect.left;
-        const py = ev.clientY - rect.top;
-        const cx = Math.floor(px / (rect.width / this.state.cols));
-        const cy = Math.floor(py / (rect.height / this.state.rows));
+        const canvas = this.app.canvas;
+        const rect = canvas.getBoundingClientRect();
+        // CSS-pixels -> canvas-pixels (the canvas may be scaled when
+        // the window is narrower than HUD_W).
+        const scaleX = rect.width / HUD_W;
+        const scaleY = rect.height / HUD_H;
+        // Strip the boardRoot offset so the coordinate is local to the
+        // board's top-left instead of the canvas's.
+        const px = (ev.clientX - rect.left) / scaleX - (this.boardRoot?.x || 0);
+        const py = (ev.clientY - rect.top) / scaleY - (this.boardRoot?.y || 0);
+        const cx = Math.floor(px / this.blockPx);
+        const cy = Math.floor(py / this.blockPx);
         if (cx < 0 || cy < 0 || cx >= this.state.cols || cy >= this.state.rows) return;
         if (!this.state.board[cy][cx]) return;
         if (typeof this.state.clickCell === 'function') {
@@ -838,40 +917,53 @@ export class PixiView {
     }
 
     // -------------------------------------------------------------------
-    // HUD (DOM). Identical to GameView's HUD path since the HUD stays
-    // in DOM for this renderer.
+    // HUD (Pixi). Text nodes and preview cell grids built in _buildHud()
+    // are mutated in-place on state events; no DOM HUD when Pixi owns it.
     // -------------------------------------------------------------------
 
     _updateHUD() {
-        if (this.el.score)  this.el.score.textContent = String(this.state.score);
-        if (this.el.level)  this.el.level.textContent = String(this.state.level);
-        if (this.el.lines)  this.el.lines.textContent = String(this.state.lines);
-        if (this.el.multiplier) {
+        if (!this.hud) return;
+        if (this.hud.scoreValue)
+            this.hud.scoreValue.text = String(this.state.score);
+        if (this.hud.levelValue)
+            this.hud.levelValue.text = String(this.state.level);
+        if (this.hud.linesValue)
+            this.hud.linesValue.text = String(this.state.lines);
+        if (this.hud.multiplierValue) {
             const total = this.state.level * (this.state.sizeMultiplier || 1);
-            this.el.multiplier.textContent = `x${total.toFixed(1)}`;
+            this.hud.multiplierValue.text = `x${total.toFixed(1)}`;
         }
-        if (this.el.levelProgress) {
+        if (this.hud.levelProgress) {
             const into = this.state.lines % LINES_PER_LEVEL;
-            this.el.levelProgress.textContent = `${into} / ${LINES_PER_LEVEL} lines`;
+            this.hud.levelProgress.text = `${into} / ${LINES_PER_LEVEL} lines`;
         }
-        if (this.el.levelInfo && typeof this._levelInfoFor === 'function') {
-            this.el.levelInfo.textContent = this._levelInfoFor(this.state.level);
+        if (this.hud.levelInfo && typeof this._levelInfoFor === 'function') {
+            this.hud.levelInfo.text = this._levelInfoFor(this.state.level);
         }
+        this._updateControlHint();
     }
 
     _flashScore() {
-        const el = this.el.score;
-        if (!el) return;
-        el.classList.add('score-animation');
-        setTimeout(() => el.classList.remove('score-animation'), 500);
+        const t = this.hud?.scoreValue;
+        if (!t) return;
+        // Brief scale pop. Reuses the tween system so no timers leak.
+        // _tickTweens expects {elapsed, duration, update(p), done()} --
+        // same shape as every other tween in this file.
+        this._addTween({
+            elapsed: 0,
+            duration: 260,
+            update: (p) => {
+                const s = 1 + 0.2 * Math.sin(p * Math.PI);
+                t.scale.set(s);
+            },
+            done: () => t.scale.set(1),
+        });
     }
 
-    _paintPreview(container, piece) {
-        if (!container) return;
-        const cells = container.children;
-        for (let i = 0; i < cells.length; i++) {
-            cells[i].className = 'cell preview-slot';
-        }
+    _paintPreview(preview, piece) {
+        if (!preview) return;
+        const { cells, size } = preview;
+        for (let i = 0; i < 16; i++) this._paintPreviewCell(cells[i], size, null);
         if (!piece) return;
         const { shape, colorMatrix } = piece;
         for (let y = 0; y < Math.min(shape.length, 4); y++) {
@@ -879,18 +971,18 @@ export class PixiView {
                 if (!shape[y][x]) continue;
                 const color = colorMatrix[y][x];
                 if (!color) continue;
-                const idx = y * 4 + x;
-                const cell = cells[idx];
-                if (cell) cell.className = `cell preview-slot filled ${color}`;
+                this._paintPreviewCell(cells[y * 4 + x], size, color);
             }
         }
     }
 
     _updatePreviews() {
-        this._paintPreview(this.el.nextPreview, this.state.nextPiece);
-        (this.el.smallPreviews || []).forEach((previewEl, index) => {
-            this._paintPreview(previewEl, this.state.pieceQueue[index + 1]);
-        });
+        if (!this.hud) return;
+        this._paintPreview(this.hud.previewNext, this.state.nextPiece);
+        const coming = this.hud.previewComing || [];
+        for (let i = 0; i < coming.length; i++) {
+            this._paintPreview(coming[i], this.state.pieceQueue[i + 1]);
+        }
     }
 
     // -------------------------------------------------------------------
@@ -916,12 +1008,14 @@ export class PixiView {
         s.on('piece-locked', () => {
             this._clearActiveLayer();
             this._redrawBoard();
+            this._reactStar('lock');
         });
         s.on('match-detected', ({ cells, color }) => {
             for (let i = 0; i < cells.length; i++) {
                 const m = cells[i];
                 this._addExplosionEffect(m.x, m.y, m.color || color);
             }
+            this._reactStar('match');
         });
         s.on('match-cleared', () => {
             this._redrawBoard();
@@ -933,20 +1027,27 @@ export class PixiView {
                 const c = cells[i];
                 this._addBombEffect(c.x, c.y);
             }
+            this._reactStar('bomb');
         });
         s.on('bomb-exploded', () => {
             this._redrawBoard();
             this._updateHUD();
             this._flashScore();
         });
-        s.on('snake-activated', (plan) => this._animateSnake(plan));
+        s.on('snake-activated', (plan) => {
+            this._animateSnake(plan);
+            this._reactStar('snake');
+        });
         s.on('gravity-applied', () => this._redrawBoard());
         s.on('floating-changed', () => this._redrawBoard());
         s.on('lines-cleared', () => {
             this._redrawBoard();
             this._updateHUD();
+            this._reactStar('line');
         });
         s.on('score-changed', () => this._updateHUD());
+        s.on('level-up', () => this._reactStar('levelup'));
+        s.on('game-over', () => this._reactStar('gameover'));
         s.on('special-armed', ({ x, y, type, durationMs }) => {
             this._addSpecialOverlay(x, y, type, durationMs);
         });
@@ -960,6 +1061,614 @@ export class PixiView {
         });
         s.on('special-cleared-all', () => this._clearAllSpecialOverlays());
         s.on('game-over', () => this._clearAllSpecialOverlays());
+    }
+
+    // -------------------------------------------------------------------
+    // HUD construction. Runs once in init(); panels are reused for every
+    // game. Mirrors the DOM layout exactly (see .game-title-bar,
+    // .hud-column, .hologram-panel in index.html).
+    // -------------------------------------------------------------------
+
+    _buildHud() {
+        const root = new Container();
+        this.app.stage.addChild(root);
+
+        const titleBar = this._buildTitleBar();
+        titleBar.y = 0;
+        root.addChild(titleBar);
+
+        // Left column (level + previews)
+        const leftCol = new Container();
+        leftCol.x = LEFT_X;
+        leftCol.y = COL_Y;
+        root.addChild(leftCol);
+
+        const levelPanel = this._buildLevelPanel();
+        leftCol.addChild(levelPanel.container);
+
+        const previewPanel = this._buildPreviewPanel();
+        previewPanel.container.y = levelPanel.height + 8;
+        leftCol.addChild(previewPanel.container);
+
+        // Right column (score + tip + controls)
+        const rightCol = new Container();
+        rightCol.x = RIGHT_X;
+        rightCol.y = COL_Y;
+        root.addChild(rightCol);
+
+        const scorePanel = this._buildScorePanel();
+        rightCol.addChild(scorePanel.container);
+
+        const tipsPanel = this._buildTipsPanel();
+        tipsPanel.container.y = scorePanel.height + 8;
+        rightCol.addChild(tipsPanel.container);
+
+        const controlsPanel = this._buildControlsPanel();
+        controlsPanel.container.y = scorePanel.height + 8 + tipsPanel.height + 8;
+        rightCol.addChild(controlsPanel.container);
+
+        this.hud = {
+            root,
+            titleBar,
+            star: titleBar.star,
+            starBase: titleBar.starBase,
+            starTitle: titleBar.titleText,
+            // Level panel
+            levelValue: levelPanel.value,
+            levelInfo: levelPanel.info,
+            levelProgress: levelPanel.progress,
+            // Preview panels
+            previewNext: previewPanel.next,
+            previewComing: previewPanel.coming,
+            // Score panel
+            scoreValue: scorePanel.score,
+            linesValue: scorePanel.lines,
+            multiplierValue: scorePanel.multiplier,
+            // Tip panel
+            tipText: tipsPanel.text,
+            // Controls panel
+            matchControlHintText: controlsPanel.matchHint,
+        };
+    }
+
+    // ---- Title bar with reactive star ---------------------------------
+
+    _buildTitleBar() {
+        const c = new Container();
+
+        // Center the title horizontally across the whole HUD.
+        const star = this._drawStarShape(28, 0xfacc15);
+        star.x = HUD_W / 2 - 180;
+        star.y = TITLE_H / 2;
+        c.addChild(star);
+
+        // Soft glow behind the star (larger, alpha-faded, untouched by
+        // the reaction tween so the aura always stays lit).
+        const starBase = new Graphics();
+        starBase.circle(0, 0, 26).fill({ color: 0xfde68a, alpha: 0.22 });
+        starBase.circle(0, 0, 16).fill({ color: 0xfacc15, alpha: 0.35 });
+        starBase.x = star.x;
+        starBase.y = star.y;
+        // Draw aura BEHIND the star shape.
+        c.addChildAt(starBase, 0);
+
+        // "STELLAR COLLAPSE" gradient text. FillGradient is linear in
+        // Pixi v8; the cyan -> yellow -> coral diagonal reads as the
+        // same signature palette as the DOM.
+        const titleGradient = new FillGradient(0, 0, 520, 0);
+        titleGradient.addColorStop(0, 0x22d3ee);
+        titleGradient.addColorStop(0.5, 0xfacc15);
+        titleGradient.addColorStop(1, 0xf87171);
+        const title = new Text({
+            text: 'STELLAR COLLAPSE',
+            style: new TextStyle({
+                fontFamily: 'Inter, "Segoe UI", sans-serif',
+                fontSize: 38,
+                fontWeight: '700',
+                letterSpacing: 2,
+                fill: titleGradient,
+                dropShadow: {
+                    color: 0xfacc15,
+                    alpha: 0.35,
+                    blur: 8,
+                    distance: 0,
+                    angle: 0,
+                },
+            }),
+        });
+        title.anchor.set(0, 0.5);
+        title.x = star.x + 28;
+        title.y = TITLE_H / 2;
+        c.addChild(title);
+
+        c.star = star;
+        c.starBase = starBase;
+        c.titleText = title;
+        return c;
+    }
+
+    _drawStarShape(r, color) {
+        // Five-pointed star as a single Graphics. Cached as-is; we
+        // tween the parent container's scale/rotation/tint for the
+        // reactions so we don't have to redraw the geometry.
+        const g = new Graphics();
+        const spikes = 5;
+        const inner = r * 0.42;
+        let rot = -Math.PI / 2;
+        const step = Math.PI / spikes;
+        const pts = [];
+        for (let i = 0; i < spikes; i++) {
+            pts.push(Math.cos(rot) * r, Math.sin(rot) * r);
+            rot += step;
+            pts.push(Math.cos(rot) * inner, Math.sin(rot) * inner);
+            rot += step;
+        }
+        g.poly(pts).fill({ color });
+        g.pivot.set(0, 0);
+        return g;
+    }
+
+    // ---- Hologram panel backdrop (shared by every panel) --------------
+
+    _drawHologramPanel(w, h, { accent = 0x00d4ff } = {}) {
+        const c = new Container();
+        const bg = new Graphics();
+        // Two-stop vertical gradient from deep navy to near-black so
+        // the panel reads through the starfield without going opaque.
+        const grad = new FillGradient(0, 0, 0, h);
+        grad.addColorStop(0, PANEL_BG_TOP);
+        grad.addColorStop(1, PANEL_BG_BOT);
+        bg.roundRect(0, 0, w, h, 6).fill({ color: grad, alpha: 0.65 });
+        // Thin cyan border + outer glow.
+        bg.roundRect(0, 0, w, h, 6).stroke({ color: accent, width: 1, alpha: PANEL_BORDER_ALPHA });
+        c.addChild(bg);
+
+        // Subtle scanline overlay (matches .hologram-panel::before).
+        // A single semi-opaque full-width rect is cheaper than drawing
+        // per-line striping; the DOM effect was already very faint.
+        const scan = new Graphics();
+        for (let y = 1; y < h; y += 3) {
+            scan.rect(1, y, w - 2, 1).fill({ color: accent, alpha: 0.04 });
+        }
+        c.addChild(scan);
+
+        return c;
+    }
+
+    _panelLabel(text, color, { size = 12, weight = '700' } = {}) {
+        return new Text({
+            text,
+            style: new TextStyle({
+                fontFamily: 'Inter, "Segoe UI", sans-serif',
+                fontSize: size,
+                fontWeight: weight,
+                letterSpacing: 1,
+                fill: color,
+                dropShadow: {
+                    color, alpha: 0.6, blur: 6, distance: 0, angle: 0,
+                },
+            }),
+        });
+    }
+
+    _panelValue(text, color = 0x00d4ff, { size = 28 } = {}) {
+        // "score-display" style: cyan neon, monospaced.
+        const t = new Text({
+            text,
+            style: new TextStyle({
+                fontFamily: '"Courier New", monospace',
+                fontSize: size,
+                fontWeight: '700',
+                letterSpacing: 2,
+                fill: color,
+                dropShadow: {
+                    color, alpha: 0.8, blur: 10, distance: 0, angle: 0,
+                },
+            }),
+        });
+        t.anchor.set(0.5, 0);
+        return t;
+    }
+
+    // ---- Level panel --------------------------------------------------
+
+    _buildLevelPanel() {
+        const w = COL_W;
+        const h = 110;
+        const container = this._drawHologramPanel(w, h);
+
+        const label = this._panelLabel('LEVEL', COLOR_BLUE_300);
+        label.anchor.set(0.5, 0);
+        label.x = w / 2;
+        label.y = 10;
+        container.addChild(label);
+
+        const value = this._panelValue('1', 0x00d4ff, { size: 28 });
+        value.x = w / 2;
+        value.y = 26;
+        container.addChild(value);
+
+        const info = new Text({
+            text: 'Cosmic Dust',
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 11,
+                fill: COLOR_BLUE_200,
+            }),
+        });
+        info.anchor.set(0.5, 0);
+        info.x = w / 2;
+        info.y = 66;
+        container.addChild(info);
+
+        const progress = new Text({
+            text: `0 / ${LINES_PER_LEVEL} lines`,
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 10,
+                fill: COLOR_BLUE_300,
+            }),
+        });
+        progress.anchor.set(0.5, 0);
+        progress.x = w / 2;
+        progress.y = 86;
+        container.addChild(progress);
+
+        return { container, value, info, progress, height: h };
+    }
+
+    // ---- Preview panel (NEXT + COMING UP) -----------------------------
+
+    _buildPreviewPanel() {
+        const w = COL_W;
+        // Heights picked so the panel sits flush above COL_Y + 720. We
+        // have 720 - levelPanel.h - 8 = 602 available.
+        const h = 602;
+        const container = this._drawHologramPanel(w, h);
+
+        const nextLabel = this._panelLabel('NEXT', COLOR_CYAN_300, { size: 14 });
+        nextLabel.anchor.set(0.5, 0);
+        nextLabel.x = w / 2;
+        nextLabel.y = 8;
+        container.addChild(nextLabel);
+
+        // Big NEXT preview: 4x4 grid of 24px cells.
+        const next = this._buildPreviewGrid(24);
+        next.container.x = (w - 24 * 4) / 2;
+        next.container.y = 30;
+        container.addChild(next.container);
+
+        const upLabel = this._panelLabel('COMING UP', COLOR_CYAN_400, { size: 11 });
+        upLabel.anchor.set(0.5, 0);
+        upLabel.x = w / 2;
+        upLabel.y = 30 + 24 * 4 + 10;
+        container.addChild(upLabel);
+
+        // Three small 4x4 grids of 14px cells, stacked vertically.
+        const coming = [];
+        let yCursor = upLabel.y + 16;
+        for (let i = 0; i < 3; i++) {
+            const g = this._buildPreviewGrid(14);
+            g.container.x = (w - 14 * 4) / 2;
+            g.container.y = yCursor;
+            container.addChild(g.container);
+            coming.push(g);
+            yCursor += 14 * 4 + 10;
+        }
+
+        return { container, next, coming, height: h };
+    }
+
+    _buildPreviewGrid(cellPx) {
+        const container = new Container();
+        const cells = [];
+        for (let i = 0; i < 16; i++) {
+            const g = new Graphics();
+            const x = (i % 4) * cellPx;
+            const y = Math.floor(i / 4) * cellPx;
+            g.x = x;
+            g.y = y;
+            container.addChild(g);
+            cells.push(g);
+            // Paint the empty slot look once up-front.
+            this._paintPreviewCell(g, cellPx, null);
+        }
+        return { container, cells, size: cellPx };
+    }
+
+    _paintPreviewCell(g, size, color) {
+        g.clear();
+        if (!color) {
+            g.roundRect(1, 1, size - 2, size - 2, 2).fill({ color: 0x0a1a2a, alpha: 0.5 });
+            g.roundRect(1, 1, size - 2, size - 2, 2).stroke({ color: 0x1e3a5c, width: 1, alpha: 0.5 });
+            return;
+        }
+        const pal = CELL_PALETTE[color];
+        if (!pal) return;
+        const pad = 1;
+        const w = size - pad * 2;
+        // Diagonal body fill (same as full-size cell, downscaled).
+        const bodyGrad = new FillGradient(0, 0, w, w);
+        bodyGrad.addColorStop(0, pal.linearStart);
+        bodyGrad.addColorStop(1, pal.linearEnd);
+        g.roundRect(pad, pad, w, w, 3).fill({ color: bodyGrad });
+        // Highlight spot + border.
+        g.circle(pad + w * 0.3, pad + w * 0.3, w * 0.25).fill({ color: pal.highlight, alpha: 0.55 });
+        // Match the full-size cell's border: CELL_PALETTE has no
+        // `border` field, the dark edge comes from `shadow`.
+        g.roundRect(pad, pad, w, w, 3).stroke({ color: pal.shadow, width: 1, alpha: 0.9 });
+    }
+
+    // ---- Score / Lines / Multiplier panel -----------------------------
+
+    _buildScorePanel() {
+        const w = COL_W;
+        const h = 210;
+        const container = this._drawHologramPanel(w, h);
+
+        let yCursor = 10;
+        const labelScore = this._panelLabel('SCORE', COLOR_YELLOW_300);
+        labelScore.anchor.set(0.5, 0);
+        labelScore.x = w / 2;
+        labelScore.y = yCursor;
+        container.addChild(labelScore);
+        yCursor += 16;
+
+        const score = this._panelValue('0', 0x00d4ff, { size: 26 });
+        score.x = w / 2;
+        score.y = yCursor;
+        container.addChild(score);
+        yCursor += 44;
+
+        const div1 = new Graphics().rect(12, yCursor, w - 24, 1).fill({ color: 0x0e3a52 });
+        container.addChild(div1);
+        yCursor += 6;
+
+        const labelLines = this._panelLabel('LINES', COLOR_GREEN_300);
+        labelLines.anchor.set(0.5, 0);
+        labelLines.x = w / 2;
+        labelLines.y = yCursor;
+        container.addChild(labelLines);
+        yCursor += 16;
+
+        const lines = this._panelValue('0', 0x00d4ff, { size: 24 });
+        lines.x = w / 2;
+        lines.y = yCursor;
+        container.addChild(lines);
+        yCursor += 40;
+
+        const div2 = new Graphics().rect(12, yCursor, w - 24, 1).fill({ color: 0x0e3a52 });
+        container.addChild(div2);
+        yCursor += 6;
+
+        const labelMult = this._panelLabel('MULTIPLIER', COLOR_PINK_300);
+        labelMult.anchor.set(0.5, 0);
+        labelMult.x = w / 2;
+        labelMult.y = yCursor;
+        container.addChild(labelMult);
+        yCursor += 16;
+
+        const multiplier = this._panelValue('x1.0', 0xf9a8d4, { size: 22 });
+        multiplier.x = w / 2;
+        multiplier.y = yCursor;
+        container.addChild(multiplier);
+
+        return { container, score, lines, multiplier, height: h };
+    }
+
+    // ---- Mission tip panel --------------------------------------------
+
+    _buildTipsPanel() {
+        const w = COL_W;
+        const h = 140;
+        const container = this._drawHologramPanel(w, h);
+
+        const label = this._panelLabel('MISSION TIP', COLOR_CYAN_300, { size: 13 });
+        label.anchor.set(0.5, 0);
+        label.x = w / 2;
+        label.y = 10;
+        container.addChild(label);
+
+        const text = new Text({
+            text: 'Drop pieces to clear lines and climb the tier.',
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 12,
+                fill: 0xcfe9ff,
+                align: 'center',
+                wordWrap: true,
+                wordWrapWidth: w - 16,
+                leading: 2,
+            }),
+        });
+        text.anchor.set(0.5, 0);
+        text.x = w / 2;
+        text.y = 30;
+        container.addChild(text);
+
+        return { container, text, height: h };
+    }
+
+    // ---- Controls panel -----------------------------------------------
+
+    _buildControlsPanel() {
+        const w = COL_W;
+        // Whatever's left in the column after score + tip + gaps.
+        const h = BOARD_SLOT_H - 210 - 140 - 16;
+        const container = this._drawHologramPanel(w, h);
+
+        const label = this._panelLabel('CONTROLS', COLOR_CYAN_300, { size: 13 });
+        label.anchor.set(0.5, 0);
+        label.x = w / 2;
+        label.y = 10;
+        container.addChild(label);
+
+        const lines = [
+            { icon: '\u21ba', label: 'Rotate' },
+            { icon: '\u2190', label: 'Move Left' },
+            { icon: '\u2192', label: 'Move Right' },
+            { icon: '\u2193', label: 'Soft Drop' },
+            { icon: '\u2423', label: 'Hard Drop' },
+            // Last row text is dynamic (auto-match vs click-match vs
+            // disabled); we track the Text instance to swap the label
+            // when state.mode changes.
+            { icon: '\u2316', label: 'Match 4+ Colors', dynamic: true },
+        ];
+        let yCursor = 32;
+        let matchHint = null;
+        for (const row of lines) {
+            const icon = new Text({
+                text: row.icon,
+                style: new TextStyle({
+                    fontFamily: '"Segoe UI Symbol", "Arial Unicode MS", sans-serif',
+                    fontSize: 14,
+                    fontWeight: '700',
+                    fill: COLOR_YELLOW_300,
+                }),
+            });
+            icon.x = 14;
+            icon.y = yCursor;
+            container.addChild(icon);
+
+            const txt = new Text({
+                text: row.label,
+                style: new TextStyle({
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: 12,
+                    fill: 0xcfe9ff,
+                }),
+            });
+            txt.x = 38;
+            txt.y = yCursor + 1;
+            container.addChild(txt);
+
+            if (row.dynamic) matchHint = txt;
+            yCursor += 22;
+        }
+
+        return { container, matchHint, height: h };
+    }
+
+    // ---- Board frame --------------------------------------------------
+
+    _drawBoardFrame(w, h) {
+        if (!this.boardRoot) return;
+        // Frame is drawn once per createBoard and lives behind the
+        // cell layers. Clean up the previous frame if there is one.
+        if (this._boardFrame) {
+            this._boardFrame.destroy({ children: true });
+            this._boardFrame = null;
+        }
+        const frame = new Graphics();
+        // Dark navy fill for the play area.
+        frame.roundRect(-2, -2, w + 4, h + 4, 8).fill({ color: 0x03132b, alpha: 0.85 });
+        // Cyan outline with soft glow (matches the old .game-container).
+        frame.roundRect(-2, -2, w + 4, h + 4, 8).stroke({ color: 0x00d4ff, width: 2, alpha: 0.75 });
+        // Grid lines on every cell boundary so the player sees the
+        // rows/cols even in empty space.
+        const bp = this.blockPx;
+        for (let gx = 0; gx <= this.state.cols; gx++) {
+            frame.moveTo(gx * bp, 0).lineTo(gx * bp, h).stroke({ color: 0x0e3a52, width: 1, alpha: 0.35 });
+        }
+        for (let gy = 0; gy <= this.state.rows; gy++) {
+            frame.moveTo(0, gy * bp).lineTo(w, gy * bp).stroke({ color: 0x0e3a52, width: 1, alpha: 0.35 });
+        }
+        this._boardFrame = frame;
+        this.boardRoot.addChildAt(frame, 0);
+    }
+
+    // ---- Control hint (auto-match / click-match / disabled) -----------
+
+    _updateControlHint() {
+        const t = this.hud?.matchControlHintText;
+        if (!t) return;
+        const mode = this.state.mode;
+        // Mode strings come from GAME_MODES in constants.js: STELLAR
+        // is 'stellar', AUTO_MATCH is 'auto-match', BLOCKS is 'blocks'.
+        if (mode === 'blocks') t.text = 'Match disabled';
+        else if (mode === 'auto-match') t.text = 'Auto-Match 4+ Colors';
+        else t.text = 'Match 4+ Colors';
+    }
+
+    // ---- Public: set mission tip text from main.js --------------------
+
+    setTip(text) {
+        if (this.hud?.tipText) this.hud.tipText.text = text;
+    }
+
+    // ---- Title-star reactions -----------------------------------------
+
+    _reactStar(kind) {
+        const star = this.hud?.star;
+        if (!star) return;
+        const cfg = STAR_REACTIONS[kind];
+        if (!cfg) return;
+        // Reset base transform before kicking off a new reaction so the
+        // animation starts from a known state (avoids stacking tints /
+        // scales if two events land on the same frame).
+        star.scale.set(1);
+        star.rotation = 0;
+        star.tint = cfg.color;
+
+        this._starReactionTween = {
+            elapsed: 0,
+            duration: cfg.duration,
+            kind: cfg.kind,
+            color: cfg.color,
+        };
+    }
+
+    _tickStar(deltaMs) {
+        const star = this.hud?.star;
+        if (!star) return;
+        const r = this._starReactionTween;
+        if (!r) {
+            // Idle breathing pulse. Same period as the DOM animation.
+            const t = (this._clockMs % 3500) / 3500;
+            const s = 1 + Math.sin(t * Math.PI * 2) * 0.04;
+            star.scale.set(s);
+            return;
+        }
+        r.elapsed += deltaMs;
+        const p = Math.min(1, r.elapsed / r.duration);
+        switch (r.kind) {
+            case 'pop':
+                star.scale.set(1 + 0.25 * Math.sin(p * Math.PI));
+                break;
+            case 'pop-big':
+                star.scale.set(1 + 0.5 * Math.sin(p * Math.PI));
+                break;
+            case 'spin':
+                star.scale.set(1 + 0.35 * Math.sin(p * Math.PI));
+                star.rotation = Math.sin(p * Math.PI) * 0.35;
+                break;
+            case 'shake':
+                star.scale.set(1 + 0.3 * Math.sin(p * Math.PI));
+                star.rotation = Math.sin(p * Math.PI * 8) * 0.15 * (1 - p);
+                break;
+            case 'wobble':
+                star.scale.set(1 + 0.25 * Math.sin(p * Math.PI));
+                star.rotation = Math.sin(p * Math.PI * 4) * 0.45 * (1 - p);
+                break;
+            case 'fall':
+                star.rotation = p * Math.PI * 0.6;
+                star.scale.set(1 - 0.3 * p);
+                star.y = (TITLE_H / 2) + p * 8;
+                break;
+            case 'burst':
+                star.scale.set(1 + 0.6 * Math.sin(p * Math.PI));
+                star.rotation = Math.sin(p * Math.PI) * 0.25;
+                break;
+            default:
+                star.scale.set(1 + 0.2 * Math.sin(p * Math.PI));
+        }
+        if (p >= 1) {
+            star.scale.set(1);
+            star.rotation = 0;
+            star.tint = 0xfacc15;
+            star.y = TITLE_H / 2;
+            this._starReactionTween = null;
+        }
     }
 }
 
