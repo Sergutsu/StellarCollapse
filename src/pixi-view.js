@@ -914,14 +914,19 @@ export class PixiView {
         if (!this.state || this.state.gameOver) return;
         const canvas = this.app.canvas;
         const rect = canvas.getBoundingClientRect();
-        // CSS-pixels -> canvas-pixels (the canvas may be scaled when
-        // the window is narrower than HUD_W).
-        const scaleX = rect.width / HUD_W;
-        const scaleY = rect.height / HUD_H;
-        // Strip the boardRoot offset so the coordinate is local to the
-        // board's top-left instead of the canvas's.
-        const px = (ev.clientX - rect.left) / scaleX - (this.boardRoot?.x || 0);
-        const py = (ev.clientY - rect.top) / scaleY - (this.boardRoot?.y || 0);
+        // CSS pixels -> renderer logical pixels. app.screen matches the
+        // current renderer size (viewport-sized in fullscreen mode), so
+        // this conversion stays correct on HiDPI and CSS scaling.
+        const toLogicalX = this.app.screen.width / rect.width;
+        const toLogicalY = this.app.screen.height / rect.height;
+        // Strip both sceneRoot (centered HUD offset) and boardRoot
+        // (board-in-slot offset) so we end up in board-local space.
+        const px = ((ev.clientX - rect.left) * toLogicalX)
+            - (this.sceneRoot?.x || 0)
+            - (this.boardRoot?.x || 0);
+        const py = ((ev.clientY - rect.top) * toLogicalY)
+            - (this.sceneRoot?.y || 0)
+            - (this.boardRoot?.y || 0);
         const cx = Math.floor(px / this.blockPx);
         const cy = Math.floor(py / this.blockPx);
         if (cx < 0 || cy < 0 || cx >= this.state.cols || cy >= this.state.rows) return;
