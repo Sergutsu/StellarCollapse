@@ -36,36 +36,20 @@ function randBetween(min, max) {
     return min + Math.random() * (max - min);
 }
 
-function buildRingTexture(renderer) {
+function buildStarTexture(renderer) {
     const size = 36;
     const c = size / 2;
     const g = new Graphics();
 
-    // Soft halo + nested rings around a bright core (star with ring),
-    // not a hollow ring-only glyph.
-    g.circle(c, c, 10.5).fill({ color: 0xffffff, alpha: 0.08 });
-    g.stroke({ color: 0xffffff, alpha: 0.85, width: 1.4 }).circle(c, c, 8.8);
-    g.stroke({ color: 0xffffff, alpha: 0.42, width: 1.1 }).circle(c, c, 6.2);
-    g.stroke({ color: 0xffffff, alpha: 0.26, width: 0.8 }).circle(c, c, 4.2);
-    g.circle(c, c, 2.4).fill({ color: 0xffffff, alpha: 0.95 });
-    g.circle(c, c, 4.4).fill({ color: 0xffffff, alpha: 0.18 });
-
-    const tex = RenderTexture.create({ width: size, height: size, resolution: 2 });
-    renderer.render({ container: g, target: tex });
-    g.destroy();
-    return tex;
-}
-
-function buildCrossTexture(renderer) {
-    const size = 36;
-    const c = size / 2;
-    const g = new Graphics();
-
-    // Thin diffraction cross with a very soft center glow.
-    g.rect(c - 0.6, c - 10, 1.2, 20).fill({ color: 0xffffff, alpha: 0.75 });
-    g.rect(c - 10, c - 0.6, 20, 1.2).fill({ color: 0xffffff, alpha: 0.75 });
-    g.circle(c, c, 3.2).fill({ color: 0xffffff, alpha: 0.35 });
-    g.circle(c, c, 7.6).fill({ color: 0xffffff, alpha: 0.08 });
+    // Single star glyph: diffraction cross + thin rings + tiny center core.
+    // No large filled circles to avoid "big dots" in the background.
+    g.rect(c - 0.45, c - 11, 0.9, 22).fill({ color: 0xffffff, alpha: 0.95 });
+    g.rect(c - 11, c - 0.45, 22, 0.9).fill({ color: 0xffffff, alpha: 0.95 });
+    g.stroke({ color: 0xffffff, alpha: 0.82, width: 1.15 }).circle(c, c, 8.6);
+    g.stroke({ color: 0xffffff, alpha: 0.46, width: 0.9 }).circle(c, c, 6.0);
+    g.stroke({ color: 0xffffff, alpha: 0.3, width: 0.72 }).circle(c, c, 3.9);
+    g.circle(c, c, 1.35).fill({ color: 0xffffff, alpha: 1.0 });
+    g.circle(c, c, 2.1).fill({ color: 0xffffff, alpha: 0.28 });
 
     const tex = RenderTexture.create({ width: size, height: size, resolution: 2 });
     renderer.render({ container: g, target: tex });
@@ -170,8 +154,7 @@ export function createPixiStarfield(app, { width, height }) {
     starLayer.interactiveChildren = false;
     container.addChild(starLayer);
 
-    const ringTex = buildRingTexture(renderer);
-    const crossTex = buildCrossTexture(renderer);
+    const starTex = buildStarTexture(renderer);
 
     const area = screenW * screenH;
     const starCount = clamp(Math.round(area * STAR_DENSITY_PER_PIXEL), STAR_MIN_COUNT, STAR_MAX_COUNT);
@@ -179,18 +162,13 @@ export function createPixiStarfield(app, { width, height }) {
 
     const stars = [];
     for (const p of points) {
-        const useCross = Math.random() < 0.38;
-        const s = new Sprite(useCross ? crossTex : ringTex);
+        const s = new Sprite(starTex);
         s.anchor.set(0.5);
         s.x = p.x;
         s.y = p.y;
-        const scaleBucket = Math.random();
-        const scale = scaleBucket < 0.7
-            ? randBetween(0.16, 0.58)
-            : randBetween(0.58, 1.2);
-        const baseAlpha = scaleBucket < 0.7
-            ? randBetween(0.15, 0.45)
-            : randBetween(0.32, 0.7);
+        const lum = Math.random() ** 2.85;
+        const scale = 0.08 + lum * 1.34;
+        const baseAlpha = 0.025 + lum * 0.955;
         s.scale.set(scale);
         s.alpha = baseAlpha;
         s.tint = CROSS_TINTS[(Math.random() * CROSS_TINTS.length) | 0];
@@ -198,10 +176,10 @@ export function createPixiStarfield(app, { width, height }) {
         stars.push({
             sprite: s,
             phase: Math.random() * Math.PI * 2,
-            speed: randBetween(0.0008, 0.0032),
+            speed: randBetween(0.0006, 0.0036),
             baseAlpha,
             baseScale: scale,
-            pulseStrength: randBetween(0.08, 0.24),
+            pulseStrength: randBetween(0.16, 0.9),
         });
         starLayer.addChild(s);
     }
@@ -217,8 +195,8 @@ export function createPixiStarfield(app, { width, height }) {
         for (const rec of stars) {
             rec.phase += dtMs * rec.speed;
             const pulse = 0.5 + 0.5 * Math.sin(rec.phase);
-            rec.sprite.alpha = rec.baseAlpha * (0.72 + pulse * rec.pulseStrength);
-            rec.sprite.scale.set(rec.baseScale * (0.94 + pulse * 0.16));
+            rec.sprite.alpha = clamp(rec.baseAlpha * (0.2 + pulse * rec.pulseStrength), 0.015, 1);
+            rec.sprite.scale.set(rec.baseScale * (0.82 + pulse * 0.4));
             rec.sprite.rotation = 0;
         }
     }
@@ -226,8 +204,7 @@ export function createPixiStarfield(app, { width, height }) {
     function destroy() {
         container.destroy({ children: true });
         nebulaBuilt.tex.destroy(true);
-        ringTex.destroy(true);
-        crossTex.destroy(true);
+        starTex.destroy(true);
     }
 
     return { container, update, destroy };
