@@ -1,6 +1,6 @@
-// Pixi-native animated starfield. Replaces the DOM `.stars` layer when
-// running under `?engine=pixi` so the background renders on the same
-// canvas as the board -- no more DOM + canvas double-stack.
+// Pixi-native animated starfield. Renders the background (blinking
+// dot stars, 4-rayed sparkles, procedural nebulae) on the same canvas
+// as the board so there's no DOM + canvas double-stack.
 //
 // Three parts:
 //   1. Procedural-noise nebulae baked once into a RenderTexture so the

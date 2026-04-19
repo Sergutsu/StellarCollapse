@@ -1,19 +1,15 @@
-// Pixi.js-based board renderer. Replaces the DOM grid (see
-// game-view.js) while keeping the same public surface: subscribes to
-// GameState events, owns the `#gameContainer` mount, and leaves the
-// surrounding HUD / previews / start screen as DOM. The GameState
-// module remains pure -- this file is the only one that touches Pixi.
+// Pixi.js-based board + HUD renderer. Subscribes to GameState events,
+// owns the `#gameContainer` mount, and draws the title bar + HUD
+// columns + previews inside the canvas. The start screen, sound /
+// exit buttons, and player-name input stay DOM (Pixi has no native
+// text-input or button widget worth writing from scratch).
+// GameState remains pure -- this file is the only one that touches Pixi.
 //
-// Public API mirrors GameView so main.js swaps implementations with a
-// single import change:
 //   const view = new PixiView({ state, elements });
-//   await view.init();          // <-- extra async bootstrap step
+//   await view.init();          // async bootstrap (Pixi v8 requires it)
 //   view.createBoard();
 //   view.createPreviews();
 //   view._levelInfoFor = ...;   // optional HUD formatter
-//
-// Everything after `init()` is identical to GameView from main.js's
-// perspective.
 
 import {
     Application,
@@ -519,7 +515,7 @@ export class PixiView {
     _redrawBoard() {
         const cols = this.state.cols;
         const rows = this.state.rows;
-        // Floating detection (COLLAPSED only) -- same rule as GameView.
+        // Floating detection (COLLAPSED only).
         const floating = new Array(rows);
         for (let y = 0; y < rows; y++) floating[y] = new Array(cols).fill(false);
         if (this.state.complexity === PIECE_COMPLEXITY.COLLAPSED) {
@@ -999,7 +995,7 @@ export class PixiView {
     }
 
     // -------------------------------------------------------------------
-    // Event wiring: same contract as GameView so no GameState changes.
+    // Event wiring: maps GameState events to board/HUD updates.
     // -------------------------------------------------------------------
 
     _bindState() {
