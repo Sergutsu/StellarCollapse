@@ -267,6 +267,9 @@ export class PixiView {
         const onResize = () => this._layoutViewport({ rebuildStarfield: true });
         window.addEventListener('resize', onResize);
         this._viewportUnsub = () => window.removeEventListener('resize', onResize);
+        if (mount) {
+            mount.style.visibility = 'visible';
+        }
     }
 
     // -------------------------------------------------------------------
