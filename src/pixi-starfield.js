@@ -41,12 +41,14 @@ function buildRingTexture(renderer) {
     const c = size / 2;
     const g = new Graphics();
 
-    // Soft halo + nested rings (hollow center) for a cleaner "ring star" look.
+    // Soft halo + nested rings around a bright core (star with ring),
+    // not a hollow ring-only glyph.
     g.circle(c, c, 10.5).fill({ color: 0xffffff, alpha: 0.08 });
     g.stroke({ color: 0xffffff, alpha: 0.85, width: 1.4 }).circle(c, c, 8.8);
     g.stroke({ color: 0xffffff, alpha: 0.42, width: 1.1 }).circle(c, c, 6.2);
     g.stroke({ color: 0xffffff, alpha: 0.26, width: 0.8 }).circle(c, c, 4.2);
-    g.circle(c, c, 2.2).fill({ color: 0x000000, alpha: 0.9 });
+    g.circle(c, c, 2.4).fill({ color: 0xffffff, alpha: 0.95 });
+    g.circle(c, c, 4.4).fill({ color: 0xffffff, alpha: 0.18 });
 
     const tex = RenderTexture.create({ width: size, height: size, resolution: 2 });
     renderer.render({ container: g, target: tex });
