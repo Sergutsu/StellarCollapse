@@ -1003,6 +1003,12 @@
         body.engine-pixi #gameScreen .flex.gap-6 {
             gap: 0 !important;
         }
+        /* Pixi draws its own starfield behind the HUD canvas; hide the
+           DOM starfield while the pixi engine is active so we don't
+           render stars twice on top of each other. */
+        body.engine-pixi .stars {
+            display: none !important;
+        }
 
         /* Holographic effects for UI panels */
         .hologram-panel {
