@@ -1,14 +1,12 @@
-// Bootstrap: wire GameState + GameView + Audio + Input, handle screen
+// Bootstrap: wire GameState + PixiView + Audio + Input, handle screen
 // transitions and high scores. Tiny on purpose; everything meaningful
 // lives in the dedicated modules.
 
 import { GameState } from './game-state.js';
-import { GameView } from './game-view.js';
 import { PixiView } from './pixi-view.js';
 import { Audio } from './audio.js';
 import { HighScores } from './highscores.js';
 import { bindInput } from './input.js';
-import { createStarsBackground, injectEffectKeyframes } from './stars.js';
 import {
     GAME_MODES,
     PIECE_COMPLEXITY,
@@ -51,23 +49,7 @@ const DEFAULT_MODE = GAME_MODES.STELLAR;
 const DEFAULT_COMPLEXITY = PIECE_COMPLEXITY.CLASSIC;
 const DEFAULT_SIZE_ID = DEFAULT_FIELD_SIZE_ID;
 
-// Renderer selection. Default is the original DOM GameView; pass
-// `?engine=pixi` in the URL to opt into the Pixi.js board (PR #15
-// experiment). This lets us ship the Pixi port without disrupting the
-// default gameplay until the port has full visual parity.
-function selectEngine() {
-    try {
-        const params = new URLSearchParams(window.location.search);
-        const engine = (params.get('engine') || '').toLowerCase();
-        if (engine === 'pixi') return 'pixi';
-    } catch (_err) { /* no window / location; fall through */ }
-    return 'dom';
-}
-
 async function boot() {
-    injectEffectKeyframes();
-    createStarsBackground(document.getElementById('starsContainer'));
-
     const elements = {
         container: el('gameContainer'),
         board: el('gameBoard'),
@@ -105,19 +87,10 @@ async function boot() {
         complexity: DEFAULT_COMPLEXITY,
         fieldSizeId: DEFAULT_SIZE_ID,
     });
-    const engine = selectEngine();
-    // Mark the body so CSS can hide the DOM title bar + HUD columns when
-    // Pixi owns the HUD. Everything outside the engine-pixi selectors
-    // stays in DOM (start screen, sound/exit buttons).
-    if (engine === 'pixi') document.body.classList.add('engine-pixi');
-    const view = engine === 'pixi'
-        ? new PixiView({ state, elements })
-        : new GameView({ state, elements });
-    if (engine === 'pixi') {
-        // Pixi needs an async bootstrap. Await it before createBoard so
-        // the stage/ticker are ready before any state event fires.
-        await view.init();
-    }
+    const view = new PixiView({ state, elements });
+    // Pixi needs an async bootstrap. Await it before createBoard so
+    // the stage/ticker are ready before any state event fires.
+    await view.init();
     // Per-level flavor text. Short enough to not steal attention from the
     // board. Indexed by level (1-based); levels beyond the list wrap to
     // the last entry so veterans still get something to read.
@@ -209,8 +182,8 @@ async function boot() {
     function refreshTip() {
         const text = pickTip(state.mode, state.level);
         if (levelTipEl) levelTipEl.textContent = text;
-        // Pixi HUD owns the tip panel when engine=pixi; let the view
-        // mirror the same text without reaching back into DOM.
+        // Pixi HUD owns the tip panel; let the view mirror the same
+        // text without reaching back into DOM.
         if (typeof view.setTip === 'function') view.setTip(text);
     }
     state.on('game-started', refreshTip);

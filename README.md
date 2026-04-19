@@ -132,10 +132,11 @@ src/
 ├── game-state.js    Pure game logic. No DOM, no Web Audio, no setTimeout.
 │                    Takes { rng, schedule, mode, complexity } at construction.
 │                    Emits ~15 events (piece-moved, piece-locked, match-cleared, ...).
-├── game-view.js     DOM renderer. Subscribes to state events, paints cached cells.
+├── pixi-view.js     Pixi.js v8 board + HUD renderer (loaded via CDN ESM
+│                    import map in index.html -- no build step).
+├── pixi-starfield.js Pixi-native animated starfield + procedural nebulae.
 ├── input.js         Keyboard + click wiring.
 ├── audio.js         Web Audio SFX. Subscribes to state events.
-├── stars.js         Background starfield.
 ├── highscores.js    Per-tier localStorage persistence (with legacy migration).
 └── main.js          Bootstrap: wires everything, handles screen transitions + toggles.
 
@@ -169,7 +170,7 @@ Once deployed, the live game is at `https://<owner>.github.io/StellarCollapse/` 
 Bug reports and PRs welcome via the [Issues](../../issues) tab. When adding features:
 
 - Game logic goes in `src/game-state.js` and needs a matching test in `tests/game-state.test.js`.
-- DOM/visuals go in `src/game-view.js` (or a new module). Don't import the DOM into `GameState`.
+- Visuals go in `src/pixi-view.js` (or `src/pixi-starfield.js`). Don't import the DOM into `GameState`.
 - Run `npm test` locally before opening a PR — CI will also enforce it.
 
 ---
