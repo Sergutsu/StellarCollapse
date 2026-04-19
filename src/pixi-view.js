@@ -1226,14 +1226,19 @@ export class PixiView {
 
     _drawHologramPanel(w, h, { accent = 0x00d4ff } = {}) {
         const c = new Container();
-        const bg = new Graphics();
         // Two-stop vertical gradient from deep navy to near-black so
         // the panel reads through the starfield without going opaque.
+        // Pixi v8 fill() rejects `{color: <FillGradient>}` -- pass the
+        // gradient positionally and control alpha on the Graphics node.
         const grad = new FillGradient(0, 0, 0, h);
         grad.addColorStop(0, PANEL_BG_TOP);
         grad.addColorStop(1, PANEL_BG_BOT);
-        bg.roundRect(0, 0, w, h, 6).fill({ color: grad, alpha: 0.65 });
+        const bgFill = new Graphics();
+        bgFill.roundRect(0, 0, w, h, 6).fill(grad);
+        bgFill.alpha = 0.65;
+        c.addChild(bgFill);
         // Thin cyan border + outer glow.
+        const bg = new Graphics();
         bg.roundRect(0, 0, w, h, 6).stroke({ color: accent, width: 1, alpha: PANEL_BORDER_ALPHA });
         c.addChild(bg);
 
@@ -1405,7 +1410,7 @@ export class PixiView {
         const bodyGrad = new FillGradient(0, 0, w, w);
         bodyGrad.addColorStop(0, pal.linearStart);
         bodyGrad.addColorStop(1, pal.linearEnd);
-        g.roundRect(pad, pad, w, w, 3).fill({ color: bodyGrad });
+        g.roundRect(pad, pad, w, w, 3).fill(bodyGrad);
         // Highlight spot + border.
         g.circle(pad + w * 0.3, pad + w * 0.3, w * 0.25).fill({ color: pal.highlight, alpha: 0.55 });
         // Match the full-size cell's border: CELL_PALETTE has no
