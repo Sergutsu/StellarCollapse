@@ -33,6 +33,8 @@ import {
     LOW_FX_CELL_THRESHOLD,
 } from './constants.js';
 
+import { createPixiStarfield } from './pixi-starfield.js';
+
 // Palette mirrors the DOM CSS in index.html so the Pixi view reads as
 // the same game. `highlight` is the top-left gloss tint, `body` is the
 // mid-tone flat fill, `shadow` is the bottom-right darker tint, and
@@ -217,10 +219,19 @@ export class PixiView {
             mount.style.animation = 'none';
         }
 
-        // Title bar + left/right columns first so they sit behind the
-        // board. boardRoot wraps the existing cell layers so we can
-        // position the entire board inside the HUD with one container
-        // transform.
+        // Starfield goes on the stage first so it renders behind the
+        // HUD panels and the board frame. The DOM `.stars` layer is
+        // hidden in engine-pixi mode (see CSS) so we don't double up.
+        this._starfield = createPixiStarfield(app, {
+            width: HUD_W,
+            height: HUD_H,
+        });
+        app.stage.addChild(this._starfield.container);
+
+        // Title bar + left/right columns next so they sit above the
+        // starfield but behind the board. boardRoot wraps the existing
+        // cell layers so we can position the entire board inside the
+        // HUD with one container transform.
         this._buildHud();
 
         this.boardRoot = new Container();
@@ -243,6 +254,7 @@ export class PixiView {
         // bomb/snake cells, and runs the effects/particle tweens.
         app.ticker.add((ticker) => {
             this._clockMs += ticker.deltaMS;
+            this._starfield?.update(ticker.deltaMS);
             this._tickPulse();
             this._tickStar(ticker.deltaMS);
             this._tickTweens(ticker.deltaMS);
