@@ -255,6 +255,7 @@ export class PixiView {
         app.ticker.add((ticker) => {
             this._clockMs += ticker.deltaMS;
             this._starfield?.update(ticker.deltaMS);
+            this._tickScanner(ticker.deltaMS);
             this._tickPulse();
             this._tickStar(ticker.deltaMS);
             this._tickTweens(ticker.deltaMS);
@@ -1576,22 +1577,129 @@ export class PixiView {
             this._boardFrame.destroy({ children: true });
             this._boardFrame = null;
         }
+        if (this._scannerGrid) {
+            this._scannerGrid.destroy({ children: true });
+            this._scannerGrid = null;
+        }
         const frame = new Graphics();
-        // Dark navy fill for the play area.
-        frame.roundRect(-2, -2, w + 4, h + 4, 8).fill({ color: 0x03132b, alpha: 0.85 });
+        // Very low-alpha navy fill so the board reads as a distinct
+        // window onto space without fully blocking the starfield
+        // behind it. The grid is no longer painted statically --
+        // _tickScanner reveals rows/cols as the scanner band passes.
+        frame.roundRect(-2, -2, w + 4, h + 4, 8).fill({ color: 0x03132b, alpha: 0.25 });
         // Cyan outline with soft glow (matches the old .game-container).
         frame.roundRect(-2, -2, w + 4, h + 4, 8).stroke({ color: 0x00d4ff, width: 2, alpha: 0.75 });
-        // Grid lines on every cell boundary so the player sees the
-        // rows/cols even in empty space.
-        const bp = this.blockPx;
-        for (let gx = 0; gx <= this.state.cols; gx++) {
-            frame.moveTo(gx * bp, 0).lineTo(gx * bp, h).stroke({ color: 0x0e3a52, width: 1, alpha: 0.35 });
-        }
-        for (let gy = 0; gy <= this.state.rows; gy++) {
-            frame.moveTo(0, gy * bp).lineTo(w, gy * bp).stroke({ color: 0x0e3a52, width: 1, alpha: 0.35 });
-        }
         this._boardFrame = frame;
         this.boardRoot.addChildAt(frame, 0);
+
+        // Scanner-reveal grid: sits above the frame but below the
+        // cell + active layers so locked pieces always draw on top.
+        // The graphics object is cleared and rebuilt each tick with
+        // alpha falloff around the scanner's current Y.
+        const scanner = new Graphics();
+        this._scannerGrid = scanner;
+        this._scannerW = w;
+        this._scannerH = h;
+        // Reset scanner clock so every new run starts at the top.
+        this._scannerY = 0;
+        // Insert right after the frame (index 1) so it draws behind
+        // the board/active/effects/overlay layers.
+        this.boardRoot.addChildAt(scanner, 1);
+    }
+
+    // ---- Scanner sweep ------------------------------------------------
+    //
+    // Animates a horizontal scanner band top -> bottom, redrawing grid
+    // lines with an alpha falloff around its current Y. The effect is
+    // "grid scanned into existence" -- outside the band the board is
+    // pure space (starfield shows through).
+
+    _tickScanner(dtMs) {
+        const g = this._scannerGrid;
+        if (!g || !dtMs || dtMs <= 0) return;
+        const h = this._scannerH;
+        const w = this._scannerW;
+        if (!h || !w) return;
+
+        // Band sweep: constant pixels-per-second so the cadence feels
+        // the same across field sizes. Loop a little past the bottom
+        // so the lower rows get fully revealed before reset.
+        const SPEED_PX_S = 120;
+        const BAND_HALF = 60; // pixels of reveal radius around scanY
+        this._scannerY += (SPEED_PX_S * dtMs) / 1000;
+        if (this._scannerY > h + BAND_HALF) {
+            this._scannerY = -BAND_HALF;
+        }
+        const scanY = this._scannerY;
+
+        // Rebuild the reveal lines. We clear/redraw every frame --
+        // with a 15x28 board that's ~(15+28)+vertical-segments*16
+        // stroke ops, well under Pixi's batcher threshold.
+        g.clear();
+        const bp = this.blockPx;
+        const color = 0x67e8f9; // cyan-300, matches HUD accents
+        const bandColor = 0x00d4ff;
+
+        // Soft cyan glow band behind the revealed grid -- reads as
+        // the scanner's physical beam.
+        const bandTop = Math.max(0, scanY - BAND_HALF);
+        const bandBot = Math.min(h, scanY + BAND_HALF);
+        if (bandBot > bandTop) {
+            // Three horizontal strips with decreasing alpha to fake
+            // a vertical gradient (FillGradient would work too but
+            // this keeps the scanner in one Graphics so Pixi can
+            // batch it).
+            const strips = 6;
+            for (let i = 0; i < strips; i++) {
+                const t = i / (strips - 1); // 0..1
+                const y0 = bandTop + (bandBot - bandTop) * t;
+                const y1 = bandTop + (bandBot - bandTop) * ((i + 1) / strips);
+                const d = Math.abs((y0 + y1) * 0.5 - scanY) / BAND_HALF;
+                const alpha = 0.10 * (1 - d) * (1 - d);
+                if (alpha <= 0) continue;
+                g.rect(0, y0, w, y1 - y0).fill({ color: bandColor, alpha });
+            }
+            // Leading-edge bright line at the center of the band.
+            g.moveTo(0, scanY).lineTo(w, scanY).stroke({
+                color: 0xbef7ff, width: 1.5, alpha: 0.85,
+            });
+        }
+
+        // Horizontal grid lines: one stroke per row boundary, alpha
+        // ramped by distance to the band center.
+        for (let gy = 0; gy <= this.state.rows; gy++) {
+            const y = gy * bp;
+            const d = Math.abs(y - scanY);
+            if (d > BAND_HALF) continue;
+            const t = 1 - d / BAND_HALF;
+            const alpha = 0.85 * t * t;
+            g.moveTo(0, y).lineTo(w, y).stroke({ color, width: 1.2, alpha });
+        }
+
+        // Vertical grid lines: only the portion inside the band, split
+        // into short segments so each segment gets an alpha matching
+        // its distance to scanY (gives the smooth fade-in/out).
+        const y1 = Math.max(0, scanY - BAND_HALF);
+        const y2 = Math.min(h, scanY + BAND_HALF);
+        if (y2 > y1) {
+            const SEG = 8;
+            for (let gx = 0; gx <= this.state.cols; gx++) {
+                const x = gx * bp;
+                for (let i = 0; i < SEG; i++) {
+                    const ya = y1 + ((y2 - y1) * i) / SEG;
+                    const yb = y1 + ((y2 - y1) * (i + 1)) / SEG;
+                    const midY = (ya + yb) * 0.5;
+                    const d = Math.abs(midY - scanY);
+                    if (d > BAND_HALF) continue;
+                    const t = 1 - d / BAND_HALF;
+                    const alpha = 0.85 * t * t;
+                    if (alpha < 0.02) continue;
+                    g.moveTo(x, ya).lineTo(x, yb).stroke({
+                        color, width: 1.2, alpha,
+                    });
+                }
+            }
+        }
     }
 
     // ---- Control hint (auto-match / click-match / disabled) -----------
