@@ -1651,8 +1651,11 @@ export class PixiView {
             // batch it).
             const strips = 6;
             for (let i = 0; i < strips; i++) {
-                const t = i / (strips - 1); // 0..1
-                const y0 = bandTop + (bandBot - bandTop) * t;
+                // Both bounds share the same denominator so strips are
+                // contiguous (the previous code mixed 1/(strips-1) with
+                // 1/strips, leaving ~15% gaps and a zero-height last
+                // strip -- flagged by Devin Review on #20).
+                const y0 = bandTop + (bandBot - bandTop) * (i / strips);
                 const y1 = bandTop + (bandBot - bandTop) * ((i + 1) / strips);
                 const d = Math.abs((y0 + y1) * 0.5 - scanY) / BAND_HALF;
                 const alpha = 0.10 * (1 - d) * (1 - d);
