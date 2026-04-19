@@ -1639,8 +1639,6 @@ export class PixiView {
         const rightW = totalW - leftW - gap;
         const x = Math.round((w - totalW) / 2);
         const y = Math.round((h - panelH) / 2);
-        this._startPanelBounds = { x, y, leftW, rightW, panelH, gap };
-
         const s = this._startScreen;
         s.left.scale.set(1);
         s.right.scale.set(1);
@@ -1648,6 +1646,7 @@ export class PixiView {
         s.right.position.set(x + leftW + gap, y);
         s.leftScale = Math.min(leftW / 720, panelH / 700);
         s.rightScale = Math.min(rightW / 440, panelH / 700);
+        this._startPanelBounds = { x, y, leftW, rightW, panelH, gap, leftScale: s.leftScale };
         s.left.scale.set(s.leftScale);
         s.right.scale.set(s.rightScale);
 
@@ -1676,10 +1675,15 @@ export class PixiView {
     _positionPlayerNameInput() {
         const input = this._playerNameInput;
         if (!input || !this._startPanelBounds) return;
-        const { x, y, leftW } = this._startPanelBounds;
-        input.style.left = `${Math.round(x + 36)}px`;
-        input.style.top = `${Math.round(y + 128)}px`;
-        input.style.width = `${Math.round(Math.min(360, leftW - 72))}px`;
+        const { x, y, leftW, leftScale } = this._startPanelBounds;
+        const scale = leftScale || (leftW / 720);
+        // Position in panel-local coordinates so the DOM input tracks
+        // the scaled Pixi layout.
+        const inputLocalX = 24;
+        const inputLocalY = 112;
+        input.style.left = `${Math.round(x + inputLocalX * scale)}px`;
+        input.style.top = `${Math.round(y + inputLocalY * scale)}px`;
+        input.style.width = `${Math.round(Math.min(360, 320 * scale))}px`;
     }
 
     _drawStarShape(r, color) {

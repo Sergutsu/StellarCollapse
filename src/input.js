@@ -29,15 +29,6 @@ export function bindInput({ state, elements }) {
         }
     });
 
-    elements.container.addEventListener('click', (event) => {
-        if (state.gameOver) return;
-        const cell = event.target && event.target.closest
-            ? event.target.closest('.cell.filled')
-            : null;
-        if (!cell || !elements.board.contains(cell)) return;
-        const x = Number(cell.dataset.x);
-        const y = Number(cell.dataset.y);
-        if (!(x >= 0 && x < state.cols && y >= 0 && y < state.rows)) return;
-        state.clickCell(x, y);
-    });
+    // Click-to-match is handled by PixiView's canvas hit detection.
+    // Keep input.js focused on keyboard controls.
 }
