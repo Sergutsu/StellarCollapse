@@ -1,8 +1,8 @@
 // Pixi.js-based board + HUD renderer. Subscribes to GameState events,
 // owns the `#gameContainer` mount, and draws the title bar + HUD
 // columns + previews + in-game sound/exit controls inside the canvas.
-// The start screen and player-name input stay DOM (Pixi has no native
-// text-input widget worth writing from scratch).
+// Start/game screens are fully Pixi-rendered; only the player-name
+// <input> remains DOM and is overlaid above the canvas.
 // GameState remains pure -- this file is the only one that touches Pixi.
 //
 //   const view = new PixiView({ state, elements });
@@ -24,6 +24,12 @@ import {
 import {
     SNAKE_LENGTH,
     PIECE_COMPLEXITY,
+    GAME_MODES,
+    FIELD_SIZES,
+    HIGHSCORE_TIERS,
+    DEFAULT_FIELD_SIZE_ID,
+    getSizeMultiplier,
+    findTier,
     BLOCK_SIZE_FOR,
     LINES_PER_LEVEL,
     LOW_FX_CELL_THRESHOLD,
@@ -176,8 +182,20 @@ export class PixiView {
         // Top HUD controls (sound/exit) callbacks are wired from main.js.
         this._onExitRequested = null;
         this._onSoundToggleRequested = null;
+        this._onStartGameRequested = null;
         this._viewportUnsub = null;
         this._topControls = null;
+        this._highScores = null;
+
+        this._playerNameInput = this.el.playerName || null;
+        this._startScreen = null;
+        this._startPanelBounds = null;
+        this._startState = {
+            mode: GAME_MODES.STELLAR,
+            complexity: PIECE_COMPLEXITY.CLASSIC,
+            fieldSizeId: DEFAULT_FIELD_SIZE_ID,
+            selectedTierId: findTier(GAME_MODES.STELLAR, PIECE_COMPLEXITY.CLASSIC)?.id || HIGHSCORE_TIERS[0].id,
+        };
 
         this._bindState();
     }
@@ -232,6 +250,7 @@ export class PixiView {
         // cell layers so we can position the entire board inside the
         // HUD with one container transform.
         this._buildHud();
+        this._buildStartScreen();
 
         this.boardRoot = new Container();
         this.sceneRoot.addChild(this.boardRoot);
@@ -270,6 +289,7 @@ export class PixiView {
         if (mount) {
             mount.style.visibility = 'visible';
         }
+        this.showStartScreen();
     }
 
     // -------------------------------------------------------------------
@@ -1163,6 +1183,296 @@ export class PixiView {
         };
     }
 
+    _buildStartScreen() {
+        const root = new Container();
+        this.uiRoot.addChild(root);
+
+        const left = this._drawHologramPanel(720, 700);
+        const right = this._drawHologramPanel(440, 700);
+        root.addChild(left, right);
+
+        const star = this._drawStarShape(20, 0xfacc15);
+        left.addChild(star);
+        const titleGradient = new FillGradient(0, 0, 420, 0);
+        titleGradient.addColorStop(0, 0x22d3ee);
+        titleGradient.addColorStop(0.5, 0xfacc15);
+        titleGradient.addColorStop(1, 0xf87171);
+        const title = new Text({
+            text: 'STELLAR COLLAPSE',
+            style: new TextStyle({
+                fontFamily: 'Inter, "Segoe UI", sans-serif',
+                fontSize: 52,
+                fontWeight: '800',
+                letterSpacing: 2,
+                fill: titleGradient,
+                dropShadow: { color: 0xfacc15, alpha: 0.28, blur: 8, distance: 0, angle: 0 },
+            }),
+        });
+        left.addChild(title);
+        const subtitle = new Text({
+            text: 'Cosmic blocks with explosive chain reactions!',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 16, fill: 0x67e8f9 }),
+        });
+        left.addChild(subtitle);
+
+        const missionPanel = this._drawHologramPanel(680, 500);
+        left.addChild(missionPanel);
+        const missionLabel = this._panelLabel('MISSION CONFIGURATION', COLOR_CYAN_300, { size: 17 });
+        missionLabel.x = 20;
+        missionLabel.y = 16;
+        missionPanel.addChild(missionLabel);
+
+        const modeLabel = this._panelLabel('GAMEPLAY MODE', COLOR_BLUE_300);
+        modeLabel.x = 20;
+        modeLabel.y = 54;
+        missionPanel.addChild(modeLabel);
+
+        const modeRow = new Container();
+        missionPanel.addChild(modeRow);
+        const modeButtons = [
+            this._buildStartButton({ text: 'Stellar', width: 200, onTap: () => this._setStartMode(GAME_MODES.STELLAR) }),
+            this._buildStartButton({ text: 'Auto-Match', width: 200, onTap: () => this._setStartMode(GAME_MODES.AUTO_MATCH) }),
+            this._buildStartButton({ text: 'Blocks', width: 200, onTap: () => this._setStartMode(GAME_MODES.BLOCKS) }),
+        ];
+        modeButtons.forEach((b, i) => {
+            b.container.x = i * 220;
+            modeRow.addChild(b.container);
+        });
+
+        const complexityLabel = this._panelLabel('PIECE COMPLEXITY', COLOR_BLUE_300);
+        complexityLabel.x = 20;
+        complexityLabel.y = 150;
+        missionPanel.addChild(complexityLabel);
+        const complexityRow = new Container();
+        missionPanel.addChild(complexityRow);
+        const complexityButtons = [
+            this._buildStartButton({ text: 'Classic', width: 200, onTap: () => this._setStartComplexity(PIECE_COMPLEXITY.CLASSIC) }),
+            this._buildStartButton({ text: 'Mutated', width: 200, onTap: () => this._setStartComplexity(PIECE_COMPLEXITY.MUTATED) }),
+            this._buildStartButton({ text: 'Totally Collapsed', width: 200, onTap: () => this._setStartComplexity(PIECE_COMPLEXITY.COLLAPSED) }),
+        ];
+        complexityButtons.forEach((b, i) => {
+            b.container.x = i * 220;
+            complexityRow.addChild(b.container);
+        });
+
+        const sizeLabel = this._panelLabel('FIELD SIZE', COLOR_BLUE_300);
+        sizeLabel.x = 20;
+        sizeLabel.y = 246;
+        missionPanel.addChild(sizeLabel);
+        const sizeRow = new Container();
+        missionPanel.addChild(sizeRow);
+
+        const begin = this._buildStartButton({
+            text: 'BEGIN MISSION',
+            width: 280,
+            height: 52,
+            fill: 0x0891b2,
+            hoverFill: 0x06b6d4,
+            onTap: () => {
+                if (typeof this._onStartGameRequested === 'function') {
+                    const name = (this._playerNameInput?.value || '').trim() || 'Pilot';
+                    this._playerNameInput.value = name.slice(0, 15);
+                    this._onStartGameRequested({
+                        mode: this._startState.mode,
+                        complexity: this._startState.complexity,
+                        fieldSizeId: this._startState.fieldSizeId,
+                        playerName: this._playerNameInput.value,
+                    });
+                }
+            },
+        });
+        missionPanel.addChild(begin.container);
+
+        const rankingsLabel = this._panelLabel('STELLAR RANKINGS', COLOR_YELLOW_300, { size: 24 });
+        rankingsLabel.x = 20;
+        rankingsLabel.y = 18;
+        right.addChild(rankingsLabel);
+
+        const tierTabs = new Container();
+        right.addChild(tierTabs);
+        const tierButtons = HIGHSCORE_TIERS.map((tier, idx) => {
+            const btn = this._buildStartButton({
+                text: `🚀 ${tier.short}`,
+                width: 88,
+                height: 32,
+                fill: 0x0f172a,
+                hoverFill: 0x1e293b,
+                textColor: parseInt(tier.color.replace('#', ''), 16),
+                onTap: () => {
+                    this._startState.selectedTierId = tier.id;
+                    this._refreshLeaderboard();
+                },
+            });
+            btn.tierId = tier.id;
+            btn.container.x = (idx % 3) * 102;
+            btn.container.y = Math.floor(idx / 3) * 40;
+            tierTabs.addChild(btn.container);
+            return btn;
+        });
+
+        const tierLabel = new Text({ text: '', style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x93c5fd }) });
+        right.addChild(tierLabel);
+        const listContainer = new Container();
+        right.addChild(listContainer);
+        const empty = new Text({
+            text: 'No scores yet in this tier.',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 14, fill: 0x94a3b8, align: 'center' }),
+        });
+        empty.visible = false;
+        listContainer.addChild(empty);
+
+        this._startScreen = {
+            root,
+            left,
+            right,
+            title,
+            star,
+            subtitle,
+            missionPanel,
+            modeRow,
+            modeButtons,
+            complexityRow,
+            complexityButtons,
+            sizeRow,
+            sizeButtons: [],
+            begin,
+            rankingsLabel,
+            tierTabs,
+            tierButtons,
+            tierLabel,
+            listContainer,
+            listRows: [],
+            empty,
+        };
+        this._rebuildFieldSizeButtons();
+        this._refreshStartButtons();
+        this._refreshLeaderboard();
+    }
+
+    _buildStartButton({ text, width, height = 40, fill = 0x172554, hoverFill = 0x1d4ed8, textColor = COLOR_WHITE, onTap }) {
+        const container = new Container();
+        container.eventMode = 'static';
+        container.cursor = 'pointer';
+        const bg = new Graphics();
+        const draw = (color, active = false) => {
+            bg.clear();
+            bg.roundRect(0, 0, width, height, 8).fill({ color, alpha: active ? 0.92 : 0.72 });
+            bg.roundRect(0, 0, width, height, 8).stroke({ color: 0x22d3ee, width: active ? 2 : 1, alpha: active ? 0.9 : 0.35 });
+        };
+        draw(fill, false);
+        container.addChild(bg);
+        const label = new Text({ text, style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: textColor }) });
+        label.anchor.set(0.5);
+        label.x = width / 2;
+        label.y = height / 2;
+        container.addChild(label);
+        container.on('pointerover', () => draw(hoverFill, !!container.__active));
+        container.on('pointerout', () => draw(container.__active ? hoverFill : fill, !!container.__active));
+        container.on('pointertap', () => onTap?.());
+        return {
+            container, bg, label, width, height, fill, hoverFill,
+            setActive: (active) => {
+                container.__active = !!active;
+                draw(active ? hoverFill : fill, active);
+            },
+        };
+    }
+
+    _setStartMode(mode) {
+        this._startState.mode = mode;
+        const tier = findTier(this._startState.mode, this._startState.complexity);
+        if (tier) this._startState.selectedTierId = tier.id;
+        this._refreshStartButtons();
+        this._refreshLeaderboard();
+    }
+
+    _setStartComplexity(complexity) {
+        this._startState.complexity = complexity;
+        this._rebuildFieldSizeButtons();
+        const tier = findTier(this._startState.mode, this._startState.complexity);
+        if (tier) this._startState.selectedTierId = tier.id;
+        this._refreshStartButtons();
+        this._refreshLeaderboard();
+    }
+
+    _rebuildFieldSizeButtons() {
+        const start = this._startScreen;
+        if (!start) return;
+        const sizes = FIELD_SIZES[this._startState.complexity] || FIELD_SIZES[PIECE_COMPLEXITY.CLASSIC];
+        if (!sizes.some((s) => s.id === this._startState.fieldSizeId)) {
+            this._startState.fieldSizeId = DEFAULT_FIELD_SIZE_ID;
+        }
+        start.sizeRow.removeChildren().forEach((c) => c.destroy({ children: true }));
+        start.sizeButtons = sizes.map((size, idx) => {
+            const mult = `x${Number(getSizeMultiplier(size.id)).toString()}`;
+            const btn = this._buildStartButton({
+                text: `${size.label}  ${mult}`,
+                width: 200,
+                onTap: () => {
+                    this._startState.fieldSizeId = size.id;
+                    this._refreshStartButtons();
+                },
+            });
+            btn.sizeId = size.id;
+            btn.container.x = idx * 220;
+            start.sizeRow.addChild(btn.container);
+            return btn;
+        });
+        this._refreshStartButtons();
+        this._layoutStartScreen();
+    }
+
+    _refreshStartButtons() {
+        const start = this._startScreen;
+        if (!start) return;
+        start.modeButtons.forEach((btn, idx) => btn.setActive(
+            [GAME_MODES.STELLAR, GAME_MODES.AUTO_MATCH, GAME_MODES.BLOCKS][idx] === this._startState.mode,
+        ));
+        start.complexityButtons.forEach((btn, idx) => btn.setActive(
+            [PIECE_COMPLEXITY.CLASSIC, PIECE_COMPLEXITY.MUTATED, PIECE_COMPLEXITY.COLLAPSED][idx] === this._startState.complexity,
+        ));
+        start.sizeButtons.forEach((btn) => btn.setActive(btn.sizeId === this._startState.fieldSizeId));
+        start.tierButtons.forEach((btn) => btn.setActive(btn.tierId === this._startState.selectedTierId));
+    }
+
+    _refreshLeaderboard() {
+        const start = this._startScreen;
+        if (!start) return;
+        const tier = HIGHSCORE_TIERS.find((t) => t.id === this._startState.selectedTierId) || HIGHSCORE_TIERS[0];
+        start.tierLabel.text = tier.label;
+        start.tierLabel.style.fill = parseInt(tier.color.replace('#', ''), 16);
+        start.listRows.forEach((row) => row.destroy({ children: true }));
+        start.listRows = [];
+        const entries = this._highScores?.top(tier.id)?.slice(0, 5) || [];
+        start.empty.visible = entries.length === 0;
+        start.empty.x = 140;
+        start.empty.y = 90;
+        if (entries.length === 0) return;
+        entries.forEach((entry, idx) => {
+            const row = new Container();
+            const bg = new Graphics();
+            bg.roundRect(0, 0, 400, 42, 6).fill({ color: 0x0f172a, alpha: 0.65 });
+            bg.roundRect(0, 0, 400, 42, 6).stroke({ color: 0x334155, width: 1, alpha: 0.7 });
+            row.addChild(bg);
+            const rank = new Text({ text: `#${idx + 1}`, style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 16, fontWeight: '700', fill: 0xfde047 }) });
+            rank.x = 14;
+            rank.y = 12;
+            row.addChild(rank);
+            const name = new Text({ text: entry.name, style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 14, fill: 0xe2e8f0 }) });
+            name.x = 92;
+            name.y = 12;
+            row.addChild(name);
+            const score = new Text({ text: entry.score.toLocaleString(), style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 14, fontWeight: '700', fill: 0x86efac }) });
+            score.anchor.set(1, 0);
+            score.x = 386;
+            score.y = 12;
+            row.addChild(score);
+            row.y = idx * 50;
+            start.listContainer.addChild(row);
+            start.listRows.push(row);
+        });
+    }
+
     // ---- Title bar with reactive star ---------------------------------
 
     _buildTitleBar() {
@@ -1306,6 +1616,7 @@ export class PixiView {
         this.app.renderer.resize(w, h);
         this.sceneRoot.x = Math.round((w - HUD_W) / 2);
         this.sceneRoot.y = Math.round((h - HUD_H) / 2);
+        this._layoutStartScreen();
         if (this._topControls) {
             this._topControls.x = 12;
             this._topControls.y = 12;
@@ -1313,6 +1624,58 @@ export class PixiView {
         if (rebuildStarfield) {
             this._rebuildStarfield(w, h);
         }
+    }
+
+    _layoutStartScreen() {
+        if (!this.app || !this._startScreen) return;
+        const w = this.app.screen.width;
+        const h = this.app.screen.height;
+        const gap = 24;
+        const totalW = Math.min(1200, Math.max(760, w - 40));
+        const panelH = Math.min(740, Math.max(560, h - 40));
+        const leftW = Math.round(totalW * 0.62);
+        const rightW = totalW - leftW - gap;
+        const x = Math.round((w - totalW) / 2);
+        const y = Math.round((h - panelH) / 2);
+        this._startPanelBounds = { x, y, leftW, rightW, panelH, gap };
+
+        const s = this._startScreen;
+        s.left.scale.set(1);
+        s.right.scale.set(1);
+        s.left.position.set(x, y);
+        s.right.position.set(x + leftW + gap, y);
+        s.left.width = leftW;
+        s.left.height = panelH;
+        s.right.width = rightW;
+        s.right.height = panelH;
+
+        s.star.position.set(30, 58);
+        s.title.position.set(58, 34);
+        s.title.style.fontSize = Math.max(32, Math.floor(leftW * 0.07));
+        s.subtitle.position.set(24, 98);
+        s.missionPanel.position.set(20, 130);
+        s.missionPanel.width = leftW - 40;
+        s.missionPanel.height = panelH - 220;
+        s.modeRow.position.set(20, 82);
+        s.complexityRow.position.set(20, 178);
+        s.sizeRow.position.set(20, 274);
+        s.begin.container.position.set(Math.max(20, (s.missionPanel.width - s.begin.width) / 2), s.missionPanel.height - 74);
+
+        s.rankingsLabel.position.set(20, 18);
+        s.tierTabs.position.set(20, 64);
+        s.tierLabel.position.set(20, 194);
+        s.listContainer.position.set(20, 228);
+
+        this._positionPlayerNameInput();
+    }
+
+    _positionPlayerNameInput() {
+        const input = this._playerNameInput;
+        if (!input || !this._startPanelBounds) return;
+        const { x, y, leftW } = this._startPanelBounds;
+        input.style.left = `${Math.round(x + 36)}px`;
+        input.style.top = `${Math.round(y + 128)}px`;
+        input.style.width = `${Math.round(Math.min(360, leftW - 72))}px`;
     }
 
     _drawStarShape(r, color) {
@@ -1837,6 +2200,55 @@ export class PixiView {
 
     setTip(text) {
         if (this.hud?.tipText) this.hud.tipText.text = text;
+    }
+
+    setHighScores(highScores) {
+        this._highScores = highScores || null;
+        this._refreshLeaderboard();
+    }
+
+    onStartGame(callback) {
+        this._onStartGameRequested = typeof callback === 'function' ? callback : null;
+    }
+
+    setPlayerNameInput(input) {
+        this._playerNameInput = input || null;
+        if (this._playerNameInput) {
+            this._playerNameInput.maxLength = 15;
+            this._playerNameInput.value = (this._playerNameInput.value || 'Pilot').slice(0, 15) || 'Pilot';
+        }
+        this._positionPlayerNameInput();
+    }
+
+    setSelectedTier(tierId) {
+        if (!tierId) return;
+        this._startState.selectedTierId = tierId;
+        this._refreshStartButtons();
+        this._refreshLeaderboard();
+    }
+
+    showStartScreen() {
+        if (this.sceneRoot) this.sceneRoot.visible = false;
+        if (this._topControls) this._topControls.visible = false;
+        if (this._startScreen?.root) this._startScreen.root.visible = true;
+        if (this._playerNameInput) {
+            this._playerNameInput.style.display = 'block';
+            this._playerNameInput.style.pointerEvents = 'auto';
+            this._positionPlayerNameInput();
+            this._playerNameInput.focus();
+            this._playerNameInput.select();
+        }
+        this._refreshLeaderboard();
+    }
+
+    showGameScreen() {
+        if (this.sceneRoot) this.sceneRoot.visible = true;
+        if (this._topControls) this._topControls.visible = true;
+        if (this._startScreen?.root) this._startScreen.root.visible = false;
+        if (this._playerNameInput) {
+            this._playerNameInput.style.display = 'none';
+            this._playerNameInput.style.pointerEvents = 'none';
+        }
     }
 
     setTopControlsHandlers({ onExit, onToggleSound } = {}) {

@@ -25,6 +25,22 @@
             overflow: hidden;
             position: relative;
         }
+        #playerName {
+            position: absolute;
+            z-index: 100;
+            background: rgba(3, 10, 26, 0.9);
+            color: #67e8f9;
+            border: 1px solid rgba(34, 211, 238, 0.7);
+            border-radius: 8px;
+            padding: 10px 12px;
+            text-align: center;
+            outline: none;
+            box-shadow: 0 0 14px rgba(34, 211, 238, 0.24);
+        }
+        #playerName:focus {
+            border-color: #f9a8d4;
+            box-shadow: 0 0 20px rgba(249, 168, 212, 0.35);
+        }
         
         /* Starfield is drawn on the Pixi canvas (src/pixi-starfield.js);
            no DOM stars layer anymore. */
@@ -670,137 +686,6 @@
         /* Previews used to have their own color styles; they now reuse
            `.cell` so every color/emoji treatment lives in a single place. */
 
-        /* Start-screen toggle rows (mode + piece complexity). */
-        .toggle-row {
-            display: flex;
-            gap: 8px;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-
-        .toggle-btn {
-            flex: 1 1 0;
-            min-width: 110px;
-            padding: 8px 12px;
-            border: 1px solid rgba(0, 212, 255, 0.4);
-            background: rgba(0, 20, 40, 0.7);
-            color: #9ae6ff;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            cursor: pointer;
-            transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
-        }
-
-        .toggle-btn:hover {
-            border-color: #00d4ff;
-            color: #e0f7ff;
-        }
-
-        .toggle-btn.active {
-            background: linear-gradient(135deg, rgba(0, 212, 255, 0.35), rgba(255, 0, 128, 0.25));
-            border-color: #00d4ff;
-            color: #ffffff;
-            box-shadow: 0 0 12px rgba(0, 212, 255, 0.45);
-        }
-
-        /* Field-size buttons are a two-line stack: the size label on top
-           and the per-size score multiplier badge below it. Same width as
-           other toggle-btns so the rows line up. */
-        .field-size-btn {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 2px;
-            line-height: 1.1;
-            padding: 6px 10px;
-        }
-
-        .field-size-btn .field-size-label {
-            font-size: 13px;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-
-        .field-size-btn .field-size-mult {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            color: #fbbf24;
-            text-shadow: 0 0 6px rgba(251, 191, 36, 0.45);
-        }
-
-        .field-size-btn.active .field-size-mult {
-            color: #fde68a;
-        }
-
-        .toggle-label {
-            text-align: left;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            color: #67e8f9;
-            margin-bottom: 6px;
-            text-transform: uppercase;
-        }
-
-        /* High-score tier tabs. The icon color comes from the per-tier
-           color defined in constants.js (set via inline style). */
-        .tier-tabs {
-            display: grid;
-            /* 9 tiers -- one per mode x complexity combo. Auto-fit keeps
-               the row compact on wide layouts and wraps gracefully on
-               narrow ones without us hardcoding a breakpoint. */
-            grid-template-columns: repeat(9, minmax(0, 1fr));
-            gap: 4px;
-            margin-bottom: 12px;
-        }
-
-        @media (max-width: 720px) {
-            .tier-tabs {
-                /* On phone-width viewports 9 flat tabs crush unreadably;
-                   flow into two rows instead. */
-                grid-template-columns: repeat(5, minmax(0, 1fr));
-            }
-        }
-
-        .tier-tab {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            padding: 8px 4px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(0, 0, 0, 0.35);
-            border-radius: 8px;
-            cursor: pointer;
-            transition: border-color 0.15s, background 0.15s, transform 0.15s;
-        }
-
-        .tier-tab:hover {
-            transform: translateY(-1px);
-        }
-
-        .tier-tab.active {
-            background: rgba(0, 0, 0, 0.55);
-            border-color: currentColor;
-            box-shadow: 0 0 10px currentColor;
-        }
-
-        .tier-tab .tier-icon {
-            font-size: 20px;
-            line-height: 1;
-            text-shadow: 0 0 10px currentColor;
-        }
-
-        .tier-tab .tier-short {
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            color: rgba(255, 255, 255, 0.85);
-        }
-
         
         .screen {
             transition: all 0.5s ease;
@@ -881,18 +766,6 @@
         }
         
 
-        
-        .instructions {
-            background: 
-                linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(255, 0, 128, 0.1) 100%),
-                rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(0, 212, 255, 0.3);
-            box-shadow: 
-                0 0 20px rgba(0, 212, 255, 0.2),
-                inset 0 0 20px rgba(0, 212, 255, 0.05);
-            border-radius: 8px;
-        }
         
         /* PixiView draws the title bar, HUD columns, starfield, and
            in-game top controls inside its canvas -- the equivalent DOM
@@ -1105,118 +978,10 @@
     </style>
 </head>
 <body class="text-white flex items-center justify-center min-h-screen p-4">
-    <!-- Start Screen with Integrated Scoreboard -->    <div id="startScreen" class="screen absolute inset-0 flex items-center justify-center bg-black bg-opacity-70 z-50">
-        <div class="flex gap-8 max-w-6xl w-full px-8">
-            <!-- Left side - Game info and player input -->
-            <div class="flex-1 text-center p-8 rounded-2xl bg-gray-900 bg-opacity-90 backdrop-blur-sm border border-gray-700 relative overflow-hidden">
-                <!-- Subtle animated background effects -->
-                <div class="absolute inset-0 opacity-3 pointer-events-none">
-                    <div class="absolute top-1/4 right-0 w-32 h-32 bg-blue-400 rounded-full blur-3xl animate-pulse" style="animation-duration: 8s;"></div>
-                    <div class="absolute bottom-1/4 left-0 w-24 h-24 bg-red-400 rounded-full blur-3xl animate-pulse" style="animation-duration: 10s;"></div>
-                    <div class="absolute top-1/2 left-1/2 w-20 h-20 bg-yellow-400 rounded-full blur-3xl animate-pulse" style="animation-duration: 12s;"></div>
-                </div>
-                <!-- Content with higher z-index -->
-                <div class="relative z-10">
-                <h1 class="text-5xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-yellow-400 to-red-400">
-                    <i class="fas fa-star"></i> STELLAR COLLAPSE
-                </h1>
-                <p class="text-cyan-300 mb-6">Cosmic blocks with explosive chain reactions!</p>
-                
-                <!-- Player Name Input -->
-                <div class="mb-6">
-                    <label class="block text-cyan-300 font-bold mb-2" for="playerName">Enter Your Call Sign:</label>
-                    <input type="text" id="playerName" class="bg-gray-900 text-cyan-300 px-4 py-2 rounded-lg border border-cyan-500 focus:border-pink-400 focus:outline-none text-center focus:ring-2 focus:ring-pink-400 focus:ring-opacity-50" 
-                           placeholder="Pilot" maxlength="15" value="Pilot">
-                </div>
-                
-                <div class="instructions p-4 rounded-lg mb-6 text-left">
-                    <h2 class="text-xl font-bold mb-3 text-cyan-300 text-center">Mission Configuration</h2>
-
-                    <div class="mb-4">
-                        <div class="toggle-label"><i class="fas fa-gamepad mr-1"></i> Gameplay</div>
-                        <div class="toggle-row" id="modeToggle" role="radiogroup" aria-label="Gameplay mode">
-                            <button type="button" class="toggle-btn active" data-mode="stellar" title="Manual click-to-match: pick your own 4+ runs to clear">
-                                Stellar
-                            </button>
-                            <button type="button" class="toggle-btn" data-mode="auto-match" title="4+ runs auto-clear when a piece locks">
-                                Auto-Match
-                            </button>
-                            <button type="button" class="toggle-btn" data-mode="blocks" title="Pure block-stacking: only full lines score">
-                                Blocks
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <div class="toggle-label"><i class="fas fa-shapes mr-1"></i> Piece Complexity</div>
-                        <div class="toggle-row" id="complexityToggle" role="radiogroup" aria-label="Piece complexity">
-                            <button type="button" class="toggle-btn active" data-complexity="classic" title="7 standard tetrominoes, single color each">
-                                Classic
-                            </button>
-                            <button type="button" class="toggle-btn" data-complexity="mutated" title="15 shape pool, per-cell random colors">
-                                Mutated
-                            </button>
-                            <button type="button" class="toggle-btn" data-complexity="collapsed" title="Mutated pool + bombs + chaotic specials">
-                                Totally Collapsed
-                            </button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="toggle-label"><i class="fas fa-th mr-1"></i> Field Size</div>
-                        <div class="toggle-row" id="fieldSizeToggle" role="radiogroup" aria-label="Field size">
-                            <!-- Field size buttons are rendered by main.js because the options depend on the currently selected piece complexity. -->
-                        </div>
-                    </div>
-                </div>
-                
-                <button id="startBtn" class="btn bg-gradient-to-r from-cyan-500 to-yellow-500 hover:from-cyan-400 hover:to-yellow-400 text-white font-bold py-3 px-8 rounded-full text-xl shadow-lg shadow-cyan-500/25">
-                    <i class="fas fa-play mr-2"></i>BEGIN MISSION
-                </button>
-                </div> <!-- Close content wrapper -->
-            </div>
-            
-            <!-- Right side - Mission Rankings -->
-            <div class="flex-1 p-8 rounded-2xl bg-gray-900 bg-opacity-90 backdrop-blur-sm border border-cyan-500/30 relative overflow-hidden">
-                <!-- Subtle animated background effects -->
-                <div class="absolute inset-0 opacity-3 pointer-events-none">
-                    <div class="absolute top-0 left-0 w-28 h-28 bg-green-400 rounded-full blur-3xl animate-pulse" style="animation-duration: 10s;"></div>
-                    <div class="absolute bottom-0 right-0 w-32 h-32 bg-blue-400 rounded-full blur-3xl animate-pulse" style="animation-duration: 12s;"></div>
-                    <div class="absolute top-1/3 right-1/3 w-16 h-16 bg-cyan-400 rounded-full blur-3xl animate-pulse" style="animation-duration: 14s;"></div>
-                </div>
-                <!-- Content with higher z-index -->
-                <div class="relative z-10">
-                <h2 class="text-3xl font-bold mb-4 text-center text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-yellow-400 to-red-500">
-                    <i class="fas fa-medal"></i> STELLAR RANKINGS
-                </h2>
-
-                <!-- Per-tier tab strip. Populated by main.js from
-                     HIGHSCORE_TIERS (easy -> hard, green -> red). -->
-                <div class="tier-tabs" id="tierTabs" role="tablist"></div>
-
-                <div class="mb-4 text-center text-xs text-cyan-300" id="tierLabel"></div>
-
-                <div class="mb-6">
-                    <div class="flex justify-between border-b border-cyan-600 pb-2 mb-4 font-bold text-cyan-300">
-                        <span>Rank</span>
-                        <span>Pilot</span>
-                        <span>Score</span>
-                    </div>
-                    <div id="startScreenScoreList" class="space-y-3">
-                        <!-- Scores will be inserted here -->
-                    </div>
-                </div>
-
-                <div class="text-center text-cyan-400 text-sm">
-                    <p>Each tier keeps its own top 5.</p>
-                </div>
-                </div> <!-- Close content wrapper -->
-            </div>
-        </div>
-    </div>
+    <input type="text" id="playerName" placeholder="Pilot" maxlength="15" value="Pilot">
 
     <!-- Game Screen -->
-    <div id="gameScreen" class="screen absolute inset-0 flex flex-col items-center justify-center opacity-0 pointer-events-none">
+    <div id="gameScreen" class="screen absolute inset-0 flex flex-col items-center justify-center">
         <!-- End Game Button -->
         <div class="absolute top-4 right-4 flex gap-2">
             <button id="soundToggleBtn" class="btn bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-full transition-colors">
