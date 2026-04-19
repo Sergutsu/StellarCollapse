@@ -135,6 +135,7 @@ export class PixiView {
 
         this.app = null;
         this.sceneRoot = null;
+        this.uiRoot = null;
         this.blockPx = 30;
         // Layer containers. Populated in init().
         this.layers = { board: null, active: null, effects: null, overlay: null };
@@ -175,6 +176,8 @@ export class PixiView {
         // Top HUD controls (sound/exit) callbacks are wired from main.js.
         this._onExitRequested = null;
         this._onSoundToggleRequested = null;
+        this._viewportUnsub = null;
+        this._topControls = null;
 
         this._bindState();
     }
@@ -192,10 +195,9 @@ export class PixiView {
             // blurring on the compositor.
             resolution: Math.min(window.devicePixelRatio || 1, 2),
             autoDensity: true,
-            // Keep canvas scoped to the HUD region so it doesn't overlay
-            // out-of-canvas DOM controls (sound/exit/buttons).
-            width: HUD_W,
-            height: HUD_H,
+            // Fill the screen so the starfield is truly fullscreen.
+            width: Math.max(1, Math.round(window.innerWidth || HUD_W)),
+            height: Math.max(1, Math.round(window.innerHeight || HUD_H)),
         });
         this.app = app;
 
@@ -207,8 +209,8 @@ export class PixiView {
             mount.innerHTML = '';
             mount.appendChild(app.canvas);
             app.canvas.style.display = 'block';
-            mount.style.width = `${HUD_W}px`;
-            mount.style.height = `${HUD_H}px`;
+            mount.style.width = '100vw';
+            mount.style.height = '100vh';
             // Drop the cyan border + box-shadow from .game-container --
             // the Pixi HUD draws its own frame now.
             mount.style.border = 'none';
@@ -217,19 +219,13 @@ export class PixiView {
             mount.style.animation = 'none';
         }
 
-        // Starfield goes on the stage first so it renders behind the
-        // HUD panels and the board frame. The DOM `.stars` layer is
-        // hidden in engine-pixi mode (see CSS) so we don't double up.
-        this._starfield = createPixiStarfield(app, {
-            width: HUD_W,
-            height: HUD_H,
-        });
-        app.stage.addChild(this._starfield.container);
+        this._rebuildStarfield(app.screen.width, app.screen.height);
 
         this.sceneRoot = new Container();
-        this.sceneRoot.x = 0;
-        this.sceneRoot.y = 0;
         app.stage.addChild(this.sceneRoot);
+        this.uiRoot = new Container();
+        app.stage.addChild(this.uiRoot);
+        this._layoutViewport();
 
         // Title bar + left/right columns next so they sit above the
         // starfield but behind the board. boardRoot wraps the existing
@@ -268,6 +264,9 @@ export class PixiView {
         // cell coordinates. Match the old DOM behavior where only
         // filled cells respond.
         app.canvas.addEventListener('click', (ev) => this._handleCanvasClick(ev));
+        const onResize = () => this._layoutViewport({ rebuildStarfield: true });
+        window.addEventListener('resize', onResize);
+        this._viewportUnsub = () => window.removeEventListener('resize', onResize);
     }
 
     // -------------------------------------------------------------------
@@ -1098,7 +1097,8 @@ export class PixiView {
         titleBar.y = 0;
         root.addChild(titleBar);
         const topControls = this._buildTopControls();
-        root.addChild(topControls.container);
+        this.uiRoot?.addChild(topControls.container);
+        this._topControls = topControls.container;
 
         // Left column (level + previews)
         const leftCol = new Container();
@@ -1213,23 +1213,22 @@ export class PixiView {
 
     _buildTopControls() {
         const container = new Container();
-        container.y = 8;
-        const gap = 10;
+        const gap = 8;
         const soundBtn = this._buildHudButton({
             text: '🔊 Sound ON',
-            width: 140,
+            width: 116,
             fill: 0x7e22ce,
             hoverFill: 0x9333ea,
         });
         const exitBtn = this._buildHudButton({
             text: '⎋ Exit Mission',
-            width: 156,
+            width: 128,
             fill: 0xb91c1c,
             hoverFill: 0xdc2626,
         });
 
-        exitBtn.container.x = HUD_W - exitBtn.width;
-        soundBtn.container.x = exitBtn.container.x - gap - soundBtn.width;
+        soundBtn.container.x = 0;
+        exitBtn.container.x = soundBtn.width + gap;
         container.addChild(soundBtn.container, exitBtn.container);
 
         soundBtn.container.on('pointertap', () => {
@@ -1247,7 +1246,7 @@ export class PixiView {
     }
 
     _buildHudButton({ text, width, fill, hoverFill }) {
-        const height = 34;
+        const height = 28;
         const container = new Container();
         container.eventMode = 'static';
         container.cursor = 'pointer';
@@ -1265,7 +1264,7 @@ export class PixiView {
             text,
             style: new TextStyle({
                 fontFamily: 'Inter, "Segoe UI", sans-serif',
-                fontSize: 13,
+                fontSize: 11,
                 fontWeight: '700',
                 fill: COLOR_WHITE,
             }),
@@ -1280,6 +1279,32 @@ export class PixiView {
         container.on('pointerupoutside', () => draw(fill));
 
         return { container, text: label, width, height };
+    }
+
+    _rebuildStarfield(width, height) {
+        if (!this.app) return;
+        if (this._starfield?.container) {
+            this.app.stage.removeChild(this._starfield.container);
+            this._starfield.destroy();
+        }
+        this._starfield = createPixiStarfield(this.app, { width, height });
+        this.app.stage.addChildAt(this._starfield.container, 0);
+    }
+
+    _layoutViewport({ rebuildStarfield = false } = {}) {
+        if (!this.app) return;
+        const w = Math.max(1, Math.round(window.innerWidth || HUD_W));
+        const h = Math.max(1, Math.round(window.innerHeight || HUD_H));
+        this.app.renderer.resize(w, h);
+        this.sceneRoot.x = Math.round((w - HUD_W) / 2);
+        this.sceneRoot.y = Math.round((h - HUD_H) / 2);
+        if (this._topControls) {
+            this._topControls.x = 12;
+            this._topControls.y = 12;
+        }
+        if (rebuildStarfield) {
+            this._rebuildStarfield(w, h);
+        }
     }
 
     _drawStarShape(r, color) {
