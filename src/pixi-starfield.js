@@ -1,9 +1,9 @@
 import { Container, Graphics, RenderTexture, Sprite } from 'pixi.js';
 
 // Density-based population so the field stays full at any aspect ratio.
-const STAR_DENSITY_PER_PIXEL = 0.00105;
-const STAR_MIN_COUNT = 520;
-const STAR_MAX_COUNT = 2200;
+const STAR_DENSITY_PER_PIXEL = 0.00045;
+const STAR_MIN_COUNT = 260;
+const STAR_MAX_COUNT = 1100;
 
 // Nebula generation. We build fewer, larger cloud systems composed of
 // connected lobes so they read as coherent nebulae instead of random dots.
@@ -47,6 +47,23 @@ function buildRingTexture(renderer) {
     g.stroke({ color: 0xffffff, alpha: 0.42, width: 1.1 }).circle(c, c, 6.2);
     g.stroke({ color: 0xffffff, alpha: 0.26, width: 0.8 }).circle(c, c, 4.2);
     g.circle(c, c, 2.2).fill({ color: 0x000000, alpha: 0.9 });
+
+    const tex = RenderTexture.create({ width: size, height: size, resolution: 2 });
+    renderer.render({ container: g, target: tex });
+    g.destroy();
+    return tex;
+}
+
+function buildCrossTexture(renderer) {
+    const size = 36;
+    const c = size / 2;
+    const g = new Graphics();
+
+    // Thin diffraction cross with a very soft center glow.
+    g.rect(c - 0.6, c - 10, 1.2, 20).fill({ color: 0xffffff, alpha: 0.75 });
+    g.rect(c - 10, c - 0.6, 20, 1.2).fill({ color: 0xffffff, alpha: 0.75 });
+    g.circle(c, c, 3.2).fill({ color: 0xffffff, alpha: 0.35 });
+    g.circle(c, c, 7.6).fill({ color: 0xffffff, alpha: 0.08 });
 
     const tex = RenderTexture.create({ width: size, height: size, resolution: 2 });
     renderer.render({ container: g, target: tex });
@@ -152,6 +169,7 @@ export function createPixiStarfield(app, { width, height }) {
     container.addChild(starLayer);
 
     const ringTex = buildRingTexture(renderer);
+    const crossTex = buildCrossTexture(renderer);
 
     const area = screenW * screenH;
     const starCount = clamp(Math.round(area * STAR_DENSITY_PER_PIXEL), STAR_MIN_COUNT, STAR_MAX_COUNT);
@@ -159,17 +177,18 @@ export function createPixiStarfield(app, { width, height }) {
 
     const stars = [];
     for (const p of points) {
-        const s = new Sprite(ringTex);
+        const useCross = Math.random() < 0.38;
+        const s = new Sprite(useCross ? crossTex : ringTex);
         s.anchor.set(0.5);
         s.x = p.x;
         s.y = p.y;
         const scaleBucket = Math.random();
         const scale = scaleBucket < 0.7
-            ? randBetween(0.18, 0.72)
-            : randBetween(0.72, 1.55);
+            ? randBetween(0.16, 0.58)
+            : randBetween(0.58, 1.2);
         const baseAlpha = scaleBucket < 0.7
-            ? randBetween(0.28, 0.72)
-            : randBetween(0.58, 0.98);
+            ? randBetween(0.15, 0.45)
+            : randBetween(0.32, 0.7);
         s.scale.set(scale);
         s.alpha = baseAlpha;
         s.tint = CROSS_TINTS[(Math.random() * CROSS_TINTS.length) | 0];
@@ -180,7 +199,7 @@ export function createPixiStarfield(app, { width, height }) {
             speed: randBetween(0.0008, 0.0032),
             baseAlpha,
             baseScale: scale,
-            pulseStrength: randBetween(0.1, 0.4),
+            pulseStrength: randBetween(0.08, 0.24),
         });
         starLayer.addChild(s);
     }
@@ -206,6 +225,7 @@ export function createPixiStarfield(app, { width, height }) {
         container.destroy({ children: true });
         nebulaBuilt.tex.destroy(true);
         ringTex.destroy(true);
+        crossTex.destroy(true);
     }
 
     return { container, update, destroy };

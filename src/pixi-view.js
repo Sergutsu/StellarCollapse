@@ -134,6 +134,7 @@ export class PixiView {
         this.el = elements;
 
         this.app = null;
+        this.sceneRoot = null;
         this.blockPx = 30;
         // Layer containers. Populated in init().
         this.layers = { board: null, active: null, effects: null, overlay: null };
@@ -180,6 +181,8 @@ export class PixiView {
     // -------------------------------------------------------------------
 
     async init() {
+        const viewportW = Math.max(window.innerWidth || 0, HUD_W);
+        const viewportH = Math.max(window.innerHeight || 0, HUD_H);
         const app = new Application();
         await app.init({
             antialias: true,
@@ -188,10 +191,10 @@ export class PixiView {
             // blurring on the compositor.
             resolution: Math.min(window.devicePixelRatio || 1, 2),
             autoDensity: true,
-            // Fixed HUD canvas -- see HUD_W/HUD_H. The board slot inside
-            // scales with field size; the outer frame stays constant.
-            width: HUD_W,
-            height: HUD_H,
+            // Full-screen canvas so the starfield fills the entire view.
+            // HUD is drawn inside `sceneRoot` and centered.
+            width: viewportW,
+            height: viewportH,
         });
         this.app = app;
 
@@ -205,8 +208,8 @@ export class PixiView {
             mount.innerHTML = '';
             mount.appendChild(app.canvas);
             app.canvas.style.display = 'block';
-            mount.style.width = `${HUD_W}px`;
-            mount.style.height = `${HUD_H}px`;
+            mount.style.width = `${viewportW}px`;
+            mount.style.height = `${viewportH}px`;
             // Drop the cyan border + box-shadow from .game-container --
             // the Pixi HUD draws its own frame now.
             mount.style.border = 'none';
@@ -219,10 +222,15 @@ export class PixiView {
         // HUD panels and the board frame. The DOM `.stars` layer is
         // hidden in engine-pixi mode (see CSS) so we don't double up.
         this._starfield = createPixiStarfield(app, {
-            width: HUD_W,
-            height: HUD_H,
+            width: viewportW,
+            height: viewportH,
         });
         app.stage.addChild(this._starfield.container);
+
+        this.sceneRoot = new Container();
+        this.sceneRoot.x = (viewportW - HUD_W) / 2;
+        this.sceneRoot.y = (viewportH - HUD_H) / 2;
+        app.stage.addChild(this.sceneRoot);
 
         // Title bar + left/right columns next so they sit above the
         // starfield but behind the board. boardRoot wraps the existing
@@ -231,7 +239,7 @@ export class PixiView {
         this._buildHud();
 
         this.boardRoot = new Container();
-        app.stage.addChild(this.boardRoot);
+        this.sceneRoot.addChild(this.boardRoot);
 
         // Z-order inside boardRoot: board (locked) -> active ->
         // effects -> overlay (countdown rings).
@@ -1085,7 +1093,7 @@ export class PixiView {
 
     _buildHud() {
         const root = new Container();
-        this.app.stage.addChild(root);
+        this.sceneRoot.addChild(root);
 
         const titleBar = this._buildTitleBar();
         titleBar.y = 0;
