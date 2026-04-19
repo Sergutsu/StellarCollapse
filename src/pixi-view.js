@@ -1271,12 +1271,13 @@ export class PixiView {
             onTap: () => {
                 if (typeof this._onStartGameRequested === 'function') {
                     const name = (this._playerNameInput?.value || '').trim() || 'Pilot';
-                    this._playerNameInput.value = name.slice(0, 15);
+                    const playerName = name.slice(0, 15);
+                    if (this._playerNameInput) this._playerNameInput.value = playerName;
                     this._onStartGameRequested({
                         mode: this._startState.mode,
                         complexity: this._startState.complexity,
                         fieldSizeId: this._startState.fieldSizeId,
-                        playerName: this._playerNameInput.value,
+                        playerName,
                     });
                 }
             },
@@ -1300,6 +1301,7 @@ export class PixiView {
                 textColor: parseInt(tier.color.replace('#', ''), 16),
                 onTap: () => {
                     this._startState.selectedTierId = tier.id;
+                    this._refreshStartButtons();
                     this._refreshLeaderboard();
                 },
             });
@@ -1644,22 +1646,24 @@ export class PixiView {
         s.right.scale.set(1);
         s.left.position.set(x, y);
         s.right.position.set(x + leftW + gap, y);
-        s.left.width = leftW;
-        s.left.height = panelH;
-        s.right.width = rightW;
-        s.right.height = panelH;
+        s.leftScale = Math.min(leftW / 720, panelH / 700);
+        s.rightScale = Math.min(rightW / 440, panelH / 700);
+        s.left.scale.set(s.leftScale);
+        s.right.scale.set(s.rightScale);
 
         s.star.position.set(30, 58);
         s.title.position.set(58, 34);
-        s.title.style.fontSize = Math.max(32, Math.floor(leftW * 0.07));
+        s.title.style.fontSize = Math.max(32, Math.floor((720 * s.leftScale) * 0.07));
         s.subtitle.position.set(24, 98);
         s.missionPanel.position.set(20, 130);
-        s.missionPanel.width = leftW - 40;
-        s.missionPanel.height = panelH - 220;
+        const missionScaleX = Math.min(1, (leftW - 40) / 680);
+        const missionScaleY = Math.min(1, (panelH - 220) / 500);
+        const missionScale = Math.min(missionScaleX / Math.max(s.leftScale, 0.001), missionScaleY / Math.max(s.leftScale, 0.001));
+        s.missionPanel.scale.set(Math.max(0.7, missionScale));
         s.modeRow.position.set(20, 82);
         s.complexityRow.position.set(20, 178);
         s.sizeRow.position.set(20, 274);
-        s.begin.container.position.set(Math.max(20, (s.missionPanel.width - s.begin.width) / 2), s.missionPanel.height - 74);
+        s.begin.container.position.set(Math.max(20, (680 - s.begin.width) / 2), 500 - 74);
 
         s.rankingsLabel.position.set(20, 18);
         s.tierTabs.position.set(20, 64);
