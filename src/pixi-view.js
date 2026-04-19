@@ -1,8 +1,8 @@
 // Pixi.js-based board + HUD renderer. Subscribes to GameState events,
 // owns the `#gameContainer` mount, and draws the title bar + HUD
-// columns + previews inside the canvas. The start screen, sound /
-// exit buttons, and player-name input stay DOM (Pixi has no native
-// text-input or button widget worth writing from scratch).
+// columns + previews + in-game sound/exit controls inside the canvas.
+// The start screen and player-name input stay DOM (Pixi has no native
+// text-input widget worth writing from scratch).
 // GameState remains pure -- this file is the only one that touches Pixi.
 //
 //   const view = new PixiView({ state, elements });
@@ -172,6 +172,9 @@ export class PixiView {
         this.boardRoot = null;
         // Star actor state: base color + active reaction tween handle.
         this._starReactionTween = null;
+        // Top HUD controls (sound/exit) callbacks are wired from main.js.
+        this._onExitRequested = null;
+        this._onSoundToggleRequested = null;
 
         this._bindState();
     }
@@ -181,8 +184,6 @@ export class PixiView {
     // -------------------------------------------------------------------
 
     async init() {
-        const viewportW = Math.max(window.innerWidth || 0, HUD_W);
-        const viewportH = Math.max(window.innerHeight || 0, HUD_H);
         const app = new Application();
         await app.init({
             antialias: true,
@@ -191,25 +192,23 @@ export class PixiView {
             // blurring on the compositor.
             resolution: Math.min(window.devicePixelRatio || 1, 2),
             autoDensity: true,
-            // Full-screen canvas so the starfield fills the entire view.
-            // HUD is drawn inside `sceneRoot` and centered.
-            width: viewportW,
-            height: viewportH,
+            // Keep canvas scoped to the HUD region so it doesn't overlay
+            // out-of-canvas DOM controls (sound/exit/buttons).
+            width: HUD_W,
+            height: HUD_H,
         });
         this.app = app;
 
         // Mount into #gameContainer. Wipe any DOM children (the old
         // board/active/effects divs) so the canvas takes the full
-        // bounding box. Also resize the container itself to the HUD
-        // dimensions so the DOM layout in #gameScreen makes room for
-        // the wider-than-board canvas.
+        // HUD bounding box.
         const mount = this.el.container;
         if (mount) {
             mount.innerHTML = '';
             mount.appendChild(app.canvas);
             app.canvas.style.display = 'block';
-            mount.style.width = `${viewportW}px`;
-            mount.style.height = `${viewportH}px`;
+            mount.style.width = `${HUD_W}px`;
+            mount.style.height = `${HUD_H}px`;
             // Drop the cyan border + box-shadow from .game-container --
             // the Pixi HUD draws its own frame now.
             mount.style.border = 'none';
@@ -222,14 +221,14 @@ export class PixiView {
         // HUD panels and the board frame. The DOM `.stars` layer is
         // hidden in engine-pixi mode (see CSS) so we don't double up.
         this._starfield = createPixiStarfield(app, {
-            width: viewportW,
-            height: viewportH,
+            width: HUD_W,
+            height: HUD_H,
         });
         app.stage.addChild(this._starfield.container);
 
         this.sceneRoot = new Container();
-        this.sceneRoot.x = (viewportW - HUD_W) / 2;
-        this.sceneRoot.y = (viewportH - HUD_H) / 2;
+        this.sceneRoot.x = 0;
+        this.sceneRoot.y = 0;
         app.stage.addChild(this.sceneRoot);
 
         // Title bar + left/right columns next so they sit above the
@@ -1098,6 +1097,8 @@ export class PixiView {
         const titleBar = this._buildTitleBar();
         titleBar.y = 0;
         root.addChild(titleBar);
+        const topControls = this._buildTopControls();
+        root.addChild(topControls.container);
 
         // Left column (level + previews)
         const leftCol = new Container();
@@ -1135,6 +1136,7 @@ export class PixiView {
             star: titleBar.star,
             starBase: titleBar.starBase,
             starTitle: titleBar.titleText,
+            soundText: topControls.soundText,
             // Level panel
             levelValue: levelPanel.value,
             levelInfo: levelPanel.info,
@@ -1207,6 +1209,77 @@ export class PixiView {
         c.starBase = starBase;
         c.titleText = title;
         return c;
+    }
+
+    _buildTopControls() {
+        const container = new Container();
+        container.y = 8;
+        const gap = 10;
+        const soundBtn = this._buildHudButton({
+            text: '🔊 Sound ON',
+            width: 140,
+            fill: 0x7e22ce,
+            hoverFill: 0x9333ea,
+        });
+        const exitBtn = this._buildHudButton({
+            text: '⎋ Exit Mission',
+            width: 156,
+            fill: 0xb91c1c,
+            hoverFill: 0xdc2626,
+        });
+
+        exitBtn.container.x = HUD_W - exitBtn.width;
+        soundBtn.container.x = exitBtn.container.x - gap - soundBtn.width;
+        container.addChild(soundBtn.container, exitBtn.container);
+
+        soundBtn.container.on('pointertap', () => {
+            if (typeof this._onSoundToggleRequested === 'function') {
+                this._onSoundToggleRequested();
+            }
+        });
+        exitBtn.container.on('pointertap', () => {
+            if (typeof this._onExitRequested === 'function') {
+                this._onExitRequested();
+            }
+        });
+
+        return { container, soundText: soundBtn.text };
+    }
+
+    _buildHudButton({ text, width, fill, hoverFill }) {
+        const height = 34;
+        const container = new Container();
+        container.eventMode = 'static';
+        container.cursor = 'pointer';
+
+        const bg = new Graphics();
+        const draw = (color) => {
+            bg.clear();
+            bg.roundRect(0, 0, width, height, 16).fill({ color, alpha: 0.96 });
+            bg.roundRect(0, 0, width, height, 16).stroke({ color: 0xffffff, alpha: 0.18, width: 1 });
+        };
+        draw(fill);
+        container.addChild(bg);
+
+        const label = new Text({
+            text,
+            style: new TextStyle({
+                fontFamily: 'Inter, "Segoe UI", sans-serif',
+                fontSize: 13,
+                fontWeight: '700',
+                fill: COLOR_WHITE,
+            }),
+        });
+        label.anchor.set(0.5);
+        label.x = width / 2;
+        label.y = height / 2;
+        container.addChild(label);
+
+        container.on('pointerover', () => draw(hoverFill));
+        container.on('pointerout', () => draw(fill));
+        container.on('pointerupoutside', () => draw(fill));
+
+        return { container, text: label, width, height };
     }
 
     _drawStarShape(r, color) {
@@ -1731,6 +1804,16 @@ export class PixiView {
 
     setTip(text) {
         if (this.hud?.tipText) this.hud.tipText.text = text;
+    }
+
+    setTopControlsHandlers({ onExit, onToggleSound } = {}) {
+        this._onExitRequested = typeof onExit === 'function' ? onExit : null;
+        this._onSoundToggleRequested = typeof onToggleSound === 'function' ? onToggleSound : null;
+    }
+
+    setSoundEnabled(enabled) {
+        if (!this.hud?.soundText) return;
+        this.hud.soundText.text = enabled ? '🔊 Sound ON' : '🔇 Sound OFF';
     }
 
     // ---- Title-star reactions -----------------------------------------

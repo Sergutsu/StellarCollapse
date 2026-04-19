@@ -894,12 +894,11 @@
             border-radius: 8px;
         }
         
-        /* PixiView draws the title bar, HUD columns, and starfield
-           inside its canvas -- the equivalent DOM markup is left in
-           place (game-title-bar, .hud-column) but hidden. Sound/exit
-           buttons stay DOM because Pixi has no native button widget.
-           The .game-board-slot stretches to full HUD width so the
-           canvas can draw the side panels. */
+        /* PixiView draws the title bar, HUD columns, starfield, and
+           in-game top controls inside its canvas -- the equivalent DOM
+           markup is left in place (game-title-bar, .hud-column) but hidden.
+           The .game-board-slot stretches to full HUD width so the canvas
+           can draw the side panels. */
         .game-title-bar,
         .hud-column {
             display: none !important;
@@ -910,7 +909,9 @@
         #gameScreen .flex.gap-6 {
             gap: 0 !important;
         }
-
+        #gameScreen > .absolute.top-4.right-4 {
+            display: none !important;
+        }
         /* Holographic effects for UI panels */
         .hologram-panel {
             background: 

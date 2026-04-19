@@ -76,8 +76,8 @@ async function boot() {
     const matchControlHint = el('matchControlHint');
     const matchControlHintText = el('matchControlHintText');
     const playerNameInput = el('playerName');
-    const soundIcon = el('soundToggleIcon');
-    const soundText = el('soundToggleText');
+    const soundToggleBtn = el('soundToggleBtn');
+    const endGameBtn = el('endGameBtn');
 
     const audio = new Audio();
     const highScores = new HighScores();
@@ -112,6 +112,16 @@ async function boot() {
     view.createPreviews();
     audio.bindState(state);
     bindInput({ state, elements });
+    if (soundToggleBtn) soundToggleBtn.style.display = 'none';
+    if (endGameBtn) endGameBtn.style.display = 'none';
+    view.setTopControlsHandlers({
+        onExit: () => state.endGameEarly(),
+        onToggleSound: () => {
+            const on = audio.toggle();
+            view.setSoundEnabled(on);
+        },
+    });
+    view.setSoundEnabled(audio.enabled);
 
     // --- In-game title star: reacts to gameplay events ---------------
     // Adds a short-lived modifier class; the CSS animation self-resets
@@ -364,16 +374,6 @@ async function boot() {
         showGame();
         lastFrame = 0;
         requestAnimationFrame(loop);
-    });
-
-    el('endGameBtn').addEventListener('click', () => {
-        state.endGameEarly();
-    });
-
-    el('soundToggleBtn').addEventListener('click', () => {
-        const on = audio.toggle();
-        soundIcon.className = on ? 'fas fa-volume-up mr-2' : 'fas fa-volume-mute mr-2';
-        soundText.textContent = on ? 'Sound ON' : 'Sound OFF';
     });
 
     let lastFrame = 0;
