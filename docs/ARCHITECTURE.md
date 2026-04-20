@@ -10,7 +10,7 @@
 2. **One renderer.** Pixi.js v8, full stop. No DOM board, no `<canvas>` fallback, no `?engine=*` flag, no legacy renderer "just in case". See `adr/0001-pixi-only-renderer.md`.
 3. **No build step.** ESM import map in `index.html` pulls Pixi from jsdelivr. GitHub Pages serves the repo as-is. Vite / bundler / `dist/` would be an architecture change requiring an ADR.
 4. **No feature flags left behind.** When a migration / port completes, the fallback path is deleted in the next cleanup PR. Dead code is a liability, not a safety net.
-5. **Tests are pure.** `node --test` only. Zero runtime deps for testing. `GameState`, `HighScores`, and `missions.js` all have test suites. View is intentionally not unit-tested — it's the only place we accept visual/manual verification.
+5. **Tests are pure.** `node --test` only. Zero runtime deps for testing. `GameState` and `missions.js` both have test suites. View is intentionally not unit-tested — it's the only place we accept visual/manual verification.
 6. **localStorage is versioned.** Any new persisted state gets a versioned schema and an auto-migration path on load. No silent data loss, no manual "nuke your save" instructions.
 
 ---
@@ -30,10 +30,10 @@
    │              │                     │  starfield   │
    └──────────────┘                     └──────────────┘
 
-   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-   │  missions    │   │  highscores  │   │  audio       │
-   │  (pure)      │   │  (pure)      │   │              │
-   └──────────────┘   └──────────────┘   └──────────────┘
+   ┌──────────────┐                     ┌──────────────┐
+   │  missions    │                     │  audio       │
+   │  (pure)      │                     │              │
+   └──────────────┘                     └──────────────┘
 
    ┌──────────────────────────────────────────────────┐
    │              main.js (orchestrator)              │
@@ -71,10 +71,6 @@ Piece shape pool per complexity. Read-only.
 
 `buildMissions({ seed })`, `findMission(list, id)`, `ORES`, `ORE_BY_COLOR`, `baseCreditsFor(tierIndex)`. Seeded Mulberry32 for deterministic asteroid-name rolling. No side effects.
 
-### `src/highscores.js` — pure-ish
-
-localStorage wrapper. Loads / migrates / saves the 9-tier top-5 table. Tested with in-memory storage stubs. `HighScores` is the only module that touches `window.localStorage` at write time.
-
 ### `src/audio.js`
 
 WebAudio tone generators. Wired to state events from `main.js`.
@@ -86,7 +82,7 @@ The only DOM/Pixi/visual code. Subscribes to GameState. Owns:
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
 - Starfield + scanner
 - Title bar with reactive "STELLAR COLLAPSE" star actor
-- Mission-select scene (cards, dispatcher identity card, MISSION LOG)
+- Mission-select scene (cards, dispatcher identity card)
 - Game-run scene (board layers, active piece, effects, particles)
 - HUD columns (score / level / tips / controls), piece previews, sound/exit top controls
 
@@ -98,10 +94,10 @@ Factory for the starfield container. Baked nebula `RenderTexture`, 160 blinking 
 
 ### `src/main.js` — orchestrator
 
-- Constructs `GameState`, `HighScores`, `PixiView`.
+- Constructs `GameState`, `PixiView`, `Audio`.
 - Calls `view.init()` (async), `view.createBoard()`, `view.createPreviews()`.
 - Wires `view.onStartGame()` → `state.configure(...)` → `state.start()`.
-- Wires `state.on('game-over')` → save score → return to mission-select.
+- Wires `state.on('game-over')` → `view.showStartScreen()` (P1 will route through a results scene first).
 
 This is the one file allowed to glue state and view together. Keep it thin.
 
@@ -137,7 +133,6 @@ GameState emits 'game-over' { score }
     │
     ▼
 main.js:
-    │  highScores.save(tier.id, 'Chief Dispatcher', score)
     │  view.showStartScreen()   // P1 will route through a results scene first
 ```
 
@@ -159,23 +154,19 @@ See `adr/0001-pixi-only-renderer.md`. Short version: DOM-per-cell + CSS animatio
 
 ## Persistence
 
-As of PR #32, one persisted key:
+No persisted state **currently**. The legacy `stellarCollapseScoresV2` leaderboard was deleted with the `HighScores` module (see `adr/0005-delete-highscore-system.md`); any payload still sitting in returning players' browsers is orphaned and read by nothing.
 
-- `stellarCollapseScoresV2` — 9-tier leaderboard (top-5 each), schema v2. Migrations on load: legacy keys `stellarCollapseLegacyScores` and `tetrisHighScores` (single-list) → easiest tier; `classic-*` → `stellar-*`; `tetris-*` → `blocks-*`. Corrupt payload → empty tiers. See `src/highscores.js` for the exact key constants.
+P3 adds:
 
-P2 adds:
-
-- `stellar-save:v1` — credits, ore inventory, completed missions, rep tier, settings. Versioned, self-migrating, loaded into a pure `MetaState` at boot.
-
-All persisted state lives in `src/persistence.js` (P2). `HighScores` will fold into it.
+- `stellar-save:v1` — credits, ore inventory, completed missions, rep tier, settings. Versioned, self-migrating, loaded into a pure `MetaState` at boot. All persisted state lives in `src/persistence.js` (P3). Leaderboards, if they ever return, are a derived read-out of `MetaState` — not a standalone module.
 
 ---
 
 ## Testing strategy
 
-- **Unit tests** (`node --test`, `tests/*.test.js`) cover pure modules: `GameState`, `HighScores`, `missions`. 68 tests currently.
+- **Unit tests** (`node --test`, `tests/*.test.js`) cover pure modules: `GameState`, `missions`. 60 tests currently.
 - **View is not unit-tested.** Visual bugs are caught by manual / scripted browser runs. Smoke tests via `enter_test_mode` on meaningful feature PRs; headless automation is a future option but not a requirement.
-- **Every rule change has a test.** Bomb radius, snake length, score multipliers, level ramp, special arming-timer, leaderboard migration — all covered.
+- **Every rule change has a test.** Bomb radius, snake length, score multipliers, level ramp, special arming-timer — all covered.
 - **Determinism.** GameState takes a seeded RNG in tests. Any test that is flaky is a bug in the test, not in the code.
 
 Run locally:
