@@ -25,7 +25,6 @@ import {
     SNAKE_LENGTH,
     PIECE_COMPLEXITY,
     GAME_MODES,
-    HIGHSCORE_TIERS,
     BLOCK_SIZE_FOR,
     LINES_PER_LEVEL,
     LOW_FX_CELL_THRESHOLD,
@@ -183,7 +182,6 @@ export class PixiView {
         this._onStartGameRequested = null;
         this._viewportUnsub = null;
         this._topControls = null;
-        this._highScores = null;
 
         this._startScreen = null;
         this._startPanelBounds = null;
@@ -199,7 +197,6 @@ export class PixiView {
             mode: this._missions[0].gameConfig.mode,
             complexity: this._missions[0].gameConfig.complexity,
             fieldSizeId: this._missions[0].gameConfig.fieldSizeId,
-            selectedTierId: this._missions[0].tierId,
             selectedMissionId: this._missions[0].id,
         };
 
@@ -1193,9 +1190,12 @@ export class PixiView {
         const root = new Container();
         this.uiRoot.addChild(root);
 
+        // Single-panel layout. The old MISSION LOG / leaderboard side
+        // panel was deleted; the dispatcher identity card moved beneath
+        // the mission grid. Hub scaffolding (P2) replaces this panel
+        // entirely.
         const left = this._drawHologramPanel(720, 700);
-        const right = this._drawHologramPanel(440, 700);
-        root.addChild(left, right);
+        root.addChild(left);
 
         const star = this._drawStarShape(20, 0xfacc15);
         left.addChild(star);
@@ -1250,81 +1250,33 @@ export class PixiView {
             return card;
         });
 
-        // Legacy rows kept as empty containers so the existing
-        // _refreshStartButtons / _rebuildFieldSizeButtons machinery keeps
-        // working without special-casing. They just never get children
-        // in the mission-select layout.
-        const modeRow = new Container();
-        const complexityRow = new Container();
-        const sizeRow = new Container();
-
-        const rankingsLabel = this._panelLabel('MISSION LOG', COLOR_YELLOW_300, { size: 24 });
-        rankingsLabel.x = 20;
-        rankingsLabel.y = 18;
-        right.addChild(rankingsLabel);
-
-        // Dispatcher identity card: fixed title, session callsign.
-        // Persistence + rep/rank advancement are a later-PR concern.
-        const dispatcherCard = this._drawHologramPanel(400, 96, { accent: 0xfacc15 });
-        dispatcherCard.position.set(20, 50);
-        right.addChild(dispatcherCard);
+        // Dispatcher identity card lives directly under the mission grid
+        // in the same left panel. Persistence + rep/rank advancement are a
+        // later-PR (P3 hub) concern.
+        const dispatcherCard = this._drawHologramPanel(680, 96, { accent: 0xfacc15 });
+        left.addChild(dispatcherCard);
         const dispatcherRole = new Text({
             text: 'CHIEF DISPATCHER',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 18, fontWeight: '800', letterSpacing: 2, fill: 0xfde68a }),
         });
-        dispatcherRole.position.set(16, 12);
+        dispatcherRole.position.set(20, 12);
         dispatcherCard.addChild(dispatcherRole);
         const dispatcherCallsign = new Text({
             text: `Callsign ${this._rollCallsign()}`,
             style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 13, fill: 0x93c5fd }),
         });
-        dispatcherCallsign.position.set(16, 38);
+        dispatcherCallsign.position.set(20, 38);
         dispatcherCard.addChild(dispatcherCallsign);
         const dispatcherStatus = new Text({
             text: 'Status: Ready for dispatch',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x86efac }),
         });
-        dispatcherStatus.position.set(16, 62);
+        dispatcherStatus.position.set(20, 62);
         dispatcherCard.addChild(dispatcherStatus);
-
-        const tierTabs = new Container();
-        right.addChild(tierTabs);
-        const tierButtons = HIGHSCORE_TIERS.map((tier, idx) => {
-            const btn = this._buildStartButton({
-                text: `🚀 ${tier.short}`,
-                width: 88,
-                height: 32,
-                fill: 0x0f172a,
-                hoverFill: 0x1e293b,
-                textColor: parseInt(tier.color.replace('#', ''), 16),
-                onTap: () => {
-                    this._startState.selectedTierId = tier.id;
-                    this._refreshStartButtons();
-                    this._refreshLeaderboard();
-                },
-            });
-            btn.tierId = tier.id;
-            btn.container.x = (idx % 3) * 102;
-            btn.container.y = Math.floor(idx / 3) * 40;
-            tierTabs.addChild(btn.container);
-            return btn;
-        });
-
-        const tierLabel = new Text({ text: '', style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x93c5fd }) });
-        right.addChild(tierLabel);
-        const listContainer = new Container();
-        right.addChild(listContainer);
-        const empty = new Text({
-            text: 'No scores yet in this tier.',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 14, fill: 0x94a3b8, align: 'center' }),
-        });
-        empty.visible = false;
-        listContainer.addChild(empty);
 
         this._startScreen = {
             root,
             left,
-            right,
             title,
             star,
             subtitle,
@@ -1335,25 +1287,8 @@ export class PixiView {
             dispatcherRole,
             dispatcherCallsign,
             dispatcherStatus,
-            // Legacy row slots kept so layout/refresh code can stay
-            // mostly shared. They're inert in mission-select mode.
-            modeRow,
-            modeButtons: [],
-            complexityRow,
-            complexityButtons: [],
-            sizeRow,
-            sizeButtons: [],
-            begin: null,
-            rankingsLabel,
-            tierTabs,
-            tierButtons,
-            tierLabel,
-            listContainer,
-            listRows: [],
-            empty,
         };
         this._refreshStartButtons();
-        this._refreshLeaderboard();
     }
 
     // Build one mission card. `mission` comes from buildMissions(). The
@@ -1540,9 +1475,7 @@ export class PixiView {
         this._startState.complexity = mission.gameConfig.complexity;
         this._startState.fieldSizeId = mission.gameConfig.fieldSizeId;
         this._startState.selectedMissionId = mission.id;
-        this._startState.selectedTierId = mission.tierId;
         this._refreshStartButtons();
-        this._refreshLeaderboard();
         if (typeof this._onStartGameRequested === 'function') {
             this._onStartGameRequested({
                 mode: mission.gameConfig.mode,
@@ -1587,50 +1520,7 @@ export class PixiView {
     _refreshStartButtons() {
         const start = this._startScreen;
         if (!start) return;
-        // Mission cards use the selected mission id for the active state;
-        // tier tabs use the selected tier id (the tab the player last
-        // clicked on the MISSION LOG, which defaults to the selected
-        // mission's tier but can be clicked independently).
         start.missionCards?.forEach((card) => card.setActive(card.missionId === this._startState.selectedMissionId));
-        start.tierButtons.forEach((btn) => btn.setActive(btn.tierId === this._startState.selectedTierId));
-    }
-
-    _refreshLeaderboard() {
-        const start = this._startScreen;
-        if (!start) return;
-        const tier = HIGHSCORE_TIERS.find((t) => t.id === this._startState.selectedTierId) || HIGHSCORE_TIERS[0];
-        start.tierLabel.text = tier.label;
-        start.tierLabel.style.fill = parseInt(tier.color.replace('#', ''), 16);
-        start.listRows.forEach((row) => row.destroy({ children: true }));
-        start.listRows = [];
-        const entries = this._highScores?.top(tier.id)?.slice(0, 5) || [];
-        start.empty.visible = entries.length === 0;
-        start.empty.x = 140;
-        start.empty.y = 90;
-        if (entries.length === 0) return;
-        entries.forEach((entry, idx) => {
-            const row = new Container();
-            const bg = new Graphics();
-            bg.roundRect(0, 0, 400, 42, 6).fill({ color: 0x0f172a, alpha: 0.65 });
-            bg.roundRect(0, 0, 400, 42, 6).stroke({ color: 0x334155, width: 1, alpha: 0.7 });
-            row.addChild(bg);
-            const rank = new Text({ text: `#${idx + 1}`, style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 16, fontWeight: '700', fill: 0xfde047 }) });
-            rank.x = 14;
-            rank.y = 12;
-            row.addChild(rank);
-            const name = new Text({ text: entry.name, style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 14, fill: 0xe2e8f0 }) });
-            name.x = 92;
-            name.y = 12;
-            row.addChild(name);
-            const score = new Text({ text: entry.score.toLocaleString(), style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 14, fontWeight: '700', fill: 0x86efac }) });
-            score.anchor.set(1, 0);
-            score.x = 386;
-            score.y = 12;
-            row.addChild(score);
-            row.y = idx * 50;
-            start.listContainer.addChild(row);
-            start.listRows.push(row);
-        });
     }
 
     // ---- Title bar with reactive star ---------------------------------
@@ -1790,41 +1680,35 @@ export class PixiView {
         if (!this.app || !this._startScreen) return;
         const w = this.app.screen.width;
         const h = this.app.screen.height;
-        const gap = 24;
-        const totalW = Math.min(1200, Math.max(760, w - 40));
-        const panelH = Math.min(740, Math.max(560, h - 40));
-        const leftW = Math.round(totalW * 0.62);
-        const rightW = totalW - leftW - gap;
-        const x = Math.round((w - totalW) / 2);
+        // Single centered panel. Width tracks viewport up to a cap so
+        // the mission grid stays readable on ultrawide screens without
+        // clustering in the top-left corner.
+        const panelW = Math.min(1080, Math.max(720, w - 40));
+        const panelH = Math.min(760, Math.max(560, h - 40));
+        const x = Math.round((w - panelW) / 2);
         const y = Math.round((h - panelH) / 2);
         const s = this._startScreen;
         s.left.scale.set(1);
-        s.right.scale.set(1);
         s.left.position.set(x, y);
-        s.right.position.set(x + leftW + gap, y);
-        s.leftScale = Math.min(leftW / 720, panelH / 700);
-        s.rightScale = Math.min(rightW / 440, panelH / 700);
-        this._startPanelBounds = { x, y, leftW, rightW, panelH, gap, leftScale: s.leftScale };
+        s.leftScale = Math.min(panelW / 720, panelH / 700);
+        this._startPanelBounds = { x, y, panelW, panelH, leftScale: s.leftScale };
         s.left.scale.set(s.leftScale);
-        s.right.scale.set(s.rightScale);
 
         s.star.position.set(30, 58);
         s.title.position.set(58, 34);
         s.title.style.fontSize = Math.max(32, Math.floor((720 * s.leftScale) * 0.07));
         s.subtitle.position.set(24, 98);
         s.missionPanel.position.set(20, 130);
-        const missionScaleX = Math.min(1, (leftW - 40) / 680);
-        const missionScaleY = Math.min(1, (panelH - 220) / 500);
+        const missionScaleX = Math.min(1, (panelW - 40) / 680);
+        const missionScaleY = Math.min(1, (panelH - 260) / 500);
         const missionScale = Math.min(missionScaleX / Math.max(s.leftScale, 0.001), missionScaleY / Math.max(s.leftScale, 0.001));
         s.missionPanel.scale.set(Math.max(0.7, missionScale));
 
-        s.rankingsLabel.position.set(20, 18);
-        // Dispatcher card sits under the header; tier tabs + list
-        // shift down to clear it. Right panel is 440 wide at base.
-        s.dispatcherCard.position.set(20, 50);
-        s.tierTabs.position.set(20, 164);
-        s.tierLabel.position.set(20, 294);
-        s.listContainer.position.set(20, 324);
+        // Dispatcher card slots under the mission panel with a small
+        // vertical gap. Scaled mission panel is 680px tall at base; when
+        // the viewport shrinks the dispatcher slides up with it.
+        const dispatcherY = 130 + 500 * Math.max(0.7, missionScale) + 14;
+        s.dispatcherCard.position.set(20, dispatcherY);
     }
 
     _drawStarShape(r, color) {
@@ -2351,27 +2235,14 @@ export class PixiView {
         if (this.hud?.tipText) this.hud.tipText.text = text;
     }
 
-    setHighScores(highScores) {
-        this._highScores = highScores || null;
-        this._refreshLeaderboard();
-    }
-
     onStartGame(callback) {
         this._onStartGameRequested = typeof callback === 'function' ? callback : null;
-    }
-
-    setSelectedTier(tierId) {
-        if (!tierId) return;
-        this._startState.selectedTierId = tierId;
-        this._refreshStartButtons();
-        this._refreshLeaderboard();
     }
 
     showStartScreen() {
         if (this.sceneRoot) this.sceneRoot.visible = false;
         if (this._topControls) this._topControls.visible = false;
         if (this._startScreen?.root) this._startScreen.root.visible = true;
-        this._refreshLeaderboard();
     }
 
     showGameScreen() {

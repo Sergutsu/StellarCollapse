@@ -206,8 +206,10 @@ before the hub can be real:
 
 - **`MetaState`** — bankable resources (credits, ores, minerals, fuel, O₂,
   warp cells), rep tier, owned buildings + levels, research unlocks, hired
-  crew, known sectors. Replaces + absorbs `HighScores`. Session-scope stub
-  already planned in `ROADMAP.md` P1; full persistent version lands in P3.
+  crew, known sectors. The legacy `HighScores` module has been deleted; personal
+  bests, if they come back, will be an opt-in read-out of `MetaState` (not a
+  separate storage module). Session-scope stub planned in `ROADMAP.md` P1;
+  full persistent version lands in P3.
 - **`MissionRegistry`** — active missions (with remaining ETA + seeded reward
   roll), available missions, completed mission history. Drives both the left
   and MISSIONS-tab panels.
@@ -254,9 +256,12 @@ Each phase is still a handful of small PRs, not one giant PR.
 
 ## Open questions (answer as we go)
 
-- Where do high scores live once MISSION LOG is no longer a side panel?
-  Candidates: a small chip in the top bar that opens a modal; a sub-panel on
-  the CREW tab (per-dispatcher leaderboard); part of the results screen.
+- ~~Where do high scores live once MISSION LOG is no longer a side panel?~~
+  Answered: **nowhere**. The `HighScores` module was deleted and no
+  leaderboard ships. If personal-best recall returns later it will be a
+  derived read-out of `MetaState`, not a standalone module.
+- Should the results screen (P1) show a "best run on this asteroid" line
+  sourced from session `MetaState`? (Leaning: yes, session-only until P3.)
 - Are O₂ and Fuel actual mechanics or flavor? If mechanics, what consumes them?
   (Candidate: deploying missions costs fuel; ship repair between missions costs
   credits + O₂ refill.)

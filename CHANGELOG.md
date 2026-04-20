@@ -12,12 +12,21 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 - **Hub vision doc** (`docs/UI-HUB.md`). Captures the target main-menu layout — viewport-filling top resource bar, left ACTIVE MISSIONS column, tab-swapped center, right BASE COMMAND column, 6-tab bottom nav — that P2 → P7 builds toward. Also commits `docs/images/hub-vision.png` as the ground-truth mock.
 - **ADR-0004** — "Main menu evolves from fixed Pixi panel into a viewport-filling hub scene graph." Context, decision, alternatives (grow in place, DOM/React, full framework) all recorded.
-- **ROADMAP Known Issues section** tracking the two current main-menu defects: MISSION LOG overlap on the dispatcher card + whole layout clustered in the top-left of wide viewports (both slated to be fixed as a side effect of the P2 hub scaffolding).
+- **ADR-0005** — "Delete the HighScores leaderboard system." The game is about banking per-run resources, not a bragging-rights score. Storage module + UI panel + game-over save hook all removed.
+- **ROADMAP Known Issues section** tracking remaining main-menu defects (centering on wide viewports). The MISSION LOG overlap defect is now resolved by deletion.
+
+### Removed
+
+- **MISSION LOG panel deleted from the start screen.** Tier tabs, top-5 score list per tier, and the supporting `_refreshLeaderboard` machinery are gone.
+- **`src/highscores.js` + `tests/highscores.test.js` deleted.** No persistent leaderboard ships; per-run resource tallies replace the role of a high score (landing in P1's results scene).
+- **`HighScores` wiring in `src/main.js` removed.** The `game-over` handler no longer reads or writes `stellarCollapseScoresV2`; it just returns the player to the mission-select.
+- **`view.setHighScores()` and `view.setSelectedTier()` public methods removed.** No callers remain.
 
 ### Changed
 
+- **Start screen is now a single centered panel.** The right-hand MISSION LOG / dispatcher column collapsed into the left panel: dispatcher identity card sits directly beneath the 3×3 mission grid. Side effect: clustering in the top-left of wide viewports is partially mitigated; full viewport-filling fix still lands with P2 hub scaffolding.
 - **ROADMAP phases re-sloted** toward the hub: P2 is now hub scaffolding (was persistent meta); persistent meta slides to P3; active-missions idle tick is P4; BUILD/UPGRADE tab is P5; RESEARCH/CREW/MARKET is P6; STAR MAP is P7.
-- **DESIGN.md "Screens" section** now distinguishes "main menu — long-term target (hub)" from "main menu — today (transitional)" and points both at `UI-HUB.md`.
+- **DESIGN.md "Screens" section** now distinguishes "main menu — long-term target (hub)" from "main menu — today (transitional)" and points both at `UI-HUB.md`. The transitional description updated for the single-panel layout.
 - **CONTRIBUTING.md docs-checklist** references `UI-HUB.md` as the source of truth for main-menu / hub layout changes.
 - **Start screen is Pixi-only** (PR #34). Deleted the dead DOM scaffolding that briefly flashed at page load: the `<input id="playerName">` (identity is fixed to "Chief Dispatcher" since PR #32), the entire `#gameScreen` DOM subtree (LEVEL / NEXT / COMING UP / SCORE / LINES / MULTIPLIER / MISSION TIP / CONTROLS panels, title bar with star, sound/exit buttons, board layer divs), plus the Tailwind + Font Awesome CDN tags that were no longer referenced. `index.html` is now a 50-line bare mount for the Pixi canvas. Fulfills the cleanup promised in the 0.1.0 notes below.
 
