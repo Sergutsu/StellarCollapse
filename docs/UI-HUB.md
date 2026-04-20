@@ -176,6 +176,74 @@ the first hub PR** — MISSIONS (with the mission board modal) is enough
 to ship a playable hub. The other five render a `Unlocks at Rep Tier N`
 stub panel until their phase lands.
 
+**Currently shipped as scene classes:** STAR MAP (see §5a) via
+`src/scenes/tabs/star-map-tab.js`. The other four locked tabs are
+still the shared inline stub path in `HubScene._buildCenter`; each
+will move to its own `src/scenes/tabs/*.js` in a subsequent PR
+(see [ADR-0010](adr/0010-hub-tab-scenes.md)). MISSIONS (§5) remains
+inline for now -- its modal is built into `HubScene`; extracting it
+is a post-PR 5 cleanup that deletes the last inline center-panel
+content from `HubScene`.
+
+### 5a. STAR MAP tab — galactic cartography
+
+Reference mock: `assets/mock-star-map-tab.png`. Renders inside the
+hub's center panel when the **STAR MAP** bottom-nav tab is active.
+Owns these elements:
+
+- **Title strip (top-left).** `STAR MAP · ORION CARTOGRAPHY` at
+  14px, uppercase, 2px tracking, cyan. Sits where the MISSIONS tab
+  would put `MISSIONS — MISSION BOARD`.
+- **Coordinate grid.** Dotted cyan grid on a 40px step. Tick labels
+  every other line show longitude (`42°`, `66°`, `90°`, …) on top
+  and latitude (`12°`, `28°`, `44°`, …) on the left. The grid is
+  framed by a single cyan rectangle stroke.
+- **8 sector pins.** Each is a ring-and-drop glyph (outer ring + inner
+  dot + tail) colored by `kind`:
+  - `star` (cyan): Sol, Trappist-1, Proxima Centauri, Barnard's Star
+  - `belt` (amber): Omega-4 Belt
+  - `station` (slate): ARES Waystation
+  - `hazard` (rose): Cygnus X-1, PSR B1257+12
+  Sector names render beneath the pin in 11px slate with a 3px dark
+  stroke so they stay legible over the grid.
+- **Map legend (bottom-left card).** ~200×108 hologram sub-panel
+  listing the four pin kinds with color swatches. Mirrors the
+  reference mock's `MAP LEGEND`.
+- **Galactic overview thumbnail (top-right card).** ~180×96 hologram
+  sub-panel with a miniature spiral of dots + amber crosshair
+  marking the current player position. Non-interactive for now.
+- **System-data panel (floating, hidden until a pin is tapped).**
+  ~240×168 hologram panel pinned next to the selected sector (auto-
+  flips to the left side and clamps inside the map bounds near
+  edges). Contents:
+  - Sector name (14px, slate)
+  - `Class: <stellar class>` (11px, slate dim)
+  - `Survey: <planets mapped>` (11px, slate dim)
+  - `Threat Level: N / 5` (rose)
+  - `Warp Cost: N Warp Cells` (amber) or `--` when free
+  - `PLOT COURSE` button (176×30, standard ui-kit button)
+  - `×` dismiss button (top-right)
+
+Interactions:
+
+- **Click a pin →** SYSTEM DATA panel opens with that sector's data.
+- **Click PLOT COURSE →** stub for now (closes the panel). Real
+  warp-cell deduction + dispatch to a mission lands in P7.
+- **Click × on the panel →** closes the SYSTEM DATA panel.
+- **Leaving the tab →** `hide()` auto-dismisses the SYSTEM DATA
+  panel so it does not flash on re-show.
+
+Not yet wired (tracked under P7):
+
+- Sector pins are not yet linked to `MissionCatalog` entries — they
+  are display-only. Once P7 lands, clicking PLOT COURSE on a sector
+  will deduct `warpCost` from `MetaState.warp` and either spawn a
+  mission in the MISSION BOARD or start the active run directly.
+- Current-position marker on the thumbnail is static; it does not
+  read from `MetaState` yet.
+- Sector catalog is hard-coded; procedural sector generation is a
+  later phase.
+
 ### 5. MISSION BOARD modal (MISSIONS tab default overlay)
 
 Floating panel over the MISSIONS tab. 2×2 grid of narrative mission
