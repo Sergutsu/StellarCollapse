@@ -52,13 +52,38 @@ This is all **P2+** work. P1 only introduces the per-run tally and results scree
 
 ## Screens
 
-### Mission board (replaces "start screen")
+### Main menu — long-term target: the Hub
+
+The main menu will become a **viewport-filling hub** with a persistent top
+resource bar, left ACTIVE MISSIONS column, right BASE COMMAND column, a
+tab-swapped center pane, and a 6-tab bottom nav (STAR MAP, MISSIONS,
+BUILD/UPGRADE, RESEARCH, CREW, MARKET). Full element-by-element spec lives in
+[`UI-HUB.md`](UI-HUB.md). That is the destination we are migrating toward — it
+is NOT the current implementation.
+
+### Main menu — today (transitional)
+
+What ships today is a slimmed version of the future hub's MISSIONS tab:
 
 - Left panel: **AVAILABLE MISSIONS** heading + 3×3 mission card grid.
 - Right panel: **CHIEF DISPATCHER** identity card (role + callsign + status), below it **MISSION LOG** (tier tabs + top-5 score per tier).
 - Title bar on top: shiny "STELLAR COLLAPSE" with the reactive star actor.
 
-No player-name input. No BEGIN button. No mode/complexity/size toggles — each card encapsulates its own config.
+No player-name input. No BEGIN button. No mode/complexity/size toggles — each
+card encapsulates its own config. The MISSION LOG panel stays on the main menu
+until a dedicated home for it lands in a later phase (candidates: top-bar chip
+that opens a modal, or a panel in the CREW tab — decided in `UI-HUB.md` as we
+build).
+
+Known layout defects on today's main menu (tracked in `ROADMAP.md`):
+
+- MISSION LOG panel overlaps the dispatcher identity card and the title bar.
+- Whole layout is clustered in the top-left of wide viewports instead of
+  centering / filling the screen.
+
+Fixing both is part of the P1 → P2 transition; the same PR that introduces the
+hub scaffolding will fix the centering as a side effect (the hub is viewport-
+filling by construction).
 
 ### Mission run (gameplay)
 

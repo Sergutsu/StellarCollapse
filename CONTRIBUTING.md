@@ -44,6 +44,7 @@ The suite is pure `node --test`. No Jest, no Mocha, no Vitest. If you add a new 
 3. **Update the docs in the same PR.**
    - Changed the scoring formula? Update `docs/GAMEPLAY.md`.
    - Changed module layout? Update `docs/ARCHITECTURE.md`.
+   - Changed the main-menu / hub layout? Update `docs/UI-HUB.md`.
    - Shipped a roadmap item? Strike it from `docs/ROADMAP.md` and add a line to `CHANGELOG.md`.
    - Made an architectural bet? Add a `docs/adr/NNNN-*.md` ADR.
 4. **Open the PR with the template.** `fetch_template` / the PR body template is there for a reason — fill it out.
