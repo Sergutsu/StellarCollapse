@@ -6,6 +6,18 @@ A cosmic block puzzle that mashes falling-block stacking with color-match mechan
 
 *(First-time setup: see [Enabling GitHub Pages](#enabling-github-pages) below — Pages needs to be turned on once in repo settings before the Play link goes live.)*
 
+### Docs
+
+The repo is moving toward a hybrid casual / idle space-exploration game. Deep details live in `docs/`:
+
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — what's shipped, next, later.
+- [`docs/DESIGN.md`](docs/DESIGN.md) — pillars, core + meta loops, UX.
+- [`docs/GAMEPLAY.md`](docs/GAMEPLAY.md) — mechanics spec + canonical tunable numbers.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module graph, rendering rules, house rules.
+- [`docs/adr/`](docs/adr/) — architecture decision records (Pixi-only, seeded mission RNG, tier↔mission 1:1).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — PR workflow + non-negotiables.
+- [`CHANGELOG.md`](CHANGELOG.md) — human-readable release notes.
+
 <p align="center">
   <img src="https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white" alt="HTML5">
   <img src="https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black" alt="JavaScript">
