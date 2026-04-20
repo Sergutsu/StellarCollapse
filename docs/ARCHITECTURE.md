@@ -35,12 +35,19 @@
                                         ┌──────────────┐
                                         │ SceneManager │
                                         │  ┌────────┐  │
+                                        │  │  Hub   │  │
+                                        │  │ Scene  │  │
+                                        │  └────────┘  │
+                                        │  ┌────────┐  │
                                         │  │Results │  │
                                         │  │ Scene  │  │
                                         │  └────────┘  │
-                                        │  (Hub+Game   │
-                                        │  extract in  │
-                                        │   PRs 2+3)   │
+                                        │  (Game +     │
+                                        │  6 hub-tab   │
+                                        │  scenes +    │
+                                        │  6+ minigame │
+                                        │  scenes: PRs │
+                                        │  3 onward)   │
                                         └──────────────┘
 
    ┌──────────────┐    change    ┌──────────────┐
@@ -117,10 +124,10 @@ The only DOM/Pixi/visual code. Subscribes to GameState. Owns:
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
 - Starfield + scanner
 - Title bar with reactive "STELLAR VENTURE" star actor
-- Hub scene (top bar, ACTIVE MISSIONS, center panel, FLEET & CREW, bottom nav, MISSION BOARD modal) — still inline; extracts to `HubScene` in a follow-up PR
-- Game-run scene (board layers, active piece, effects, particles) — still inline; extracts to `GameScene` in a follow-up PR
-- `SceneManager` + registered `ResultsScene` (see below). `showResultsScreen(summary, {onContinue})` / `hideResultsScreen()` delegate to the manager and handle the cross-scene visibility dance (hide hub + in-game HUD + top controls while the overlay is up).
+- `SceneManager` + registered `HubScene` + `ResultsScene` (see below). Public API (`showStartScreen`, `showGameScreen`, `showResultsScreen(summary, {onContinue})`, `hideResultsScreen`, `onStartGame`) delegates to the manager and handles the cross-scene visibility dance (hide/show the in-game HUD + top controls around whichever overlay is up).
+- Game-run scene (board layers, active piece, effects, particles) — still inline; extracts to `GameScene` in PR 3
 - HUD columns (score / level / tips / controls), piece previews, sound/exit top controls
+- Shared Pixi helpers (`_drawHologramPanel`, `_redrawHologramPanel`, `_buildStartButton`, `_panelLabel`, `_drawStarShape`) — injected into scenes by reference; move to a standalone `pixi-ui-kit.js` module once 2+ scenes need them directly
 
 Input — keyboard + pointer — flows through `src/input.js` and into GameState actions. View never runs game logic.
 
@@ -144,7 +151,36 @@ new ResultsScene({
 });
 ```
 
-Shared helpers are passed in by reference so scenes don't import from `PixiView` (no circular imports). When the hub + game scenes land, the helpers move to a standalone `pixi-ui-kit.js` module.
+Shared helpers are passed in by reference so scenes don't import from `PixiView` (no circular imports). Once GameScene lands in PR 3, the helpers move to a standalone `pixi-ui-kit.js` module.
+
+### `src/scenes/hub-scene.js`
+
+Viewport-filling "Chief Dispatcher HQ" main menu, extracted from `PixiView` in the second scene-graph PR (see ADR-0009). Owns the top STELLAR VENTURE bar + 5 resource chips, GALACTIC NEWS ticker, ACTIVE MISSIONS left column, galactic-map center panel, FLEET & CREW right column, 6-tab bottom nav, and the MISSION BOARD modal overlay. Builds lazily on first `show`; the entire Pixi tree hangs off a single `_nodes` struct so reset / re-layout / destroy are one-liners.
+
+Ticker-animated: `hub.tick(deltaMs)` is driven from the PixiView `app.ticker` and advances the news-ticker scroll. MetaState-aware: subscribes to `meta.on('change', ...)` on first build, so any `applyMissionReward(...)` call repaints the top-bar resource chips automatically without PixiView intervention.
+
+Constructor shape:
+
+```js
+new HubScene({
+    app,                    // Pixi Application (read-only; for screen rect)
+    uiRoot,                 // Pixi Container to attach into
+    meta,                   // MetaState (read-only; subscribed for `change`)
+    drawHologramPanel,      // shared panel-chrome helper
+    redrawHologramPanel,    // shared panel-resize helper
+    buildStartButton,       // shared button helper
+    panelLabel,             // shared text-label helper
+    drawStarShape,          // shared star-icon helper
+});
+```
+
+Public API consumed by `PixiView`:
+
+- `setStartGameCallback(fn)` — forwards from `PixiView.onStartGame(fn)`. Fires when a mission card's ACCEPT button is tapped.
+- `getStartState()` — returns the currently-selected mission's `{ mode, complexity, fieldSizeId, selectedMissionId }`. Game-HUD tier colour + size-multiplier readouts read this.
+- `getMissions()` — returns the deterministic per-boot mission catalog (same `buildMissions({ seed })` call the old start screen used).
+
+All hub constants (`HUB_TABS`, `HUB_RESOURCES`, `HUB_NEWS_POOL`, `HUB_RISK_PRESETS`) moved with the scene. PixiView no longer imports `missions.js` — the scene owns the catalog.
 
 ### `src/pixi-starfield.js`
 
