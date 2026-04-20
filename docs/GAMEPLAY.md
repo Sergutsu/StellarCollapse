@@ -64,7 +64,7 @@ Every tier in `HIGHSCORE_TIERS` is a `(mode, complexity)` pair. Field size is a 
 ### Bomb tile
 
 - Spawns at a small per-piece probability.
-- When it lands, an **armed timer** starts. **5 s** in Collapsed mode. During that window, clearing the bomb (via match or click-match) detonates it and destroys the surrounding **3×3** area.
+- When it lands, an **armed timer** starts. **5 s** in Collapsed mode. During that window, clearing the bomb (via match or click-match) detonates it and destroys the surrounding **5×5** area (center ± `BOMB_RADIUS`, currently 2).
 - If the timer expires unused, the bomb **morphs to a random normal-colour tile**.
 - Visual: bomb emoji + red pulse + arc countdown.
 
@@ -90,10 +90,10 @@ All score values fire on the `score-changed` event from `GameState`. The view re
 
 | Event | Base points |
 |---|---|
-| Normal match (4 cells) | 40 per cell |
-| Click-match in Auto-Match | 35 per cell |
-| Bomb explosion | 25 per cell destroyed |
-| Line clear in Blocks | 100 per line, **doubled** per simultaneous line beyond the first (100 / 300 / 500 / 800 for 1/2/3/4-line clears) |
+| Normal match (4+ cells) | `MATCH_POINTS = 10` per cleared cell |
+| Auto-Match sweep | 10 per cleared cell (same `MATCH_POINTS`) |
+| Bomb explosion | 25 per destroyed cell |
+| Line clear in Blocks | `LINE_POINTS = [0, 40, 100, 300, 1200]` for 0/1/2/3/4-line clears (Tetris-style bonus on simultaneous lines) |
 
 ### Multipliers
 
@@ -119,7 +119,7 @@ This ramp must be perceptible — a player who reaches level 5 should feel a ~60
 ### Scoring invariants (tested)
 
 - Clearing the same 4-cell block twice with the same level + size scores identically.
-- A line clear at level 3 on a large board scores `100 × 3 × 0.75 = 225`.
+- A single line clear at level 3 on a large board scores `40 × 3 × 0.75 = 90`.
 - Bomb points use the bomb base, not the per-cell-colour base.
 - Auto-match scoring uses each cell's own colour, not the clicked cell's colour. (See PR #5.)
 
@@ -158,7 +158,7 @@ Mission object shape:
   tierColor:     '#rrggbb',
   name:          'Kuiper Slate K-7'                     // asteroid name, rolled from per-tier pool
   label:         'Stellar · Classic'                    // tier label from HIGHSCORE_TIERS
-  difficulty:    'LOW' | 'MODERATE' | 'HIGH' | 'EXTREME' | 'CRITICAL'
+  difficulty:    'LOW' | 'MODERATE' | 'ELEVATED' | 'HIGH' | 'EXTREME' | 'CRITICAL'
   brief:         'short flavor text'
   baseCredits:   100 × tierIndex                        // 100, 200, ..., 900
   expectedOres:  ['pyrite','cryonite','verdanite','helium', <+ 'volatiles','biomass' if Collapsed>]
@@ -216,11 +216,15 @@ When you need to tune any of these, update the constant **and** this file in the
 
 | Name | File | Current |
 |---|---|---|
-| `LINES_PER_LEVEL` | constants.js | 8 |
+| `MATCH_POINTS` | constants.js | 10 per cleared cell |
+| `LINE_POINTS` | constants.js | `[0, 40, 100, 300, 1200]` |
+| Bomb points per destroyed cell | constants.js | 25 |
+| `BOMB_RADIUS` | constants.js | 2 (⇒ 5×5 blast) |
 | `SNAKE_LENGTH` | constants.js | 5 |
+| `LINES_PER_LEVEL` | constants.js | 8 |
 | Drop interval start / step / floor | constants.js | 1000 / 100 / 200 ms |
 | Special-arming timer | constants.js | 5 s |
-| Size multipliers | constants.js `getSizeMultiplier` | 1.5 / 1.0 / 0.75 |
+| Size multipliers | constants.js `FIELD_SIZE_MULTIPLIERS` | 1.5 / 1.0 / 0.75 |
 | Low-fx cell threshold | constants.js `LOW_FX_CELL_THRESHOLD` | 240 |
 | `FIELD_SIZES` | constants.js | see table above |
 | `HIGHSCORE_TIERS` | constants.js | 9 tiers |

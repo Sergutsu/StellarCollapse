@@ -107,19 +107,19 @@ There is no player-name input. If a player wants a custom name, a later PR can a
 
 ## Difficulty tiers (T1 → T9)
 
-One mission archetype per ranked tier. Green → red gradient across the 3×3 grid: top-left is easiest, bottom-right is hardest.
+One mission archetype per ranked tier. Green → red gradient across the 3×3 grid: top-left is easiest, bottom-right is hardest. Order below mirrors `HIGHSCORE_TIERS` in `src/constants.js`; default sizes come from `TIER_SIZE_BY_ID` in `src/missions.js` and difficulty labels from `TIER_DIFFICULTY_BY_ID`.
 
-| Tier | Mode | Complexity | Default size |
-|---|---|---|---|
-| T1 | Stellar | Classic | small |
-| T2 | Auto-Match | Classic | small |
-| T3 | Blocks | Classic | small |
-| T4 | Stellar | Mutated | medium |
-| T5 | Auto-Match | Mutated | medium |
-| T6 | Blocks | Mutated | medium |
-| T7 | Stellar | Collapsed | large |
-| T8 | Auto-Match | Collapsed | large |
-| T9 | Blocks | Collapsed | large |
+| Tier | Mode | Complexity | Default size | Difficulty |
+|---|---|---|---|---|
+| T1 | Stellar | Classic | small | LOW |
+| T2 | Stellar | Mutated | medium | LOW |
+| T3 | Auto-Match | Classic | small | MODERATE |
+| T4 | Auto-Match | Mutated | medium | MODERATE |
+| T5 | Stellar | Collapsed | medium | ELEVATED |
+| T6 | Auto-Match | Collapsed | medium | HIGH |
+| T7 | Blocks | Classic | medium | HIGH |
+| T8 | Blocks | Mutated | medium | EXTREME |
+| T9 | Blocks | Collapsed | large | CRITICAL |
 
 Canonical tier list lives in `constants.HIGHSCORE_TIERS`. Field-size defaults and difficulty labels live in `src/missions.js`.
 
