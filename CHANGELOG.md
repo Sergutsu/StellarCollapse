@@ -8,6 +8,15 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Added
+
+- **P1 shipped — per-run ore tally, credits formula, and Pixi results screen.** A completed mission now rolls up ores cleared (`match-cleared` / `bomb-exploded` / `lines-cleared` → tile colour → ore id) and awards `baseCredits + floor(score/10)` credits. A new hologram overlay shows asteroid name + sector, run stats (score / level / lines / cells / matches / bombs), a 6-ore haul breakdown, and the credits payout with base/bonus split; CONTINUE applies the reward through `MetaState.applyMissionReward(...)` (which persists through `stellarVentureSaveV1`) and returns to the hub. Top-bar chips auto-repaint from the new profile. New `src/run-ledger.js` pure module + 11 unit tests (97/97 passing).
+
+### Fixed
+
+- **MetaState `ORE_IDS` now mirrors the actual tile palette.** Previous list shipped in P3 (`red`, `orange`, `yellow`, `green`, `blue`, `purple`) did not match the six real tile colours (`red`, `blue`, `green`, `yellow`, `bomb`, `snake`), so `addOre('bomb', …)` and `addOre('snake', …)` silently no-op'd and no run could ever bank Volatiles or Biomass. The starter profile now initialises all six correct slots at zero, and the mission-reward envelope iterates the fixed list. (Flagged by Devin Review on PR #45 before any reward wiring used it.)
+- **`MetaState.applyMissionReward` now floors fractional credits + ore deltas.** `setCredits` / `addOre` already floored their inputs; the bulk `applyMissionReward` path did not, so a fractional reward would leave the in-memory profile unrounded until the next reload through `_merge`. The contract documented in `GAMEPLAY.md §Mutation API` is now honoured on every path. (Flagged by Devin Review on PR #45.)
+
 ### Changed
 
 - **Procedural starfield stars reworked to blend with the hub-backdrop image.** The old big diffraction-cross + ringed glyph has been replaced with two new textures: a soft pinprick (majority of stars) and a rare subtle 4-ray sparkle (~5% of stars). Scale range tightened from `0.08–1.42` to `0.22–0.90` so no star reads as a "drawn" dot; alpha biased dimmer so most stars sit just above the noise floor like the pinpricks in the backdrop. Twinkle cadence slowed (speed `0.0003–0.0014` vs. `0.0006–0.0036`), pulse amplitude softened so stars glimmer instead of visibly throbbing. Tint palette replaced with neutral-white / faint-blue / faint-amber (no more pink/pastel) to match the image's star colors.

@@ -141,7 +141,74 @@ Every cell cleared counts as an ore pickup:
 
 Lookup: `ORE_BY_COLOR[color]` in `src/missions.js`.
 
-Per-run tally is **not yet implemented** as of PR #32 — that lands in P1 (see `ROADMAP.md`). The mapping is exposed so the mission cards can preview expected ores.
+Per-run tally lives in `src/run-ledger.js` (`RunLedger`). The ore ids in
+`MetaState.ORE_IDS` mirror the six tile colours one-for-one (`red`, `blue`,
+`green`, `yellow`, `bomb`, `snake`) so no remap is needed — every cleared
+cell is credited to its colour's ore bucket.
+
+---
+
+## Per-run tally & rewards (P1)
+
+A `RunLedger` subscribes to three `GameState` events for the lifetime of a
+run and rolls them up into a single summary the results scene renders.
+
+| Event | Contribution |
+|---|---|
+| `match-cleared` | `matchesCleared++`; each cell in `payload.cells` credits `cell.color` (falls back to `payload.color` for the click-match shape). |
+| `bomb-exploded` | `bombsExploded++`; each cell in `payload.cells` credits `cell.color`. |
+| `lines-cleared` | `linesCleared += payload.count`; each colour in `payload.colors` credits +1 ore. (Payload colour array is snapshotted in `_checkLines` *before* gravity shifts, so Blocks mode tallies correctly.) |
+
+A cell can only be credited once per clear event — `_creditOre` silently
+ignores unknown colours (any id not in `ORE_IDS`) to keep future mode
+experiments safe.
+
+### Credits formula
+
+Final credits awarded on CONTINUE are the sum of:
+
+```
+credits = mission.baseCredits + floor(score / 10)
+```
+
+- `mission.baseCredits` is the preview number on the card (100 × tierIndex).
+- `floor(score / 10)` rewards longer runs without exploding the preview.
+- Negative inputs are clamped to zero in `computeCredits`.
+
+One source of truth lives in `src/run-ledger.js#computeCredits` — both
+`RunLedger.summary()` and the unit tests call it, so tuning stays one line.
+
+### Summary shape
+
+`RunLedger.summary(state)` returns:
+
+```
+{
+  missionId, missionName, narrativeName, sector, tierIndex, tierColor,
+  baseCredits, scoreBonus, credits,
+  ores: { red, blue, green, yellow, bomb, snake },  // per-id counts
+  cellsCleared, matchesCleared, bombsExploded, linesCleared,
+  finalScore, finalLevel, finalLines,
+}
+```
+
+The results scene reads this directly. `rewardEnvelope(summary)` strips it
+down to the three fields `MetaState.applyMissionReward` consumes
+(`credits`, `ores`, `missionId`).
+
+### Results scene wiring
+
+Main-loop flow on `game-over`:
+
+1. `main.js` reads `ledger.summary(state)` and `ledger.rewardEnvelope(summary)`.
+2. `ledger.detach()` unsubscribes from `GameState` immediately so a cancelled
+   run cannot keep tallying into a stale ledger.
+3. `view.showResultsScreen(summary, { onContinue })` renders the overlay.
+4. On CONTINUE, `meta.applyMissionReward(envelope)` fires a single save +
+   one `mission-reward` event; the hub top-bar chips re-read MetaState and
+   redraw via the existing change listener (see
+   [ADR-0008](adr/0008-meta-state-persistence.md)).
+5. `view.hideResultsScreen()` + `view.showStartScreen()` returns to the hub.
 
 ---
 

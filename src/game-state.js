@@ -648,6 +648,13 @@ export class GameState extends Emitter {
 
     _checkLines() {
         let linesCleared = 0;
+        // Snapshot the colors on each cleared row *before* we shift
+        // cells out from under it, so the `lines-cleared` payload can
+        // report exactly which tiles were removed. RunLedger uses this
+        // to tally ore for Blocks mode (where line clears are the only
+        // scoring path); modes that rely on color-match clears never
+        // reach this code with anything in the row anyway.
+        const clearedColors = [];
         for (let y = this.rows - 1; y >= 0; y--) {
             let complete = true;
             for (let x = 0; x < this.cols; x++) {
@@ -658,6 +665,9 @@ export class GameState extends Emitter {
             }
             if (!complete) continue;
 
+            for (let x = 0; x < this.cols; x++) {
+                clearedColors.push(this.board[y][x]);
+            }
             // Specials sitting on this complete row are destroyed; their
             // timers must go too. Specials above shift down by one along
             // with the cells they belong to, so their timer keys follow.
@@ -687,7 +697,7 @@ export class GameState extends Emitter {
                 DROP_INTERVAL_MIN_MS,
                 DROP_INTERVAL_START_MS - (this.level - 1) * DROP_INTERVAL_STEP_MS,
             );
-            this.emit('lines-cleared', { count: linesCleared, points });
+            this.emit('lines-cleared', { count: linesCleared, points, colors: clearedColors });
             this.emit('score-changed', { score: this.score, level: this.level, lines: this.lines });
             if (leveledUp) this.emit('level-up', { level: this.level });
         }

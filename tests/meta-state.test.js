@@ -92,6 +92,25 @@ test('applyMissionReward applies credits + ores atomically', () => {
     assert.equal(changes, 1);
 });
 
+test('applyMissionReward floors fractional credits and ores to integers', () => {
+    const meta = new MetaState();
+    meta.applyMissionReward({
+        credits: 10.9,
+        ores: { red: 2.7, blue: 1.4 },
+        missionId: 'm-frac',
+    });
+    // Flooring happens on the full sum (same as setCredits / addOre).
+    assert.equal(meta.credits, 4800 + 10);
+    assert.equal(meta.getOre('red'), 2);
+    assert.equal(meta.getOre('blue'), 1);
+    // Snapshot must round-trip through JSON as integers too, so a
+    // reload through Persistence cannot diverge from the in-memory copy.
+    const snap = meta.snapshot();
+    assert.equal(Number.isInteger(snap.credits), true);
+    assert.equal(Number.isInteger(snap.ores.red), true);
+    assert.equal(Number.isInteger(snap.ores.blue), true);
+});
+
 test('applyMissionReward does not double-count the same missionId', () => {
     const meta = new MetaState();
     meta.applyMissionReward({ credits: 10, missionId: 'm-a' });

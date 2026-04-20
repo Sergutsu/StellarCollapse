@@ -91,6 +91,12 @@ Exposes reads (`credits`, `getHubResource(id)`, `getOre(color)`, `fleetSnapshot(
 
 Versioned localStorage wrapper for the `MetaState` snapshot. One key — `stellarVentureSaveV1` (exported as `STORAGE_KEY`). Every method (`load`, `save`, `clear`) is non-throwing: SSR / private-mode Safari / quota-exceeded / unparseable blobs all return a safe default so the game keeps booting. Refuses to hydrate a blob with a mismatched `version` — the caller falls back to the starter profile and the next save overwrites the bad blob. Storage is dependency-injected (`new Persistence({ storage })`) so tests pass a `createMemoryStorage()` fake.
 
+### `src/run-ledger.js` — pure
+
+Per-run tally. `new RunLedger({ state, mission })` subscribes to `match-cleared`, `bomb-exploded`, and `lines-cleared` on a `GameState`, maps each cleared cell through the tile-colour → ore-id identity (`ORE_IDS` from `meta-state.js`), and accumulates counters for matches / bombs / lines / cells + the 6 ore buckets. `summary(state)` rolls up mission metadata + a `credits = baseCredits + floor(score/10)` payout. `rewardEnvelope(summary)` returns the exact shape `MetaState.applyMissionReward(...)` consumes. `detach()` unsubscribes safely.
+
+Zero Pixi / DOM imports — the ledger is pure data, same contract as `GameState`. `src/main.js` owns the ledger's lifecycle: create on start, summarise on game-over, hand the summary to `PixiView.showResultsScreen`, and call `detach()` before awaiting the player's CONTINUE tap. See [`GAMEPLAY.md`](GAMEPLAY.md) for the credits formula + event-to-ore table.
+
 ### `src/pixi-view.js`
 
 The only DOM/Pixi/visual code. Subscribes to GameState. Owns:
@@ -98,8 +104,9 @@ The only DOM/Pixi/visual code. Subscribes to GameState. Owns:
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
 - Starfield + scanner
 - Title bar with reactive "STELLAR VENTURE" star actor
-- Mission-select scene (cards, dispatcher identity card)
+- Hub scene (top bar, ACTIVE MISSIONS, center panel, FLEET & CREW, bottom nav, MISSION BOARD modal)
 - Game-run scene (board layers, active piece, effects, particles)
+- Mission **results overlay** (hologram panel above the hub: stats grid, 6-ore breakdown, credits total + base/bonus line, CONTINUE button). Built lazily on first `showResultsScreen`, reused across runs via `_populateResultsScreen(summary)`.
 - HUD columns (score / level / tips / controls), piece previews, sound/exit top controls
 
 Input — keyboard + pointer — flows through `src/input.js` and into GameState actions. View never runs game logic.
@@ -116,10 +123,10 @@ Exports `createPixiStarfield(app, { width, height, backdropTexture }) → { cont
 
 ### `src/main.js` — orchestrator
 
-- Constructs `GameState`, `PixiView`, `Audio`.
+- Constructs `GameState`, `PixiView`, `Audio`, `MetaState`, `Persistence`.
 - Calls `view.init()` (async), `view.createBoard()`, `view.createPreviews()`.
-- Wires `view.onStartGame()` → `state.configure(...)` → `state.start()`.
-- Wires `state.on('game-over')` → `view.showStartScreen()` (P1 will route through a results scene first).
+- Wires `view.onStartGame({ mission, ... })` → builds a `RunLedger` for the run → `state.configure(...)` → `state.start()`. Tears down any stale ledger from a quit-early run before the new one attaches.
+- Wires `state.on('game-over')` → `ledger.summary(state)` → `view.showResultsScreen(summary, { onContinue })`. CONTINUE applies the reward envelope (`meta.applyMissionReward(...)`) + returns to the hub. If the run started without a mission (sandbox boot) the results overlay is skipped.
 
 This is the one file allowed to glue state and view together. Keep it thin.
 
@@ -155,7 +162,19 @@ GameState emits 'game-over' { score }
     │
     ▼
 main.js:
-    │  view.showStartScreen()   // P1 will route through a results scene first
+    │  summary  = ledger.summary(state)        // + credits = baseCredits + floor(score/10)
+    │  envelope = ledger.rewardEnvelope(summary)
+    │  ledger.detach()
+    │  view.showResultsScreen(summary, { onContinue })
+    │
+    ▼
+player clicks CONTINUE
+    │
+    ▼
+main.js:
+    │  meta.applyMissionReward(envelope)   // fires 'change' + 'mission-reward'; Persistence saves
+    │  view.hideResultsScreen()
+    │  view.showStartScreen()              // hub top-bar chips auto-repaint from MetaState
 ```
 
 ---

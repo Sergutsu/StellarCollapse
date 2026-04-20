@@ -9,6 +9,7 @@ import { Audio } from './audio.js';
 import { bindInput } from './input.js';
 import { MetaState } from './meta-state.js';
 import { Persistence } from './persistence.js';
+import { RunLedger } from './run-ledger.js';
 import {
     GAME_MODES,
     PIECE_COMPLEXITY,
@@ -115,14 +116,39 @@ async function boot() {
     state.on('game-started', refreshTip);
     state.on('level-up',     refreshTip);
 
+    // --- Per-run tally (P1) -----------------------------------------
+    //
+    // `currentRun` holds the active mission + its RunLedger while a
+    // run is in flight. `game-over` takes the final summary, shows
+    // the results overlay, and stashes a CONTINUE handler that wires
+    // the reward into MetaState (which then auto-saves via the meta
+    // listener above). Both references are cleared on CONTINUE so a
+    // second run starts with a clean tally.
+    let currentRun = null;
+
     state.on('game-over', () => {
-        // No leaderboard to write to. A per-run results scene (P1) will
-        // tally ores + credits before returning the player to the
-        // mission-select; for now we just drop back to the menu.
-        view.showStartScreen();
+        const run = currentRun;
+        if (!run || !run.mission) {
+            // No mission selected (e.g. sandbox boot); keep behaviour
+            // matching the pre-P1 path and drop straight back to the
+            // hub without trying to render a results panel.
+            view.showStartScreen();
+            return;
+        }
+        const summary = run.ledger.summary(state);
+        const envelope = run.ledger.rewardEnvelope(summary);
+        run.ledger.detach();
+        view.showResultsScreen(summary, {
+            onContinue: () => {
+                meta.applyMissionReward(envelope);
+                view.hideResultsScreen();
+                view.showStartScreen();
+                currentRun = null;
+            },
+        });
     });
 
-    view.onStartGame(({ mode, complexity, fieldSizeId }) => {
+    view.onStartGame(({ mode, complexity, fieldSizeId, mission }) => {
         if (!audio.ctx && audio.enabled) audio.init();
         audio.resume();
         state.configure({
@@ -130,6 +156,13 @@ async function boot() {
             complexity,
             fieldSizeId,
         });
+        // Tear down any stale ledger from a run the player quit early
+        // without hitting CONTINUE so listeners don't double-fire.
+        if (currentRun?.ledger) currentRun.ledger.detach();
+        currentRun = {
+            mission: mission || null,
+            ledger: new RunLedger({ state, mission }),
+        };
         // Rebuild the board DOM for the new grid dimensions before starting.
         view.createBoard();
         state.start();

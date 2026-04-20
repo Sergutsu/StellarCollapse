@@ -11,9 +11,9 @@
 | Phase | Theme | Status |
 |---|---|---|
 | P0 | Match-4 / Tetris prototype with modes, tiers, field sizes, Pixi renderer, mission-select screen | **Shipped** |
-| P1 | Resource ledger: ores tallied per run, credits awarded, results screen | Now |
-| P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSION BOARD modal with narrative mission cards (mapped 1:1 to the 9 tier archetypes), Galactic News ticker; replaces today's transitional mission-select entirely | Next |
-| P3 | Persistent meta-state (`MetaState`, `Persistence`) + rep-tier gates on narrative mission cards | **Shipped (data layer)** — mutation hooks land with P1 |
+| P1 | Resource ledger: ores tallied per run, credits awarded, results screen | **Shipped** |
+| P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSION BOARD modal with narrative mission cards (mapped 1:1 to the 9 tier archetypes), Galactic News ticker; replaces today's transitional mission-select entirely | **Shipped** |
+| P3 | Persistent meta-state (`MetaState`, `Persistence`) + rep-tier gates on narrative mission cards | **Shipped** (mutation hooks wired in P1) |
 | P4 | Active-missions idle tick (`IdleClock`, `MissionRegistry`): left column ticks ETAs, completion → results → hub with rewards; FLEET & CREW live updates (hull damage, crew injured) on return | Later |
 | P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue + available-upgrade list (moved from the earlier BASE COMMAND right-column concept per [ADR-0007](adr/0007-hub-wireframe-pivot.md)) | Later |
 | P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | Later |
@@ -29,26 +29,36 @@ building toward.
 
 ---
 
-## Now (P1 — Resource ledger)
+## Shipped (P1 — Resource ledger)
 
-Goal: a completed mission awards credits + ores and shows a results screen
-before returning to the mission board. **Nothing persists across page reloads
-yet** — that's P3.
+A completed mission now awards credits + ores and shows a results screen
+before returning to the hub. Because P3 shipped first, the reward envelope is
+persisted through `MetaState` + `Persistence` automatically — the top-bar
+resource chips update the moment the player hits CONTINUE and survive a
+reload.
 
-- [ ] Per-run ore tally on the Pixi view. `ORE_BY_COLOR` translation on
-  `match-cleared` / `line-cleared` / `bomb-exploded`, accumulated in a
-  run-scoped counter.
-- [ ] Results scene (Pixi). Asteroid name, mission stats, ore breakdown with
-  icons + counts, credits earned, CONTINUE button returning to mission-select.
-- [ ] Credits formula. Final credits = `mission.baseCredits + bonusFromOres +
-  levelReachedBonus`. Concrete weights documented in `GAMEPLAY.md` when they
-  land.
-- [ ] Session-scope `MetaState` stub (pure module, no persistence yet). Holds
-  credits + ore totals in memory so we can exercise the results scene without
-  taking on localStorage risk.
-- [ ] Unit tests for the tally (deterministic).
+- [x] Per-run ore tally. `RunLedger` subscribes to `match-cleared`,
+  `bomb-exploded`, and `lines-cleared` and maps each cleared cell through the
+  tile-colour → ore-id identity (`ORE_IDS` mirrors tile colours; see
+  [ADR-0008](adr/0008-meta-state-persistence.md)). One cell = +1 ore.
+- [x] Results scene (Pixi hologram overlay). Asteroid name + sector + tier,
+  run stats (score / level / lines / cells / matches / bombs), 6-ore
+  breakdown with icons + counts, credits earned with base + score-bonus
+  breakdown, CONTINUE button returning to the hub.
+- [x] Credits formula. `credits = mission.baseCredits + floor(score / 10)`,
+  clamped at zero. Tuned to be simple + predictable — ore rarity already
+  scales through the tier → ore-roster mapping.
+  ([`GAMEPLAY.md §5 / §7`](GAMEPLAY.md))
+- [x] Reward envelope wiring. CONTINUE calls
+  `MetaState.applyMissionReward({credits, ores, missionId})`, which dedupes
+  completed missions, clamps + floors the deltas, and auto-saves through
+  `Persistence`.
+- [x] Unit tests for the tally + credits formula (11 new tests, 97/97
+  passing).
 
-Out of scope for P1: saving anything, unlocks, upgrades, rep tiers, idle tick.
+Out of scope for P1 (kept deferred): idle tick on ACTIVE MISSIONS (P4),
+rep-tier gates on cards (uses the `MetaState` plumbing landing now but the UI
+ships in P2's follow-up), and the station diorama tabs (P5+).
 
 ## Known issues (carry across phases)
 
