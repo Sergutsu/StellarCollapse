@@ -118,9 +118,12 @@ async function boot() {
     view.setSelectedTier(findTier(DEFAULT_MODE, DEFAULT_COMPLEXITY)?.id);
 
     state.on('game-over', ({ score }) => {
-        const name = (elements.playerName?.value || '').trim() || 'Pilot';
+        // Player identity is fixed to "Chief Dispatcher" now that the
+        // start screen is a mission-select. Callsign / reputation /
+        // persistent ledger come in a later PR.
+        const name = 'Chief Dispatcher';
         // Only save to a leaderboard if the (mode, complexity) the player
-        // actually played is one of the 6 ranked tiers. Every legal
+        // actually played is one of the 9 ranked tiers. Every legal
         // start-screen selection currently does map to a tier.
         const tier = findTier(state.mode, state.complexity);
         if (tier && score > 0) {
