@@ -12,7 +12,7 @@ No build step. Just:
 git clone https://github.com/Sergutsu/StellarCollapse.git
 cd StellarCollapse
 npm install      # only installs test runner + lint; runtime deps come from CDN
-npm test         # runs the full suite (currently 68 tests)
+npm test         # runs the full suite (currently 60 tests)
 ```
 
 To run locally in a browser:
@@ -62,7 +62,7 @@ Before you mark the PR ready:
 - [ ] No new feature flags / `?engine=*` / debug toggles left on
 - [ ] No `console.log` / debug print in committed code
 - [ ] No new runtime dep without an ADR
-- [ ] `GameState` / `HighScores` / `missions.js` are still pure (no `document`, no `setTimeout`, no network)
+- [ ] `GameState` / `missions.js` are still pure (no `document`, no `setTimeout`, no network)
 - [ ] If you added persisted state, it's versioned and has a migration path
 - [ ] If you changed a number, it's in `GAMEPLAY.md`'s tunable table
 - [ ] `CHANGELOG.md` has a line under "Unreleased" if this change is player-visible

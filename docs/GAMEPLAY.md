@@ -201,13 +201,13 @@ None use 10×20 (deliberate — that was the old default and we want the sizes t
 
 ---
 
-## Leaderboard ("MISSION LOG")
+## Leaderboard
 
-- Top 5 scores per tier, sorted desc.
-- Keyed by `tierId`.
-- Player name is always `"Chief Dispatcher"` in the current build (fixed identity).
-- Stored in localStorage via `src/highscores.js`. Versioned and self-migrating (old `classic-*` → `stellar-*`, old `tetris-*` → `blocks-*`, legacy single-list → easiest tier).
-- Corrupt payload falls back to empty tiers without throwing.
+**Removed.** The persistent leaderboard module was deleted — see
+`adr/0005-delete-highscore-system.md`. The game's feedback loop is now
+per-run resource tallies (landing in P1), not a top-5 table. Personal
+bests, if they come back, will be a derived read-out of `MetaState` (P3),
+not a standalone storage module.
 
 ---
 
