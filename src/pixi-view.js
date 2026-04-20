@@ -1204,7 +1204,7 @@ export class PixiView {
         titleGradient.addColorStop(0.5, 0xfacc15);
         titleGradient.addColorStop(1, 0xf87171);
         const title = new Text({
-            text: 'STELLAR COLLAPSE',
+            text: 'STELLAR VENTURE',
             style: new TextStyle({
                 fontFamily: 'Inter, "Segoe UI", sans-serif',
                 fontSize: 52,
@@ -1544,7 +1544,7 @@ export class PixiView {
         // Draw aura BEHIND the star shape.
         c.addChildAt(starBase, 0);
 
-        // "STELLAR COLLAPSE" gradient text. FillGradient is linear in
+        // "STELLAR VENTURE" gradient text. FillGradient is linear in
         // Pixi v8; the cyan -> yellow -> coral diagonal reads as the
         // same signature palette as the DOM.
         const titleGradient = new FillGradient(0, 0, 520, 0);
@@ -1552,7 +1552,7 @@ export class PixiView {
         titleGradient.addColorStop(0.5, 0xfacc15);
         titleGradient.addColorStop(1, 0xf87171);
         const title = new Text({
-            text: 'STELLAR COLLAPSE',
+            text: 'STELLAR VENTURE',
             style: new TextStyle({
                 fontFamily: 'Inter, "Segoe UI", sans-serif',
                 fontSize: 38,
