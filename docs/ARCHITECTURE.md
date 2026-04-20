@@ -119,16 +119,31 @@ Zero Pixi / DOM imports — the ledger is pure data, same contract as `GameState
 
 ### `src/pixi-view.js`
 
-The Pixi bootstrap + scene host. After the 3-stage scene-graph split (ADR-0009), PixiView no longer holds any game logic or hub logic — it's a thin shell (~390 lines, down from 3110 before the split) that owns:
+The Pixi bootstrap + scene host. After the 4-stage scene-graph split (ADR-0009), PixiView is a thin shell (~250 lines, down from 3110 before the split, -92%) that owns:
 
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
 - Viewport-filling starfield + cinematic hub backdrop
 - `SceneManager` + registered `HubScene` + `GameScene` + `ResultsScene`
-- Shared Pixi helpers (`_drawHologramPanel`, `_redrawHologramPanel`, `_buildStartButton`, `_panelLabel`, `_drawStarShape`) — injected into scenes by reference; move to a standalone `pixi-ui-kit.js` module in the next scene-split PR now that 3 scenes depend on them
 - Single `app.ticker` that drives `starfield.update(deltaMs)` and fans out `tick(deltaMs)` to every scene that exposes one
 - Window `resize` listener that rebuilds the starfield + calls `SceneManager.layout(screen)`
 
+Shared Pixi render helpers (panel chrome, label text, star icon, CTA button) live in [`src/pixi-ui-kit.js`](../src/pixi-ui-kit.js). Scenes import them directly; PixiView no longer hand-wires them through scene constructors.
+
 Public API (unchanged across the entire scene-split series so `main.js` never needed updating): `init`, `createBoard`, `createPreviews`, `setTopControlsHandlers`, `setSoundEnabled`, `setTip`, `showStartScreen`, `showGameScreen`, `showResultsScreen`, `hideResultsScreen`, `onStartGame`, `_levelInfoFor` setter. Every entry point is a thin delegate onto the appropriate scene; there is no game logic, no hub logic, and no Pixi event handling left in `PixiView`.
+
+### `src/pixi-ui-kit.js`
+
+Shared Pixi render helpers. Zero GameState / MetaState / DOM imports — strictly render data. Today's exports:
+
+- `drawHologramPanel(w, h, { accent })` → `Container` — translucent gradient panel with a thin accent border + horizontal scanline overlay. Consumed by every scene that draws a card.
+- `redrawHologramPanel(panel, w, h, accent)` — in-place resize of an existing panel Container so resize handlers don't rebuild the node tree. Consumed by `HubScene` on viewport resize.
+- `panelLabel(text, color, { size, weight })` → `Text` — small-caps Inter label with a soft drop-shadow glow matching its fill colour.
+- `drawStarShape(r, color)` → `Graphics` — 5-point star icon used for the reactive title actor and galactic-map pins.
+- `buildStartButton({ text, width, height, fill, hoverFill, textColor, onTap })` → `{ container, bg, label, setActive(bool), ... }` — rounded CTA button with hover + active states.
+
+All panel / button colour constants (`PANEL_BG_TOP`, `PANEL_BG_BOT`, `PANEL_BORDER_ALPHA`, `BUTTON_DEFAULT_FILL`, etc.) are exported from this module for scenes that need the same tints on bespoke chrome (e.g. the mission-board modal backdrop in `HubScene`).
+
+Consumers: `HubScene`, `GameScene`, `ResultsScene`. Future tab-scenes and minigame scenes register under `SceneManager` and pull chrome from this module without ever touching `PixiView`.
 
 ### `src/scenes/scene-manager.js`
 
@@ -144,13 +159,11 @@ Constructor shape:
 new ResultsScene({
     app,                    // Pixi Application (read-only; for screen rect)
     uiRoot,                 // Pixi Container to attach into
-    drawHologramPanel,      // shared panel-chrome helper (still on PixiView)
-    buildStartButton,       // shared button helper (still on PixiView)
     palette,                // CELL_PALETTE for ore icon tints
 });
 ```
 
-Shared helpers are passed in by reference so scenes don't import from `PixiView` (no circular imports). Once GameScene lands in PR 3, the helpers move to a standalone `pixi-ui-kit.js` module.
+Shared panel + button chrome is imported directly from [`src/pixi-ui-kit.js`](../src/pixi-ui-kit.js) — scenes no longer depend on PixiView-injected helpers.
 
 ### `src/scenes/hub-scene.js`
 
@@ -165,13 +178,10 @@ new HubScene({
     app,                    // Pixi Application (read-only; for screen rect)
     uiRoot,                 // Pixi Container to attach into
     meta,                   // MetaState (read-only; subscribed for `change`)
-    drawHologramPanel,      // shared panel-chrome helper
-    redrawHologramPanel,    // shared panel-resize helper
-    buildStartButton,       // shared button helper
-    panelLabel,             // shared text-label helper
-    drawStarShape,          // shared star-icon helper
 });
 ```
+
+Shared chrome (`drawHologramPanel`, `redrawHologramPanel`, `buildStartButton`, `panelLabel`, `drawStarShape`) is imported directly from [`src/pixi-ui-kit.js`](../src/pixi-ui-kit.js).
 
 Public API consumed by `PixiView`:
 
@@ -202,11 +212,10 @@ new GameScene({
     state,                  // GameState (subscribed for the full game event bus)
     sceneRoot,              // Pixi Container shared with the hub (HUD + board live here)
     uiRoot,                 // Pixi Container for floating chrome (top controls)
-    drawHologramPanel,      // shared panel-chrome helper
-    drawStarShape,          // shared star-icon helper
-    panelLabel,             // shared text-label helper
 });
 ```
+
+Shared chrome (`drawHologramPanel`, `drawStarShape`, `panelLabel`) is imported directly from [`src/pixi-ui-kit.js`](../src/pixi-ui-kit.js).
 
 Public API forwarded from `PixiView` so `main.js` never sees the scene directly:
 

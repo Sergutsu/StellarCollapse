@@ -27,14 +27,15 @@ Introduce a **scene graph** under `src/scenes/`:
   1. **PR 1 (this ADR).** Extract `ResultsScene` — the smallest, newest, most self-contained screen. Proves the pattern.
   2. **PR 2.** Extract `HubScene` shell — resource bar, ACTIVE MISSIONS column, FLEET & CREW column, bottom nav, news ticker. The **center panel** is a tab-swap slot that today renders the MISSION BOARD modal; PR 2 keeps it inline.
   3. **PR 3.** Extract `GameScene` — board + HUD columns + scanner + previews + effect pools. `PixiView` shrinks to a bootstrap wrapper.
-  4. **PR 4+.** Extract each hub tab into its own scene registered under the hub's center slot: `MissionsTabScene`, `StarMapTabScene`, `BuildUpgradeTabScene`, `ResearchTabScene`, `CrewTabScene`, `MarketTabScene`. One PR per 1–2 tabs.
-  5. **PR N.** Codify a `MinigameScene` contract (what a minigame must expose to the hub + `main.js`) and convert the current `GameScene` to satisfy it. Each new minigame ships as a new scene after that.
+  4. **PR 4.** Promote the shared render helpers into `src/pixi-ui-kit.js`. Every scene imports them directly; scene constructors drop the helper params. `PixiView` is left with zero render primitives — it's a pure scene host.
+  5. **PR 5+.** Extract each hub tab into its own scene registered under the hub's center slot: `MissionsTabScene`, `StarMapTabScene`, `BuildUpgradeTabScene`, `ResearchTabScene`, `CrewTabScene`, `MarketTabScene`. One PR per 1–2 tabs.
+  6. **PR N.** Codify a `MinigameScene` contract (what a minigame must expose to the hub + `main.js`) and convert the current `GameScene` to satisfy it. Each new minigame ships as a new scene after that.
 
 **PixiView keeps its public API** (`showStartScreen`, `showGameScreen`, `showResultsScreen`, `hideResultsScreen`, …) across every staged PR until the full hub + game + tabs are extracted. `main.js` is untouched by the refactor. Each PR ships a working game, not a half-demolished one.
 
 **Scene groups (deferred).** Once ≥ 2 hub tab scenes land, `SceneManager` gets a thin `group` concept: "hub" is a group whose members are mutually exclusive in the center slot (one tab visible at a time), "overlay" is a group whose members can show over another group (results, modals). Deferring the actual code until a second tab scene exists — premature to design the group API off one example.
 
-**Shared helpers** (`_drawHologramPanel`, `_buildStartButton`, panel text styles) stay on `PixiView` for now because the hub + in-game HUD still call them. They're passed to scenes via constructor so scenes don't import from `PixiView` (no circular imports). A later PR can move them to a standalone `pixi-ui-kit` module once all three scenes exist and `PixiView` itself is the last remaining caller.
+**Shared helpers** (`_drawHologramPanel`, `_buildStartButton`, panel text styles) stay on `PixiView` during the scene extractions because the hub + in-game HUD still call them. They're passed to scenes via constructor so scenes don't import from `PixiView` (no circular imports). **Update (PR 4):** once all three scenes landed (PRs 1–3), the helpers were promoted into `src/pixi-ui-kit.js`. Each scene now imports them directly; scene constructors dropped the helper params. `PixiView` no longer owns any render helpers — it's purely a scene host.
 
 ## Consequences
 
@@ -45,8 +46,8 @@ Introduce a **scene graph** under `src/scenes/`:
 - Dependencies are explicit at construction time. A scene declares exactly what it needs (`app`, `uiRoot`, specific helpers) — no reaching into `PixiView` for arbitrary instance state.
 
 **Give up:**
-- Some duplication during the transition. Helpers shared across the monolith and extracted scenes stay on `PixiView` and are bridged with arrow-function wrappers. This is intentional; it disappears once all three scenes have moved out.
-- No framework magic. Scene wiring is manual — each new scene requires a `.register(...)` call in `PixiView.init()`. Fine at our scale (≤ 3 scenes).
+- Some duplication during the transition. Helpers shared across the monolith and extracted scenes stayed on `PixiView` during PRs 1–3 and were bridged with arrow-function wrappers. This was intentional and was removed in PR 4 when the helpers promoted into `src/pixi-ui-kit.js`.
+- No framework magic. Scene wiring is manual — each new scene requires a `.register(...)` call in `PixiView.init()`. Fine at our scale (3 scenes today, 12–14 projected).
 
 ## Alternatives considered
 

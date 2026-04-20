@@ -28,10 +28,6 @@ import {
     Application,
     Assets,
     Container,
-    FillGradient,
-    Graphics,
-    Text,
-    TextStyle,
 } from 'pixi.js';
 
 import { createPixiStarfield } from './pixi-starfield.js';
@@ -41,23 +37,15 @@ import { ResultsScene } from './scenes/results-scene.js';
 import { HubScene } from './scenes/hub-scene.js';
 import { GameScene } from './scenes/game-scene.js';
 
-// CELL_PALETTE lives inside GameScene now -- PixiView only needs a
-// placeholder reference to pass into ResultsScene's rewards grid so it
-// can tint the 6-ore icons the same way the game board does.
+// Shared palette consumed by ResultsScene's ore chips + the game
+// scenes' tile tints. Lives in its own module so all three scenes can
+// import it without touching PixiView.
 import { CELL_PALETTE } from './scenes/cell-palette.js';
 
 // HUD_W / HUD_H are the canonical HUD bounding box inside the viewport;
 // the canvas fills the full window but sceneRoot centers on this.
 const HUD_W = 860;
 const HUD_H = 820;
-
-// Hologram panel tints -- picked to match the DOM CSS backdrop
-// (cyan-ish translucent gradient with a thin cyan border).
-const PANEL_BG_TOP = 0x0b1b3a;
-const PANEL_BG_BOT = 0x050a1c;
-const PANEL_BORDER_ALPHA = 0.28;
-
-const COLOR_WHITE = 0xffffff;
 
 export class PixiView {
     constructor({ state, meta = null, elements }) {
@@ -123,16 +111,13 @@ export class PixiView {
         this.uiRoot = new Container();
         app.stage.addChild(this.uiRoot);
 
-        // Register every extracted scene. Each one gets the shared
-        // panel/button/label/star helpers it needs; none of them
-        // import from pixi-view (no circular imports). A later PR
-        // promotes the helpers to pixi-ui-kit.js once enough scenes
-        // want direct access.
+        // Register every extracted scene. All shared render helpers
+        // live in src/pixi-ui-kit.js and each scene imports them
+        // directly -- PixiView no longer hand-wires them through the
+        // constructor.
         this._results = new ResultsScene({
             app,
             uiRoot: this.uiRoot,
-            drawHologramPanel: (w, h, opts) => this._drawHologramPanel(w, h, opts),
-            buildStartButton: (opts) => this._buildStartButton(opts),
             palette: CELL_PALETTE,
         });
         this._sceneMgr.register('results', this._results);
@@ -141,11 +126,6 @@ export class PixiView {
             app,
             uiRoot: this.uiRoot,
             meta: this.meta,
-            drawHologramPanel: (w, h, opts) => this._drawHologramPanel(w, h, opts),
-            redrawHologramPanel: (panel, w, h, accent) => this._redrawHologramPanel(panel, w, h, accent),
-            buildStartButton: (opts) => this._buildStartButton(opts),
-            panelLabel: (text, color, opts) => this._panelLabel(text, color, opts),
-            drawStarShape: (r, color) => this._drawStarShape(r, color),
         });
         this._sceneMgr.register('hub', this._hub);
 
@@ -154,9 +134,6 @@ export class PixiView {
             state: this.state,
             sceneRoot: this.sceneRoot,
             uiRoot: this.uiRoot,
-            drawHologramPanel: (w, h, opts) => this._drawHologramPanel(w, h, opts),
-            drawStarShape: (r, color) => this._drawStarShape(r, color),
-            panelLabel: (text, color, opts) => this._panelLabel(text, color, opts),
         });
         this._sceneMgr.register('game', this._game);
 
@@ -274,114 +251,4 @@ export class PixiView {
         }
     }
 
-    // -------------------------------------------------------------------
-    // Shared ui-kit helpers. Kept on PixiView until a second+ scene
-    // outside of hub/game/results needs them directly -- at that point
-    // they promote to pixi-ui-kit.js (tracked in ADR-0009 as the
-    // follow-up PR after GameScene lands).
-    // -------------------------------------------------------------------
-
-    _drawHologramPanel(w, h, { accent = 0x00d4ff } = {}) {
-        const c = new Container();
-        const grad = new FillGradient(0, 0, 0, h);
-        grad.addColorStop(0, PANEL_BG_TOP);
-        grad.addColorStop(1, PANEL_BG_BOT);
-        const bgFill = new Graphics();
-        bgFill.roundRect(0, 0, w, h, 6).fill(grad);
-        bgFill.alpha = 0.65;
-        c.addChild(bgFill);
-        const bg = new Graphics();
-        bg.roundRect(0, 0, w, h, 6).stroke({ color: accent, width: 1, alpha: PANEL_BORDER_ALPHA });
-        c.addChild(bg);
-
-        const scan = new Graphics();
-        for (let y = 1; y < h; y += 3) {
-            scan.rect(1, y, w - 2, 1).fill({ color: accent, alpha: 0.04 });
-        }
-        c.addChild(scan);
-
-        return c;
-    }
-
-    _redrawHologramPanel(panel, w, h, accent = 0x00d4ff) {
-        if (!panel) return;
-        const children = panel.children;
-        if (children.length < 3) return;
-        const [bgFill, border, scan] = children;
-        const grad = new FillGradient(0, 0, 0, h);
-        grad.addColorStop(0, PANEL_BG_TOP);
-        grad.addColorStop(1, PANEL_BG_BOT);
-        bgFill.clear();
-        bgFill.roundRect(0, 0, w, h, 6).fill(grad);
-        bgFill.alpha = 0.65;
-        border.clear();
-        border.roundRect(0, 0, w, h, 6).stroke({ color: accent, width: 1, alpha: PANEL_BORDER_ALPHA });
-        scan.clear();
-        for (let y = 1; y < h; y += 3) {
-            scan.rect(1, y, w - 2, 1).fill({ color: accent, alpha: 0.04 });
-        }
-    }
-
-    _panelLabel(text, color, { size = 12, weight = '700' } = {}) {
-        return new Text({
-            text,
-            style: new TextStyle({
-                fontFamily: 'Inter, "Segoe UI", sans-serif',
-                fontSize: size,
-                fontWeight: weight,
-                letterSpacing: 1,
-                fill: color,
-                dropShadow: {
-                    color, alpha: 0.6, blur: 6, distance: 0, angle: 0,
-                },
-            }),
-        });
-    }
-
-    _drawStarShape(r, color) {
-        const g = new Graphics();
-        const spikes = 5;
-        const inner = r * 0.42;
-        let rot = -Math.PI / 2;
-        const step = Math.PI / spikes;
-        const pts = [];
-        for (let i = 0; i < spikes; i++) {
-            pts.push(Math.cos(rot) * r, Math.sin(rot) * r);
-            rot += step;
-            pts.push(Math.cos(rot) * inner, Math.sin(rot) * inner);
-            rot += step;
-        }
-        g.poly(pts).fill({ color });
-        g.pivot.set(0, 0);
-        return g;
-    }
-
-    _buildStartButton({ text, width, height = 40, fill = 0x172554, hoverFill = 0x1d4ed8, textColor = COLOR_WHITE, onTap }) {
-        const container = new Container();
-        container.eventMode = 'static';
-        container.cursor = 'pointer';
-        const bg = new Graphics();
-        const draw = (color, active = false) => {
-            bg.clear();
-            bg.roundRect(0, 0, width, height, 8).fill({ color, alpha: active ? 0.92 : 0.72 });
-            bg.roundRect(0, 0, width, height, 8).stroke({ color: 0x22d3ee, width: active ? 2 : 1, alpha: active ? 0.9 : 0.35 });
-        };
-        draw(fill, false);
-        container.addChild(bg);
-        const label = new Text({ text, style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: textColor }) });
-        label.anchor.set(0.5);
-        label.x = width / 2;
-        label.y = height / 2;
-        container.addChild(label);
-        container.on('pointerover', () => draw(hoverFill, !!container.__active));
-        container.on('pointerout', () => draw(container.__active ? hoverFill : fill, !!container.__active));
-        container.on('pointertap', () => onTap?.());
-        return {
-            container, bg, label, width, height, fill, hoverFill,
-            setActive: (active) => {
-                container.__active = !!active;
-                draw(active ? hoverFill : fill, active);
-            },
-        };
-    }
 }

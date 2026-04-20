@@ -36,6 +36,13 @@ import {
 import { buildMissions, pickMissionBoard, ORES } from '../missions.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
+import {
+    drawHologramPanel,
+    redrawHologramPanel,
+    buildStartButton,
+    panelLabel,
+    drawStarShape,
+} from '../pixi-ui-kit.js';
 
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
@@ -122,20 +129,10 @@ export class HubScene {
         app,
         uiRoot,
         meta = null,
-        drawHologramPanel,
-        redrawHologramPanel,
-        buildStartButton,
-        panelLabel,
-        drawStarShape,
     }) {
         this.app = app;
         this.uiRoot = uiRoot;
         this.meta = meta;
-        this._drawPanel = drawHologramPanel;
-        this._redrawPanel = redrawHologramPanel;
-        this._makeStartButton = buildStartButton;
-        this._panelLabel = panelLabel;
-        this._drawStarShape = drawStarShape;
 
         this._onStartGame = null;
         this._metaChipSyncBound = false;
@@ -265,7 +262,7 @@ export class HubScene {
         const bg = new Graphics();
         container.addChild(bg);
 
-        const star = this._drawStarShape(14, 0xfacc15);
+        const star = drawStarShape(14, 0xfacc15);
         container.addChild(star);
 
         const brandGradient = new FillGradient(0, 0, 320, 0);
@@ -416,10 +413,10 @@ export class HubScene {
 
     _buildActiveMissions() {
         const container = new Container();
-        const panel = this._drawPanel(HUB_COL_W, 420);
+        const panel = drawHologramPanel(HUB_COL_W, 420);
         container.addChild(panel);
 
-        const header = this._panelLabel('ACTIVE MISSIONS', COLOR_CYAN_300, { size: 14 });
+        const header = panelLabel('ACTIVE MISSIONS', COLOR_CYAN_300, { size: 14 });
         header.position.set(14, 12);
         panel.addChild(header);
 
@@ -433,7 +430,7 @@ export class HubScene {
 
         // Empty-state card. Renders in place of any running missions
         // until P4 wires idle ticking + real mission state.
-        const empty = this._drawPanel(HUB_COL_W - 24, 108, { accent: 0x38bdf8 });
+        const empty = drawHologramPanel(HUB_COL_W - 24, 108, { accent: 0x38bdf8 });
         empty.position.set(12, 40);
         panel.addChild(empty);
 
@@ -457,7 +454,7 @@ export class HubScene {
     _buildCenter() {
         const container = new Container();
 
-        const panel = this._drawPanel(600, 420);
+        const panel = drawHologramPanel(600, 420);
         container.addChild(panel);
 
         const tabTitle = new Text({
@@ -488,7 +485,7 @@ export class HubScene {
         stub.anchor.set(0.5);
         panel.addChild(stub);
 
-        const openBoardButton = this._makeStartButton({
+        const openBoardButton = buildStartButton({
             text: 'OPEN MISSION BOARD',
             width: 220,
             height: 38,
@@ -501,10 +498,10 @@ export class HubScene {
 
     _buildFleetCrew() {
         const container = new Container();
-        const panel = this._drawPanel(HUB_COL_W, 420);
+        const panel = drawHologramPanel(HUB_COL_W, 420);
         container.addChild(panel);
 
-        const header = this._panelLabel('FLEET & CREW', COLOR_CYAN_300, { size: 14 });
+        const header = panelLabel('FLEET & CREW', COLOR_CYAN_300, { size: 14 });
         header.position.set(14, 12);
         panel.addChild(header);
 
@@ -675,7 +672,7 @@ export class HubScene {
         dim.on('pointertap', () => this._closeMissionBoard());
         container.addChild(dim);
 
-        const panel = this._drawPanel(640, 480, { accent: 0x22d3ee });
+        const panel = drawHologramPanel(640, 480, { accent: 0x22d3ee });
         container.addChild(panel);
 
         const title = new Text({
@@ -723,7 +720,7 @@ export class HubScene {
             return card;
         });
 
-        const rerollButton = this._makeStartButton({
+        const rerollButton = buildStartButton({
             text: 'REROLL BOARD',
             width: 160,
             height: 34,
@@ -731,7 +728,7 @@ export class HubScene {
         });
         panel.addChild(rerollButton.container);
 
-        const closeButton = this._makeStartButton({
+        const closeButton = buildStartButton({
             text: 'CLOSE',
             width: 100,
             height: 34,
@@ -860,7 +857,7 @@ export class HubScene {
         container.addChild(reward);
 
         // ACCEPT button spans the card's bottom edge.
-        const accept = this._makeStartButton({
+        const accept = buildStartButton({
             text: 'ACCEPT',
             width: w - 24,
             height: 30,
@@ -1091,13 +1088,13 @@ export class HubScene {
 
     _layoutColumnPanel(col, x, y, w, h) {
         col.container.position.set(x, y);
-        this._redrawPanel(col.panel, w, h);
+        redrawHologramPanel(col.panel, w, h);
         if (col.counter) col.counter.position.set(w - 14, 12);
         if (col.empty) {
             // Keep the sky-400 accent set by _buildActiveMissions;
             // re-using the default cyan here would mute the empty card
             // against the panel border.
-            this._redrawPanel(col.empty, w - 24, 108, 0x38bdf8);
+            redrawHologramPanel(col.empty, w - 24, 108, 0x38bdf8);
             col.empty.position.set(12, 40);
         }
         if (col.fleetRows) {
@@ -1125,7 +1122,7 @@ export class HubScene {
 
     _layoutCenterPanel(center, x, y, w, h) {
         center.container.position.set(x, y);
-        this._redrawPanel(center.panel, w, h);
+        redrawHologramPanel(center.panel, w, h);
         center.map.clear();
         // Faint dotted grid to evoke a star map.
         const gridStep = 40;
@@ -1178,7 +1175,7 @@ export class HubScene {
         const px = Math.round((w - panelW) / 2);
         const py = Math.round((h - panelH) / 2);
         modal.panel.position.set(px, py);
-        this._redrawPanel(modal.panel, panelW, panelH, 0x22d3ee);
+        redrawHologramPanel(modal.panel, panelW, panelH, 0x22d3ee);
 
         // Reroll + close buttons pinned to the bottom of the panel.
         const rerollW = modal.rerollButton.width;

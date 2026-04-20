@@ -13,29 +13,14 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 
 import { ORES } from '../missions.js';
-
-// Local alias for readability; keeps this file independent of whatever
-// "helper shape" PixiView uses internally. The only contract is that
-// these callables return Pixi display objects / records matching the
-// signatures used by the original PixiView implementation.
-//
-//   drawHologramPanel(w, h, { accent }) -> Container
-//   buildStartButton({ text, width, height, onTap }) -> { container, ... }
+import { drawHologramPanel, buildStartButton } from '../pixi-ui-kit.js';
 
 export class ResultsScene {
-    constructor({ app, uiRoot, drawHologramPanel, buildStartButton, palette = {} }) {
+    constructor({ app, uiRoot, palette = {} }) {
         if (!app) throw new Error('ResultsScene: app is required');
         if (!uiRoot) throw new Error('ResultsScene: uiRoot is required');
-        if (typeof drawHologramPanel !== 'function') {
-            throw new Error('ResultsScene: drawHologramPanel helper is required');
-        }
-        if (typeof buildStartButton !== 'function') {
-            throw new Error('ResultsScene: buildStartButton helper is required');
-        }
         this.app = app;
         this.uiRoot = uiRoot;
-        this._drawHologramPanel = drawHologramPanel;
-        this._buildStartButton = buildStartButton;
         this._palette = palette;
 
         this._nodes = null;
@@ -61,7 +46,7 @@ export class ResultsScene {
 
         const panelW = 620;
         const panelH = 500;
-        const panel = this._drawHologramPanel(panelW, panelH, { accent: 0x22d3ee });
+        const panel = drawHologramPanel(panelW, panelH, { accent: 0x22d3ee });
         container.addChild(panel);
 
         const title = new Text({
@@ -231,7 +216,7 @@ export class ResultsScene {
         panel.addChild(breakdown);
 
         // ---- CONTINUE button --------------------------------------
-        const continueBtn = this._buildStartButton({
+        const continueBtn = buildStartButton({
             text: 'CONTINUE',
             width: 180,
             height: 40,
