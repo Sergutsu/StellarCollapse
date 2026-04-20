@@ -16,16 +16,19 @@ import { Emitter } from './emitter.js';
 
 export const META_SAVE_VERSION = 1;
 
-// 6-ore palette. Matches the 6 tile colors used by STELLAR / CLASSIC
-// and maps 1:1 with mission reward previews. Order is stable because
+// 6-ore palette. Matches the actual tile colors used by the gameplay
+// board -- 4 normal colors (`NORMAL_COLORS` in constants.js) plus the
+// two special hazard tiles `bomb` and `snake`. Matches `ORES` /
+// `ORE_BY_COLOR` in `missions.js` 1:1 so P1's run-tally can translate
+// cleared-cell colors straight into ore ids. Order is stable because
 // tests + saved snapshots depend on it.
 export const ORE_IDS = Object.freeze([
     'red',
-    'orange',
-    'yellow',
-    'green',
     'blue',
-    'purple',
+    'green',
+    'yellow',
+    'bomb',
+    'snake',
 ]);
 
 // Hub top-bar resource ids. These are aggregate / life-support style
@@ -53,11 +56,11 @@ const STARTER_PROFILE = Object.freeze({
     }),
     ores: Object.freeze({
         red: 0,
-        orange: 0,
-        yellow: 0,
-        green: 0,
         blue: 0,
-        purple: 0,
+        green: 0,
+        yellow: 0,
+        bomb: 0,
+        snake: 0,
     }),
     fleet: Object.freeze([
         Object.freeze({ id: 'ship-1', name: 'Nyx-I',     className: 'Corvette', hull: 100, status: 'Standby' }),
@@ -169,16 +172,22 @@ export class MetaState {
 
     // Convenience for the P1 results screen: apply a full mission
     // reward envelope in one shot so only one save fires.
+    //
+    // Credits + ore deltas are floored to integers to match the
+    // `setCredits` / `addOre` contract (GAMEPLAY.md: "Clamps >= 0,
+    // floors to int"). A caller passing a fractional value would
+    // otherwise leave the in-memory state unrounded until the next
+    // reload through `_merge`.
     applyMissionReward({ credits = 0, ores = {}, missionId = null } = {}) {
         let dirty = false;
         if (credits) {
-            this._data.credits = Math.max(0, this._data.credits + credits);
+            this._data.credits = Math.max(0, Math.floor(this._data.credits + credits));
             dirty = true;
         }
         for (const color of ORE_IDS) {
             const n = ores[color];
             if (n) {
-                this._data.ores[color] = Math.max(0, this._data.ores[color] + n);
+                this._data.ores[color] = Math.max(0, Math.floor(this._data.ores[color] + n));
                 dirty = true;
             }
         }
