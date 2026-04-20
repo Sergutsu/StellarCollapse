@@ -8,6 +8,10 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed
+
+- **Procedural starfield stars reworked to blend with the hub-backdrop image.** The old big diffraction-cross + ringed glyph has been replaced with two new textures: a soft pinprick (majority of stars) and a rare subtle 4-ray sparkle (~5% of stars). Scale range tightened from `0.08–1.42` to `0.22–0.90` so no star reads as a "drawn" dot; alpha biased dimmer so most stars sit just above the noise floor like the pinpricks in the backdrop. Twinkle cadence slowed (speed `0.0003–0.0014` vs. `0.0006–0.0036`), pulse amplitude softened so stars glimmer instead of visibly throbbing. Tint palette replaced with neutral-white / faint-blue / faint-amber (no more pink/pastel) to match the image's star colors.
+
 ### Added
 
 - **Cinematic hub backdrop.** New `assets/hub-backdrop.jpg` image renders as the base layer of the Pixi starfield, cover-fit to the viewport with a subtle parallax drift. Sits **behind** the procedural nebula + twinkling cross stars so the "living space" feel is preserved. Procedural nebula palette retinted toward the backdrop's teal / cyan / ember tones (replacing the old purples/magentas) so the baked image and the live layers reinforce each other instead of fighting. If the asset fails to load, the starfield falls back to procedural-only silently.

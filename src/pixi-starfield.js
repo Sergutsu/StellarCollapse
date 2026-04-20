@@ -12,13 +12,24 @@ const NEBULA_LOBES_MIN = 4;
 const NEBULA_LOBES_MAX = 7;
 const NEBULA_STAMPS_PER_LOBE = 90;
 
-const CROSS_TINTS = [
+// Tints mirror the pinprick stars in the hub-backdrop image: mostly
+// neutral white with faint blue / cyan / amber variations. No pink or
+// pastel saturated colors — the backdrop doesn't have them and the
+// procedural layer should match, not announce itself.
+const STAR_TINTS = [
     0xffffff,
-    0xdbeafe,
-    0xa5f3fc,
-    0xfde68a,
-    0xf9a8d4,
+    0xffffff,
+    0xffffff,
+    0xe0f2fe,
+    0xbae6fd,
+    0xfef3c7,
 ];
+
+// Only stars in the top luminance band get the subtle 4-ray sparkle;
+// the rest are pinpricks. `lum = Math.random() ** 3.4` puts ~4.7% of
+// stars above the 0.85 threshold, which matches the reference image's
+// rare-sparkle density — no further gating needed.
+const SPARKLE_LUM_THRESHOLD = 0.85;
 
 // Retinted toward the hub-backdrop reference: dominant teals + cyans with
 // scattered warm ember pockets. The old deep purples/magentas washed out
@@ -39,20 +50,47 @@ function randBetween(min, max) {
     return min + Math.random() * (max - min);
 }
 
-function buildStarTexture(renderer) {
-    const size = 36;
+// Pinprick texture: tight bright core + soft falloff halo. No cross,
+// no rings, no multi-layer stacking. Reads as a natural star at any
+// scale and blends with the pinpricks baked into the hub-backdrop.
+function buildPinprickTexture(renderer) {
+    const size = 16;
     const c = size / 2;
     const g = new Graphics();
+    // Soft outer halo -> mid glow -> tight core. Each layer is a single
+    // small filled circle; overlap creates the natural falloff without
+    // any visible ring banding.
+    g.circle(c, c, 4.2).fill({ color: 0xffffff, alpha: 0.06 });
+    g.circle(c, c, 2.6).fill({ color: 0xffffff, alpha: 0.18 });
+    g.circle(c, c, 1.4).fill({ color: 0xffffff, alpha: 0.55 });
+    g.circle(c, c, 0.7).fill({ color: 0xffffff, alpha: 1.0 });
 
-    // Single star glyph: diffraction cross + thin rings + tiny center core.
-    // No large filled circles to avoid "big dots" in the background.
-    g.rect(c - 0.45, c - 11, 0.9, 22).fill({ color: 0xffffff, alpha: 0.95 });
-    g.rect(c - 11, c - 0.45, 22, 0.9).fill({ color: 0xffffff, alpha: 0.95 });
-    g.stroke({ color: 0xffffff, alpha: 0.82, width: 1.15 }).circle(c, c, 8.6);
-    g.stroke({ color: 0xffffff, alpha: 0.46, width: 0.9 }).circle(c, c, 6.0);
-    g.stroke({ color: 0xffffff, alpha: 0.3, width: 0.72 }).circle(c, c, 3.9);
-    g.circle(c, c, 1.35).fill({ color: 0xffffff, alpha: 1.0 });
-    g.circle(c, c, 2.1).fill({ color: 0xffffff, alpha: 0.28 });
+    const tex = RenderTexture.create({ width: size, height: size, resolution: 2 });
+    renderer.render({ container: g, target: tex });
+    g.destroy();
+    return tex;
+}
+
+// Sparkle texture: pinprick core + a very thin, short 4-ray cross.
+// Only applied to a small fraction of the brightest stars to match the
+// rare sparkles visible in the hub-backdrop image.
+function buildSparkleTexture(renderer) {
+    const size = 24;
+    const c = size / 2;
+    const g = new Graphics();
+    // Pinprick base (same as the pinprick texture, scaled down a touch
+    // so the cross can extend slightly past the halo).
+    g.circle(c, c, 3.8).fill({ color: 0xffffff, alpha: 0.06 });
+    g.circle(c, c, 2.3).fill({ color: 0xffffff, alpha: 0.18 });
+    g.circle(c, c, 1.3).fill({ color: 0xffffff, alpha: 0.55 });
+    g.circle(c, c, 0.6).fill({ color: 0xffffff, alpha: 1.0 });
+    // Diffraction rays: narrow, short, fading outward. Drawn as two thin
+    // rects with a soft alpha so they read as a suggestion of a sparkle
+    // rather than a drawn cross.
+    g.rect(c - 0.3, c - 8, 0.6, 16).fill({ color: 0xffffff, alpha: 0.28 });
+    g.rect(c - 8, c - 0.3, 16, 0.6).fill({ color: 0xffffff, alpha: 0.28 });
+    g.rect(c - 0.2, c - 5, 0.4, 10).fill({ color: 0xffffff, alpha: 0.55 });
+    g.rect(c - 5, c - 0.2, 10, 0.4).fill({ color: 0xffffff, alpha: 0.55 });
 
     const tex = RenderTexture.create({ width: size, height: size, resolution: 2 });
     renderer.render({ container: g, target: tex });
@@ -179,7 +217,8 @@ export function createPixiStarfield(app, { width, height, backdropTexture } = {}
     starLayer.interactiveChildren = false;
     container.addChild(starLayer);
 
-    const starTex = buildStarTexture(renderer);
+    const pinprickTex = buildPinprickTexture(renderer);
+    const sparkleTex = buildSparkleTexture(renderer);
 
     const area = screenW * screenH;
     const starCount = clamp(Math.round(area * STAR_DENSITY_PER_PIXEL), STAR_MIN_COUNT, STAR_MAX_COUNT);
@@ -187,24 +226,34 @@ export function createPixiStarfield(app, { width, height, backdropTexture } = {}
 
     const stars = [];
     for (const p of points) {
-        const s = new Sprite(starTex);
+        // Luminance roll is heavily biased toward dim so the majority of
+        // stars are sub-pixel pinpricks, mimicking the hub-backdrop.
+        const lum = Math.random() ** 3.4;
+        const isSparkle = lum > SPARKLE_LUM_THRESHOLD;
+
+        const s = new Sprite(isSparkle ? sparkleTex : pinprickTex);
         s.anchor.set(0.5);
         s.x = p.x;
         s.y = p.y;
-        const lum = Math.random() ** 2.85;
-        const scale = 0.08 + lum * 1.34;
-        const baseAlpha = 0.025 + lum * 0.955;
+        // Tight scale: most stars render at 0.25-0.65, brightest reach
+        // ~0.9. No more huge 1.4x sprites that read as "drawn" dots.
+        const scale = 0.22 + lum * 0.68;
+        // Alpha range keeps most stars whisper-faint so they blend with
+        // the backdrop; only the brightest few sit above the noise floor.
+        const baseAlpha = 0.18 + lum * 0.7;
         s.scale.set(scale);
         s.alpha = baseAlpha;
-        s.tint = CROSS_TINTS[(Math.random() * CROSS_TINTS.length) | 0];
+        s.tint = STAR_TINTS[(Math.random() * STAR_TINTS.length) | 0];
 
         stars.push({
             sprite: s,
             phase: Math.random() * Math.PI * 2,
-            speed: randBetween(0.0006, 0.0036),
+            // Slower twinkle cadence — image stars don't "breathe" hard.
+            speed: randBetween(0.0003, 0.0014),
             baseAlpha,
             baseScale: scale,
-            pulseStrength: randBetween(0.16, 0.9),
+            // Softer pulse amplitude so stars don't visibly throb.
+            pulseStrength: randBetween(0.08, 0.32),
         });
         starLayer.addChild(s);
     }
@@ -228,16 +277,19 @@ export function createPixiStarfield(app, { width, height, backdropTexture } = {}
         for (const rec of stars) {
             rec.phase += dtMs * rec.speed;
             const pulse = 0.5 + 0.5 * Math.sin(rec.phase);
-            rec.sprite.alpha = clamp(rec.baseAlpha * (0.2 + pulse * rec.pulseStrength), 0.015, 1);
-            rec.sprite.scale.set(rec.baseScale * (0.82 + pulse * 0.4));
-            rec.sprite.rotation = 0;
+            // Gentler alpha + scale modulation so stars glimmer rather
+            // than visibly resize. Pulse centered on the base alpha so
+            // no star goes fully dark.
+            rec.sprite.alpha = clamp(rec.baseAlpha * (0.72 + pulse * rec.pulseStrength), 0.02, 1);
+            rec.sprite.scale.set(rec.baseScale * (0.94 + pulse * 0.12));
         }
     }
 
     function destroy() {
         container.destroy({ children: true });
         nebulaBuilt.tex.destroy(true);
-        starTex.destroy(true);
+        pinprickTex.destroy(true);
+        sparkleTex.destroy(true);
     }
 
     return { container, update, destroy };
