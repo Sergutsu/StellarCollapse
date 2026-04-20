@@ -48,19 +48,20 @@ Canonical values: palette, tier list, field sizes, complexity tuning, scoring mu
 
 ### `src/emitter.js`
 
-20-line event emitter. `{ on, off, emit, once }`. Used by GameState and view. No wildcard, no namespacing. If we ever need them, write them.
+20-line event emitter. `{ on, off, emit, removeAll }`. Used by GameState and view. No wildcard, no namespacing, no `once`. If we ever need them, write them.
 
 ### `src/game-state.js` — pure
 
-Owns the board, the active piece, score, level, lines, specials, timers. Emits named events:
+Owns the board, the active piece, score, level, lines, specials, timers. Emits named events (grep `emit(` in `src/game-state.js` for the authoritative list):
 
-- **Board:** `board-changed`, `piece-moved`, `piece-locked`, `floating-changed`
-- **Clears:** `match-detected`, `match-cleared`, `line-cleared`
-- **Specials:** `special-armed`, `special-expired`, `bomb`, `snake`, `snake-step`
+- **Piece:** `piece-spawned`, `piece-moved`, `piece-rotated`, `piece-hard-dropped`, `piece-locked`
+- **Board:** `floating-changed`, `gravity-applied`
+- **Clears:** `match-detected`, `match-cleared`, `lines-cleared`
+- **Specials:** `special-armed`, `special-expired`, `special-moved`, `special-cleared`, `special-cleared-all`, `bomb-detonating`, `bomb-exploded`, `snake-activated`
 - **Score:** `score-changed`, `level-up`
-- **Lifecycle:** `configured`, `started`, `game-over`
+- **Lifecycle:** `game-started`, `game-over`
 
-**Constructor takes:** `{ rng, scheduler }`. Tests inject deterministic fakes. Never calls `Math.random()` or `setTimeout` directly.
+**Constructor takes:** `{ cols, rows, fieldSizeId, rng, schedule, mode, complexity }`. Tests inject deterministic `rng` and a synchronous `schedule` fake. Never calls `Math.random()` or `setTimeout` directly.
 
 ### `src/shapes.js` — pure
 
@@ -120,13 +121,15 @@ main.js onStartGame handler
     │  view.createBoard()
     │  state.start()
     ▼
-GameState emits 'started' + 'board-changed' + 'piece-moved'
+GameState emits 'game-started' + 'piece-spawned' + 'piece-moved'
     │
     ▼
 PixiView repaints only changed cells + active piece layer
 
 ... gameplay loop ...
-    │  every state change emits ≥1 event
+    │  each piece-lock emits piece-locked then either
+    │    lines-cleared (Blocks), match-cleared (auto-match sweep),
+    │    or nothing; Stellar match-cleared fires on player click.
     │  view handlers are O(cells changed), never O(board)
 
     ▼
@@ -158,7 +161,7 @@ See `adr/0001-pixi-only-renderer.md`. Short version: DOM-per-cell + CSS animatio
 
 As of PR #32, one persisted key:
 
-- `stellar-highscores` — 9-tier leaderboard (top-5 each), schema v1. Migrations on load: legacy single-list → easiest tier, `classic-*` → `stellar-*`, `tetris-*` → `blocks-*`. Corrupt payload → empty tiers.
+- `stellarCollapseScoresV2` — 9-tier leaderboard (top-5 each), schema v2. Migrations on load: legacy keys `stellarCollapseLegacyScores` and `tetrisHighScores` (single-list) → easiest tier; `classic-*` → `stellar-*`; `tetris-*` → `blocks-*`. Corrupt payload → empty tiers. See `src/highscores.js` for the exact key constants.
 
 P2 adds:
 
