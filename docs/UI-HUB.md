@@ -206,8 +206,8 @@ before the hub can be real:
 
 - **`MetaState`** — bankable resources (credits, ores, minerals, fuel, O₂,
   warp cells), rep tier, owned buildings + levels, research unlocks, hired
-  crew, known sectors. Replaces + absorbs `HighScores`. Already stubbed in
-  `ROADMAP.md` P2.
+  crew, known sectors. Replaces + absorbs `HighScores`. Session-scope stub
+  already planned in `ROADMAP.md` P1; full persistent version lands in P3.
 - **`MissionRegistry`** — active missions (with remaining ETA + seeded reward
   roll), available missions, completed mission history. Drives both the left
   and MISSIONS-tab panels.
@@ -230,10 +230,11 @@ version):
 |---|---|
 | P1 | Results screen after a run; session-only ore tally. No hub yet. |
 | P2 | Hub scaffolding: viewport-filling scene, top bar (static resource strip), left/right placeholder columns, bottom nav with 6 tab buttons, MISSIONS tab = existing 3×3 board. All read-only. Fixes the current centering + overlap defects as a side effect. |
-| P3 | Active-missions panel: idle ticking, ETA, reward-on-complete, deploy-to-run flow. `IdleClock` + `MissionRegistry`. |
-| P4 | BUILD/UPGRADE tab: station diorama, building levels, building queue, upgrade costs. `BuildQueue`. |
-| P5 | RESEARCH, CREW, MARKET tabs. Rep-tier gating. |
-| P6 | STAR MAP tab: sector exploration, mission discovery tied to map. |
+| P3 | Persistent meta-state (`MetaState`, `persistence.js`) + rep-tier gates on mission cards. |
+| P4 | Active-missions panel: idle ticking, ETA, reward-on-complete, deploy-to-run flow. `IdleClock` + `MissionRegistry`. |
+| P5 | BUILD/UPGRADE tab: station diorama, building levels, building queue, upgrade costs. `BuildQueue`. |
+| P6 | RESEARCH, CREW, MARKET tabs. Rep-tier gating. |
+| P7 | STAR MAP tab: sector exploration, mission discovery tied to map. |
 
 Each phase is still a handful of small PRs, not one giant PR.
 
