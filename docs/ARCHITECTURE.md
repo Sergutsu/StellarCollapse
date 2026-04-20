@@ -61,7 +61,7 @@ Owns the board, the active piece, score, level, lines, specials, timers. Emits n
 - **Score:** `score-changed`, `level-up`
 - **Lifecycle:** `game-started`, `game-over`
 
-**Constructor takes:** `{ cols, rows, fieldSizeId, rng, schedule, mode, complexity }`. Tests inject deterministic `rng` and a synchronous `schedule` fake. Never calls `Math.random()` or `setTimeout` directly.
+**Constructor takes:** `{ cols, rows, fieldSizeId, rng, schedule, mode, complexity, specialArmMs }`. Tests inject deterministic `rng`, a synchronous `schedule` fake, and `specialArmMs: 0` to disable the bomb/snake arming timer. Never calls `Math.random()` or `setTimeout` directly.
 
 ### `src/shapes.js` — pure
 

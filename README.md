@@ -21,7 +21,7 @@ The repo is moving toward a hybrid casual / idle space-exploration game. Deep de
 <p align="center">
   <img src="https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white" alt="HTML5">
   <img src="https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black" alt="JavaScript">
-  <img src="https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white" alt="TailwindCSS">
+  <img src="https://img.shields.io/badge/Pixi.js-E91E63?style=flat-square&logo=pixijs&logoColor=white" alt="Pixi.js">
   <img src="https://img.shields.io/badge/no%20build-pure%20ES%20modules-2ea44f?style=flat-square" alt="No build">
   <img src="https://img.shields.io/github/actions/workflow/status/Sergutsu/StellarCollapse/tests.yml?branch=main&label=tests&style=flat-square" alt="Tests">
 </p>

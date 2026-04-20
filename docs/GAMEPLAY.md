@@ -17,7 +17,7 @@
 
 ### Auto-Match
 
-- Same controls as Stellar — pieces drop, lock, and the player moves/rotates them. There is **no click-to-match** in this mode.
+- Same controls as Stellar — pieces drop, lock, and the player moves/rotates them. Click-to-match still works (same as Stellar); matches are **also** auto-cleared on every piece lock, so the player can choose to drive clears either manually or by stacking.
 - On every piece lock, `_autoMatchSweep()` runs one synchronous pass over the board, unions every 4+ same-colour run (horizontal + vertical) into a unique-cell set, and clears them all at once. A cross pattern of 7 cells scores 7 × `MATCH_POINTS`, not 4+4.
 - In Collapsed complexity, the longest run among the ones cleared in that sweep still seeds a specials tile — ≥5 cells → bomb at the run's middle, exactly 4 cells → snake at a random position in the run.
 - After the sweep, gravity settles, and the next piece spawns. Chain reactions from subsequent locks score each sweep independently.
