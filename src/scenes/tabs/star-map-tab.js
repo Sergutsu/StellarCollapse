@@ -412,7 +412,14 @@ export class StarMapTab {
         n.grid.rect(mapX, mapY, mapW, mapH).stroke({ color: COLOR_CYAN_300, width: 1, alpha: 0.35 });
 
         // --- Axis tick labels (sparse, every other grid line).
-        n.axisLabels.removeChildren();
+        // Destroy the previous Text children (not just detach) so the
+        // underlying style + GPU textures are released. removeChildren
+        // alone would leak ~12-13 Text objects per resize.
+        while (n.axisLabels.children.length > 0) {
+            const old = n.axisLabels.children[0];
+            n.axisLabels.removeChild(old);
+            old.destroy({ children: true });
+        }
         const mkLabel = (text) => new Text({
             text,
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 9, fill: COLOR_SLATE_400 }),
