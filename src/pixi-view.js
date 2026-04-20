@@ -25,15 +25,13 @@ import {
     SNAKE_LENGTH,
     PIECE_COMPLEXITY,
     GAME_MODES,
-    FIELD_SIZES,
     HIGHSCORE_TIERS,
-    DEFAULT_FIELD_SIZE_ID,
-    getSizeMultiplier,
-    findTier,
     BLOCK_SIZE_FOR,
     LINES_PER_LEVEL,
     LOW_FX_CELL_THRESHOLD,
 } from './constants.js';
+
+import { buildMissions, ORES } from './missions.js';
 
 import { createPixiStarfield } from './pixi-starfield.js';
 
@@ -190,11 +188,20 @@ export class PixiView {
         this._playerNameInput = this.el.playerName || null;
         this._startScreen = null;
         this._startPanelBounds = null;
+        // The full mission catalog for this session. Deterministic per
+        // boot so the asteroid names on the cards don't shuffle every
+        // time the player re-opens the menu. Persistence + reroll on
+        // daily reset lives in a later PR.
+        this._missions = buildMissions({ seed: Math.floor(Math.random() * 0xffffffff) });
         this._startState = {
-            mode: GAME_MODES.STELLAR,
-            complexity: PIECE_COMPLEXITY.CLASSIC,
-            fieldSizeId: DEFAULT_FIELD_SIZE_ID,
-            selectedTierId: findTier(GAME_MODES.STELLAR, PIECE_COMPLEXITY.CLASSIC)?.id || HIGHSCORE_TIERS[0].id,
+            // Legacy mode/complexity/size fields kept so rest of view
+            // (HUD tier color, size multiplier readout) still works.
+            // They mirror whichever mission is currently selected.
+            mode: this._missions[0].gameConfig.mode,
+            complexity: this._missions[0].gameConfig.complexity,
+            fieldSizeId: this._missions[0].gameConfig.fieldSizeId,
+            selectedTierId: this._missions[0].tierId,
+            selectedMissionId: this._missions[0].id,
         };
 
         this._bindState();
@@ -1217,77 +1224,69 @@ export class PixiView {
 
         const missionPanel = this._drawHologramPanel(680, 500);
         left.addChild(missionPanel);
-        const missionLabel = this._panelLabel('MISSION CONFIGURATION', COLOR_CYAN_300, { size: 17 });
+        const missionLabel = this._panelLabel('AVAILABLE MISSIONS', COLOR_CYAN_300, { size: 17 });
         missionLabel.x = 20;
         missionLabel.y = 16;
         missionPanel.addChild(missionLabel);
 
-        const modeLabel = this._panelLabel('GAMEPLAY MODE', COLOR_BLUE_300);
-        modeLabel.x = 20;
-        modeLabel.y = 54;
-        missionPanel.addChild(modeLabel);
+        const missionGrid = new Container();
+        missionGrid.position.set(20, 54);
+        missionPanel.addChild(missionGrid);
 
+        // 3 columns x 3 rows of mission cards. Cards are click-to-deploy
+        // so there's no separate BEGIN button -- one primary action is
+        // cleaner and matches the "dispatcher picks an asteroid" frame.
+        const MCARD_W = 210;
+        const MCARD_H = 138;
+        const MCARD_GAP_X = 10;
+        const MCARD_GAP_Y = 14;
+        const missionCards = this._missions.map((mission, idx) => {
+            const col = idx % 3;
+            const row = Math.floor(idx / 3);
+            const card = this._buildMissionCard(mission, MCARD_W, MCARD_H);
+            card.container.x = col * (MCARD_W + MCARD_GAP_X);
+            card.container.y = row * (MCARD_H + MCARD_GAP_Y);
+            card.container.on('pointertap', () => this._onMissionCardTapped(mission));
+            missionGrid.addChild(card.container);
+            return card;
+        });
+
+        // Legacy rows kept as empty containers so the existing
+        // _refreshStartButtons / _rebuildFieldSizeButtons machinery keeps
+        // working without special-casing. They just never get children
+        // in the mission-select layout.
         const modeRow = new Container();
-        missionPanel.addChild(modeRow);
-        const modeButtons = [
-            this._buildStartButton({ text: 'Stellar', width: 200, onTap: () => this._setStartMode(GAME_MODES.STELLAR) }),
-            this._buildStartButton({ text: 'Auto-Match', width: 200, onTap: () => this._setStartMode(GAME_MODES.AUTO_MATCH) }),
-            this._buildStartButton({ text: 'Blocks', width: 200, onTap: () => this._setStartMode(GAME_MODES.BLOCKS) }),
-        ];
-        modeButtons.forEach((b, i) => {
-            b.container.x = i * 220;
-            modeRow.addChild(b.container);
-        });
-
-        const complexityLabel = this._panelLabel('PIECE COMPLEXITY', COLOR_BLUE_300);
-        complexityLabel.x = 20;
-        complexityLabel.y = 150;
-        missionPanel.addChild(complexityLabel);
         const complexityRow = new Container();
-        missionPanel.addChild(complexityRow);
-        const complexityButtons = [
-            this._buildStartButton({ text: 'Classic', width: 200, onTap: () => this._setStartComplexity(PIECE_COMPLEXITY.CLASSIC) }),
-            this._buildStartButton({ text: 'Mutated', width: 200, onTap: () => this._setStartComplexity(PIECE_COMPLEXITY.MUTATED) }),
-            this._buildStartButton({ text: 'Totally Collapsed', width: 200, onTap: () => this._setStartComplexity(PIECE_COMPLEXITY.COLLAPSED) }),
-        ];
-        complexityButtons.forEach((b, i) => {
-            b.container.x = i * 220;
-            complexityRow.addChild(b.container);
-        });
-
-        const sizeLabel = this._panelLabel('FIELD SIZE', COLOR_BLUE_300);
-        sizeLabel.x = 20;
-        sizeLabel.y = 246;
-        missionPanel.addChild(sizeLabel);
         const sizeRow = new Container();
-        missionPanel.addChild(sizeRow);
 
-        const begin = this._buildStartButton({
-            text: 'BEGIN MISSION',
-            width: 280,
-            height: 52,
-            fill: 0x0891b2,
-            hoverFill: 0x06b6d4,
-            onTap: () => {
-                if (typeof this._onStartGameRequested === 'function') {
-                    const name = (this._playerNameInput?.value || '').trim() || 'Pilot';
-                    const playerName = name.slice(0, 15);
-                    if (this._playerNameInput) this._playerNameInput.value = playerName;
-                    this._onStartGameRequested({
-                        mode: this._startState.mode,
-                        complexity: this._startState.complexity,
-                        fieldSizeId: this._startState.fieldSizeId,
-                        playerName,
-                    });
-                }
-            },
-        });
-        missionPanel.addChild(begin.container);
-
-        const rankingsLabel = this._panelLabel('STELLAR RANKINGS', COLOR_YELLOW_300, { size: 24 });
+        const rankingsLabel = this._panelLabel('MISSION LOG', COLOR_YELLOW_300, { size: 24 });
         rankingsLabel.x = 20;
         rankingsLabel.y = 18;
         right.addChild(rankingsLabel);
+
+        // Dispatcher identity card: fixed title, session callsign.
+        // Persistence + rep/rank advancement are a later-PR concern.
+        const dispatcherCard = this._drawHologramPanel(400, 96, { accent: 0xfacc15 });
+        dispatcherCard.position.set(20, 50);
+        right.addChild(dispatcherCard);
+        const dispatcherRole = new Text({
+            text: 'CHIEF DISPATCHER',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 18, fontWeight: '800', letterSpacing: 2, fill: 0xfde68a }),
+        });
+        dispatcherRole.position.set(16, 12);
+        dispatcherCard.addChild(dispatcherRole);
+        const dispatcherCallsign = new Text({
+            text: `Callsign ${this._rollCallsign()}`,
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 13, fill: 0x93c5fd }),
+        });
+        dispatcherCallsign.position.set(16, 38);
+        dispatcherCard.addChild(dispatcherCallsign);
+        const dispatcherStatus = new Text({
+            text: 'Status: Ready for dispatch',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x86efac }),
+        });
+        dispatcherStatus.position.set(16, 62);
+        dispatcherCard.addChild(dispatcherStatus);
 
         const tierTabs = new Container();
         right.addChild(tierTabs);
@@ -1331,13 +1330,21 @@ export class PixiView {
             star,
             subtitle,
             missionPanel,
+            missionGrid,
+            missionCards,
+            dispatcherCard,
+            dispatcherRole,
+            dispatcherCallsign,
+            dispatcherStatus,
+            // Legacy row slots kept so layout/refresh code can stay
+            // mostly shared. They're inert in mission-select mode.
             modeRow,
-            modeButtons,
+            modeButtons: [],
             complexityRow,
-            complexityButtons,
+            complexityButtons: [],
             sizeRow,
             sizeButtons: [],
-            begin,
+            begin: null,
             rankingsLabel,
             tierTabs,
             tierButtons,
@@ -1346,9 +1353,207 @@ export class PixiView {
             listRows: [],
             empty,
         };
-        this._rebuildFieldSizeButtons();
         this._refreshStartButtons();
         this._refreshLeaderboard();
+    }
+
+    // Build one mission card. `mission` comes from buildMissions(). The
+    // card is a self-contained clickable container -- the caller wires
+    // the pointertap handler and adds it to the grid.
+    _buildMissionCard(mission, w, h) {
+        const container = new Container();
+        container.eventMode = 'static';
+        container.cursor = 'pointer';
+
+        const tierFill = parseInt((mission.tierColor || '#67e8f9').replace('#', ''), 16);
+
+        // Background panel. Uses the same hologram gradient as the
+        // other panels so cards read as part of the UI family; the
+        // tier color drives the left-edge accent bar + border.
+        const grad = new FillGradient(0, 0, 0, h);
+        grad.addColorStop(0, PANEL_BG_TOP);
+        grad.addColorStop(1, PANEL_BG_BOT);
+        const bgFill = new Graphics();
+        bgFill.roundRect(0, 0, w, h, 8).fill(grad);
+        bgFill.alpha = 0.7;
+        container.addChild(bgFill);
+        const bg = new Graphics();
+        bg.roundRect(0, 0, w, h, 8).stroke({ color: tierFill, width: 1, alpha: 0.6 });
+        container.addChild(bg);
+
+        // Tier accent strip along the top 3px so the gradient difficulty
+        // cue (green -> red across the grid) reads at a glance.
+        const accent = new Graphics();
+        accent.rect(0, 0, w, 4).fill({ color: tierFill, alpha: 0.9 });
+        container.addChild(accent);
+
+        // Tier short + index badge in the top-right corner.
+        const tierBadge = new Text({
+            text: `T${mission.tierIndex} · ${mission.label.toUpperCase()}`,
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 10,
+                fontWeight: '700',
+                letterSpacing: 1,
+                fill: tierFill,
+            }),
+        });
+        tierBadge.anchor.set(1, 0);
+        tierBadge.position.set(w - 10, 10);
+        container.addChild(tierBadge);
+
+        // Asteroid name (primary title on the card).
+        const name = new Text({
+            text: mission.name,
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 15,
+                fontWeight: '800',
+                fill: 0xf8fafc,
+                wordWrap: true,
+                wordWrapWidth: w - 20,
+            }),
+        });
+        name.position.set(10, 22);
+        container.addChild(name);
+
+        // Mode + complexity + size summary. One line, muted.
+        const sizeLabel = mission.gameConfig.fieldSizeId.toUpperCase();
+        const configLine = new Text({
+            text: `${this._prettyMode(mission.gameConfig.mode)} · ${this._prettyComplexity(mission.gameConfig.complexity)} · ${sizeLabel}`,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0x7dd3fc }),
+        });
+        configLine.position.set(10, 56);
+        container.addChild(configLine);
+
+        // One-line flavor brief.
+        const brief = new Text({
+            text: mission.brief,
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 11,
+                fill: 0xcbd5e1,
+                wordWrap: true,
+                wordWrapWidth: w - 20,
+            }),
+        });
+        brief.position.set(10, 74);
+        container.addChild(brief);
+
+        // Ore preview dots along the bottom-left. Each dot colored by
+        // the gameplay palette so the player can see which ore mix to
+        // expect before launching.
+        const oreRow = new Container();
+        oreRow.position.set(10, h - 22);
+        container.addChild(oreRow);
+        mission.expectedOres.forEach((oreId, i) => {
+            const ore = ORES.find((o) => o.id === oreId);
+            if (!ore) return;
+            const pal = CELL_PALETTE[ore.color];
+            if (!pal) return;
+            const dot = new Graphics();
+            dot.circle(0, 0, ore.rarity === 'rare' ? 4.5 : 4)
+                .fill({ color: pal.glow, alpha: ore.rarity === 'rare' ? 1 : 0.9 });
+            dot.circle(0, 0, 4).stroke({ color: 0x0f172a, width: 1, alpha: 0.7 });
+            dot.x = i * 12 + 6;
+            dot.y = 6;
+            oreRow.addChild(dot);
+        });
+
+        // Credit reward (right side, aligned with ore dots).
+        const reward = new Text({
+            text: `+${mission.baseCredits}⟁`,
+            style: new TextStyle({
+                fontFamily: '"Courier New", monospace',
+                fontSize: 14,
+                fontWeight: '700',
+                fill: 0xfde047,
+            }),
+        });
+        reward.anchor.set(1, 1);
+        reward.position.set(w - 10, h - 10);
+        container.addChild(reward);
+
+        // Difficulty tag (bottom-left over the ore dots? No -- push it
+        // under the brief so ore dots read cleanly).
+        const diff = new Text({
+            text: mission.difficulty,
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 10,
+                fontWeight: '700',
+                letterSpacing: 1,
+                fill: tierFill,
+            }),
+        });
+        diff.position.set(10, h - 44);
+        container.addChild(diff);
+
+        // Hover state: raise the border opacity + tier glow.
+        const redraw = (hovered, active) => {
+            bg.clear();
+            bg.roundRect(0, 0, w, h, 8).stroke({ color: tierFill, width: active ? 2 : 1, alpha: hovered || active ? 0.95 : 0.55 });
+            bgFill.alpha = hovered ? 0.82 : 0.7;
+        };
+        container.on('pointerover', () => redraw(true, !!container.__active));
+        container.on('pointerout',  () => redraw(false, !!container.__active));
+
+        return {
+            container,
+            missionId: mission.id,
+            tierId: mission.tierId,
+            setActive: (active) => {
+                container.__active = !!active;
+                redraw(false, active);
+            },
+        };
+    }
+
+    _prettyMode(m) {
+        if (m === GAME_MODES.STELLAR) return 'STELLAR';
+        if (m === GAME_MODES.AUTO_MATCH) return 'AUTO-MATCH';
+        if (m === GAME_MODES.BLOCKS) return 'BLOCKS';
+        return String(m).toUpperCase();
+    }
+
+    _prettyComplexity(c) {
+        if (c === PIECE_COMPLEXITY.CLASSIC) return 'CLASSIC';
+        if (c === PIECE_COMPLEXITY.MUTATED) return 'MUTATED';
+        if (c === PIECE_COMPLEXITY.COLLAPSED) return 'COLLAPSED';
+        return String(c).toUpperCase();
+    }
+
+    _rollCallsign() {
+        // 3-letter prefix + 3-digit suffix. Not persistent yet; just a
+        // session-stable bit of flavor so the dispatcher card doesn't
+        // read like a test harness.
+        const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+        const pick = () => letters[Math.floor(Math.random() * letters.length)];
+        const num = 100 + Math.floor(Math.random() * 900);
+        return `${pick()}${pick()}${pick()}-${num}`;
+    }
+
+    // Clicking a card: lock its config into _startState and fire the
+    // start-game request. main.js listens and drives the GameState +
+    // screen transition.
+    _onMissionCardTapped(mission) {
+        this._startState.mode = mission.gameConfig.mode;
+        this._startState.complexity = mission.gameConfig.complexity;
+        this._startState.fieldSizeId = mission.gameConfig.fieldSizeId;
+        this._startState.selectedMissionId = mission.id;
+        this._startState.selectedTierId = mission.tierId;
+        this._refreshStartButtons();
+        this._refreshLeaderboard();
+        if (typeof this._onStartGameRequested === 'function') {
+            this._onStartGameRequested({
+                mode: mission.gameConfig.mode,
+                complexity: mission.gameConfig.complexity,
+                fieldSizeId: mission.gameConfig.fieldSizeId,
+                playerName: 'Chief Dispatcher',
+                missionId: mission.id,
+                tierId: mission.tierId,
+            });
+        }
     }
 
     _buildStartButton({ text, width, height = 40, fill = 0x172554, hoverFill = 0x1d4ed8, textColor = COLOR_WHITE, onTap }) {
@@ -1380,60 +1585,14 @@ export class PixiView {
         };
     }
 
-    _setStartMode(mode) {
-        this._startState.mode = mode;
-        const tier = findTier(this._startState.mode, this._startState.complexity);
-        if (tier) this._startState.selectedTierId = tier.id;
-        this._refreshStartButtons();
-        this._refreshLeaderboard();
-    }
-
-    _setStartComplexity(complexity) {
-        this._startState.complexity = complexity;
-        this._rebuildFieldSizeButtons();
-        const tier = findTier(this._startState.mode, this._startState.complexity);
-        if (tier) this._startState.selectedTierId = tier.id;
-        this._refreshStartButtons();
-        this._refreshLeaderboard();
-    }
-
-    _rebuildFieldSizeButtons() {
-        const start = this._startScreen;
-        if (!start) return;
-        const sizes = FIELD_SIZES[this._startState.complexity] || FIELD_SIZES[PIECE_COMPLEXITY.CLASSIC];
-        if (!sizes.some((s) => s.id === this._startState.fieldSizeId)) {
-            this._startState.fieldSizeId = DEFAULT_FIELD_SIZE_ID;
-        }
-        start.sizeRow.removeChildren().forEach((c) => c.destroy({ children: true }));
-        start.sizeButtons = sizes.map((size, idx) => {
-            const mult = `x${Number(getSizeMultiplier(size.id)).toString()}`;
-            const btn = this._buildStartButton({
-                text: `${size.label}  ${mult}`,
-                width: 200,
-                onTap: () => {
-                    this._startState.fieldSizeId = size.id;
-                    this._refreshStartButtons();
-                },
-            });
-            btn.sizeId = size.id;
-            btn.container.x = idx * 220;
-            start.sizeRow.addChild(btn.container);
-            return btn;
-        });
-        this._refreshStartButtons();
-        this._layoutStartScreen();
-    }
-
     _refreshStartButtons() {
         const start = this._startScreen;
         if (!start) return;
-        start.modeButtons.forEach((btn, idx) => btn.setActive(
-            [GAME_MODES.STELLAR, GAME_MODES.AUTO_MATCH, GAME_MODES.BLOCKS][idx] === this._startState.mode,
-        ));
-        start.complexityButtons.forEach((btn, idx) => btn.setActive(
-            [PIECE_COMPLEXITY.CLASSIC, PIECE_COMPLEXITY.MUTATED, PIECE_COMPLEXITY.COLLAPSED][idx] === this._startState.complexity,
-        ));
-        start.sizeButtons.forEach((btn) => btn.setActive(btn.sizeId === this._startState.fieldSizeId));
+        // Mission cards use the selected mission id for the active state;
+        // tier tabs use the selected tier id (the tab the player last
+        // clicked on the MISSION LOG, which defaults to the selected
+        // mission's tier but can be clicked independently).
+        start.missionCards?.forEach((card) => card.setActive(card.missionId === this._startState.selectedMissionId));
         start.tierButtons.forEach((btn) => btn.setActive(btn.tierId === this._startState.selectedTierId));
     }
 
@@ -1659,15 +1818,14 @@ export class PixiView {
         const missionScaleY = Math.min(1, (panelH - 220) / 500);
         const missionScale = Math.min(missionScaleX / Math.max(s.leftScale, 0.001), missionScaleY / Math.max(s.leftScale, 0.001));
         s.missionPanel.scale.set(Math.max(0.7, missionScale));
-        s.modeRow.position.set(20, 82);
-        s.complexityRow.position.set(20, 178);
-        s.sizeRow.position.set(20, 274);
-        s.begin.container.position.set(Math.max(20, (680 - s.begin.width) / 2), 500 - 74);
 
         s.rankingsLabel.position.set(20, 18);
-        s.tierTabs.position.set(20, 64);
-        s.tierLabel.position.set(20, 194);
-        s.listContainer.position.set(20, 228);
+        // Dispatcher card sits under the header; tier tabs + list
+        // shift down to clear it. Right panel is 440 wide at base.
+        s.dispatcherCard.position.set(20, 50);
+        s.tierTabs.position.set(20, 164);
+        s.tierLabel.position.set(20, 294);
+        s.listContainer.position.set(20, 324);
 
         this._positionPlayerNameInput();
     }
@@ -2220,12 +2378,14 @@ export class PixiView {
     }
 
     setPlayerNameInput(input) {
+        // Player identity is now fixed to "Chief Dispatcher" and shown
+        // on the mission-select dispatcher card. The legacy DOM input
+        // stays in the HTML for back-compat but is permanently hidden.
         this._playerNameInput = input || null;
         if (this._playerNameInput) {
-            this._playerNameInput.maxLength = 15;
-            this._playerNameInput.value = (this._playerNameInput.value || 'Pilot').slice(0, 15) || 'Pilot';
+            this._playerNameInput.style.display = 'none';
+            this._playerNameInput.style.pointerEvents = 'none';
         }
-        this._positionPlayerNameInput();
     }
 
     setSelectedTier(tierId) {
@@ -2240,11 +2400,8 @@ export class PixiView {
         if (this._topControls) this._topControls.visible = false;
         if (this._startScreen?.root) this._startScreen.root.visible = true;
         if (this._playerNameInput) {
-            this._playerNameInput.style.display = 'block';
-            this._playerNameInput.style.pointerEvents = 'auto';
-            this._positionPlayerNameInput();
-            this._playerNameInput.focus();
-            this._playerNameInput.select();
+            this._playerNameInput.style.display = 'none';
+            this._playerNameInput.style.pointerEvents = 'none';
         }
         this._refreshLeaderboard();
     }
