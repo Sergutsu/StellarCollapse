@@ -35,6 +35,8 @@ import {
 
 import { buildMissions, pickMissionBoard, ORES } from '../missions.js';
 
+import { CELL_PALETTE } from './cell-palette.js';
+
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
 // will promote them to a shared ui-kit module once 2+ scenes want
@@ -112,17 +114,8 @@ const HUB_RISK_PRESETS = Object.freeze({
     5: { label: 'CRITICAL', color: 0xf87171 },
 });
 
-// Tile palette subset used for ore preview dots on mission cards.
-// Mirrors the palette in pixi-view.js; duplicated so the hub scene
-// does not import from the render root.
-const CELL_PALETTE = {
-    red:    { glow: 0xff4400 },
-    blue:   { glow: 0x4488ff },
-    green:  { glow: 0x44ff66 },
-    yellow: { glow: 0xffdd00 },
-    bomb:   { glow: 0xff0000 },
-    snake:  { glow: 0x00ff64 },
-};
+// CELL_PALETTE (ore preview dots on mission cards) is shared across
+// scenes via src/scenes/cell-palette.js.
 
 export class HubScene {
     constructor({
