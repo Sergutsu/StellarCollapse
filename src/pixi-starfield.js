@@ -20,12 +20,15 @@ const CROSS_TINTS = [
     0xf9a8d4,
 ];
 
+// Retinted toward the hub-backdrop reference: dominant teals + cyans with
+// scattered warm ember pockets. The old deep purples/magentas washed out
+// the baked backdrop when layered; these tints reinforce it instead.
 const NEBULA_TINTS = [
-    0x312e81,
-    0x1e3a8a,
-    0x5b21b6,
-    0x0f766e,
-    0x831843,
+    0x0e7490, // cyan-700 — primary teal body
+    0x155e75, // cyan-800 — shadow pockets
+    0x0f766e, // teal-700 — cool veins
+    0x7c2d12, // orange-900 — warm ember cloud
+    0x4c1d95, // violet-900 — rare highlight
 ];
 
 function clamp(n, lo, hi) {
@@ -132,7 +135,7 @@ function distributeStars(width, height, count) {
     return points;
 }
 
-export function createPixiStarfield(app, { width, height }) {
+export function createPixiStarfield(app, { width, height, backdropTexture } = {}) {
     const container = new Container();
     container.eventMode = 'none';
     container.interactiveChildren = false;
@@ -142,11 +145,33 @@ export function createPixiStarfield(app, { width, height }) {
     const screenH = Math.max(1, Math.round(height || app?.screen?.height || window.innerHeight || 1));
     const overscan = 48;
 
+    // Optional cinematic base layer (hub-backdrop.jpg). Cover-fits the
+    // viewport like CSS `background-size: cover` so no letterboxing or
+    // stretching regardless of aspect ratio. Slight darken + subtle drift
+    // keeps it from looking painted-on; the procedural nebula and twinkle
+    // layers render on top to preserve the "living space" feel.
+    let backdrop = null;
+    if (backdropTexture) {
+        backdrop = new Sprite(backdropTexture);
+        backdrop.eventMode = 'none';
+        backdrop.alpha = 0.82;
+        backdrop.tint = 0xbcd4e6;
+        const texW = backdropTexture.width || backdropTexture.source?.width || 1;
+        const texH = backdropTexture.height || backdropTexture.source?.height || 1;
+        const scale = Math.max((screenW + overscan * 2) / texW, (screenH + overscan * 2) / texH);
+        backdrop.scale.set(scale);
+        backdrop.x = Math.round((screenW - texW * scale) / 2);
+        backdrop.y = Math.round((screenH - texH * scale) / 2);
+        container.addChild(backdrop);
+    }
+
     const nebulaBuilt = buildNebulaTexture(renderer, screenW, screenH, overscan);
     const nebula = new Sprite(nebulaBuilt.tex);
     nebula.x = -overscan;
     nebula.y = -overscan;
-    nebula.alpha = 0.92;
+    // Softened so the baked backdrop shows through. Without the backdrop
+    // we push it back up to keep nebulae prominent on their own.
+    nebula.alpha = backdrop ? 0.6 : 0.92;
     container.addChild(nebula);
 
     const starLayer = new Container();
@@ -185,12 +210,20 @@ export function createPixiStarfield(app, { width, height }) {
     }
 
     let clock = 0;
+    const backdropBaseX = backdrop ? backdrop.x : 0;
+    const backdropBaseY = backdrop ? backdrop.y : 0;
     function update(dtMs) {
         if (!dtMs || dtMs <= 0) return;
         clock += dtMs;
 
         nebula.x = -overscan + Math.sin(clock * 0.000018) * 9;
         nebula.y = -overscan + Math.cos(clock * 0.000014) * 7;
+        // Backdrop drifts at ~⅓ of nebula rate so the parallax separation
+        // is visible but never distracting.
+        if (backdrop) {
+            backdrop.x = backdropBaseX + Math.sin(clock * 0.000006) * 4;
+            backdrop.y = backdropBaseY + Math.cos(clock * 0.000005) * 3;
+        }
 
         for (const rec of stars) {
             rec.phase += dtMs * rec.speed;
