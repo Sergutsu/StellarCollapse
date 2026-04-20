@@ -40,6 +40,11 @@ import {
 } from '../constants.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
+import {
+    drawHologramPanel,
+    drawStarShape,
+    panelLabel,
+} from '../pixi-ui-kit.js';
 
 const ICON_EMOJI = {
     red:    '🔥',
@@ -106,17 +111,11 @@ export class GameScene {
         state,
         sceneRoot,
         uiRoot,
-        drawHologramPanel,
-        drawStarShape,
-        panelLabel,
     }) {
         this.app = app;
         this.state = state;
         this.sceneRoot = sceneRoot;
         this.uiRoot = uiRoot;
-        this._drawHologramPanel = drawHologramPanel;
-        this._drawStarShape = drawStarShape;
-        this._panelLabel = panelLabel;
 
         this.blockPx = 30;
         // Layer containers. Populated in _build().
@@ -1133,7 +1132,7 @@ export class GameScene {
     _buildTitleBar() {
         const c = new Container();
 
-        const star = this._drawStarShape(28, 0xfacc15);
+        const star = drawStarShape(28, 0xfacc15);
         star.x = HUD_W / 2 - 180;
         star.y = TITLE_H / 2;
         c.addChild(star);
@@ -1268,9 +1267,9 @@ export class GameScene {
     _buildLevelPanel() {
         const w = COL_W;
         const h = 110;
-        const container = this._drawHologramPanel(w, h);
+        const container = drawHologramPanel(w, h);
 
-        const label = this._panelLabel('LEVEL', COLOR_BLUE_300);
+        const label = panelLabel('LEVEL', COLOR_BLUE_300);
         label.anchor.set(0.5, 0);
         label.x = w / 2;
         label.y = 10;
@@ -1313,9 +1312,9 @@ export class GameScene {
     _buildPreviewPanel() {
         const w = COL_W;
         const h = 602;
-        const container = this._drawHologramPanel(w, h);
+        const container = drawHologramPanel(w, h);
 
-        const nextLabel = this._panelLabel('NEXT', COLOR_CYAN_300, { size: 14 });
+        const nextLabel = panelLabel('NEXT', COLOR_CYAN_300, { size: 14 });
         nextLabel.anchor.set(0.5, 0);
         nextLabel.x = w / 2;
         nextLabel.y = 8;
@@ -1326,7 +1325,7 @@ export class GameScene {
         next.container.y = 30;
         container.addChild(next.container);
 
-        const upLabel = this._panelLabel('COMING UP', COLOR_CYAN_400, { size: 11 });
+        const upLabel = panelLabel('COMING UP', COLOR_CYAN_400, { size: 11 });
         upLabel.anchor.set(0.5, 0);
         upLabel.x = w / 2;
         upLabel.y = 30 + 24 * 4 + 10;
@@ -1384,10 +1383,10 @@ export class GameScene {
     _buildScorePanel() {
         const w = COL_W;
         const h = 210;
-        const container = this._drawHologramPanel(w, h);
+        const container = drawHologramPanel(w, h);
 
         let yCursor = 10;
-        const labelScore = this._panelLabel('SCORE', COLOR_YELLOW_300);
+        const labelScore = panelLabel('SCORE', COLOR_YELLOW_300);
         labelScore.anchor.set(0.5, 0);
         labelScore.x = w / 2;
         labelScore.y = yCursor;
@@ -1404,7 +1403,7 @@ export class GameScene {
         container.addChild(div1);
         yCursor += 6;
 
-        const labelLines = this._panelLabel('LINES', COLOR_GREEN_300);
+        const labelLines = panelLabel('LINES', COLOR_GREEN_300);
         labelLines.anchor.set(0.5, 0);
         labelLines.x = w / 2;
         labelLines.y = yCursor;
@@ -1421,7 +1420,7 @@ export class GameScene {
         container.addChild(div2);
         yCursor += 6;
 
-        const labelMult = this._panelLabel('MULTIPLIER', COLOR_PINK_300);
+        const labelMult = panelLabel('MULTIPLIER', COLOR_PINK_300);
         labelMult.anchor.set(0.5, 0);
         labelMult.x = w / 2;
         labelMult.y = yCursor;
@@ -1439,9 +1438,9 @@ export class GameScene {
     _buildTipsPanel() {
         const w = COL_W;
         const h = 140;
-        const container = this._drawHologramPanel(w, h);
+        const container = drawHologramPanel(w, h);
 
-        const label = this._panelLabel('MISSION TIP', COLOR_CYAN_300, { size: 13 });
+        const label = panelLabel('MISSION TIP', COLOR_CYAN_300, { size: 13 });
         label.anchor.set(0.5, 0);
         label.x = w / 2;
         label.y = 10;
@@ -1470,9 +1469,9 @@ export class GameScene {
     _buildControlsPanel() {
         const w = COL_W;
         const h = BOARD_SLOT_H - 210 - 140 - 16;
-        const container = this._drawHologramPanel(w, h);
+        const container = drawHologramPanel(w, h);
 
-        const label = this._panelLabel('CONTROLS', COLOR_CYAN_300, { size: 13 });
+        const label = panelLabel('CONTROLS', COLOR_CYAN_300, { size: 13 });
         label.anchor.set(0.5, 0);
         label.x = w / 2;
         label.y = 10;
