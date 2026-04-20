@@ -39,12 +39,16 @@ One screen per stage. No pauses inserted between them.
 ## Meta loop (across missions)
 
 ```
-RUN ─▶ credits + ores banked ─▶ MISSION LOG / REP ─▶ unlocks ─▶ more missions
+RUN ─▶ credits + ores banked ─▶ REP tier ─▶ unlocks ─▶ more missions
 ```
 
 - Credits are the primary currency. Ores are secondary, consumed by upgrades.
 - Rep tier is a cumulative-credits rank (Apprentice → Master Dispatcher, etc.). Gates some T8/T9 missions.
 - Mission list shuffles on daily reroll; reroll manually for credits if impatient.
+- **No persistent leaderboard.** The old HighScores module was removed — the
+  game is about banking resources, not bragging about a top score. Per-run
+  stats live in the results screen (P1) and personal-bests can reappear later
+  as a MetaState read-out if useful.
 
 This is all **P2+** work. P1 only introduces the per-run tally and results screen.
 
@@ -63,27 +67,24 @@ is NOT the current implementation.
 
 ### Main menu — today (transitional)
 
-What ships today is a slimmed version of the future hub's MISSIONS tab:
+What ships today is a slimmed version of the future hub's MISSIONS tab, one
+centered panel:
 
-- Left panel: **AVAILABLE MISSIONS** heading + 3×3 mission card grid.
-- Right panel: **CHIEF DISPATCHER** identity card (role + callsign + status), below it **MISSION LOG** (tier tabs + top-5 score per tier).
+- **AVAILABLE MISSIONS** heading + 3×3 mission card grid.
+- **CHIEF DISPATCHER** identity card (role + callsign + status) directly under
+  the mission grid in the same panel.
 - Title bar on top: shiny "STELLAR COLLAPSE" with the reactive star actor.
 
 No player-name input. No BEGIN button. No mode/complexity/size toggles — each
-card encapsulates its own config. The MISSION LOG panel stays on the main menu
-until a dedicated home for it lands in a later phase (candidates: top-bar chip
-that opens a modal, or a panel in the CREW tab — decided in `UI-HUB.md` as we
-build).
+card encapsulates its own config. No MISSION LOG / leaderboard panel — the
+HighScores system was removed. The game is about banking resources, not a
+bragging scoreboard.
 
 Known layout defects on today's main menu (tracked in `ROADMAP.md`):
 
-- MISSION LOG panel overlaps the dispatcher identity card and the title bar.
 - Whole layout is clustered in the top-left of wide viewports instead of
-  centering / filling the screen.
-
-Fixing both is part of the P1 → P2 transition; the same PR that introduces the
-hub scaffolding will fix the centering as a side effect (the hub is viewport-
-filling by construction).
+  filling the screen. Partially mitigated by the single-panel layout; fully
+  fixed by the hub in P2.
 
 ### Mission run (gameplay)
 

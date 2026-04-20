@@ -1,24 +1,23 @@
 // Bootstrap: wire GameState + PixiView + Audio + Input, handle screen
-// transitions and high scores. Tiny on purpose; everything meaningful
-// lives in the dedicated modules.
+// transitions. Tiny on purpose; everything meaningful lives in the
+// dedicated modules. Highscores have been removed -- the game loop is
+// about mission-run resource tallies now (landing in P1+).
 
 import { GameState } from './game-state.js';
 import { PixiView } from './pixi-view.js';
 import { Audio } from './audio.js';
-import { HighScores } from './highscores.js';
 import { bindInput } from './input.js';
 import {
     GAME_MODES,
     PIECE_COMPLEXITY,
     DEFAULT_FIELD_SIZE_ID,
-    findTier,
 } from './constants.js';
 
 const el = (id) => document.getElementById(id);
 
-// Default selections the first time the UI opens. Mode/complexity default
-// to a tier that actually exists (tier 1 -- Stellar/Classic) so the start
-// button always maps to a valid leaderboard.
+// Default selections the first time the UI opens. Mode/complexity
+// default to tier 1 (Stellar/Classic) which is the mission the player
+// starts highlighted on the board.
 const DEFAULT_MODE = GAME_MODES.STELLAR;
 const DEFAULT_COMPLEXITY = PIECE_COMPLEXITY.CLASSIC;
 const DEFAULT_SIZE_ID = DEFAULT_FIELD_SIZE_ID;
@@ -29,7 +28,6 @@ async function boot() {
     };
 
     const audio = new Audio();
-    const highScores = new HighScores();
     const state = new GameState({
         schedule: (fn, ms) => setTimeout(fn, ms),
         mode: DEFAULT_MODE,
@@ -108,22 +106,10 @@ async function boot() {
     state.on('game-started', refreshTip);
     state.on('level-up',     refreshTip);
 
-    view.setHighScores(highScores);
-    view.setSelectedTier(findTier(DEFAULT_MODE, DEFAULT_COMPLEXITY)?.id);
-
-    state.on('game-over', ({ score }) => {
-        // Player identity is fixed to "Chief Dispatcher" now that the
-        // start screen is a mission-select. Callsign / reputation /
-        // persistent ledger come in a later PR.
-        const name = 'Chief Dispatcher';
-        // Only save to a leaderboard if the (mode, complexity) the player
-        // actually played is one of the 9 ranked tiers. Every legal
-        // start-screen selection currently does map to a tier.
-        const tier = findTier(state.mode, state.complexity);
-        if (tier && score > 0) {
-            highScores.save(tier.id, name, score);
-            view.setSelectedTier(tier.id);
-        }
+    state.on('game-over', () => {
+        // No leaderboard to write to. A per-run results scene (P1) will
+        // tally ores + credits before returning the player to the
+        // mission-select; for now we just drop back to the menu.
         view.showStartScreen();
     });
 

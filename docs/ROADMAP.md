@@ -2,7 +2,7 @@
 
 > Three buckets only: **Now**, **Next**, **Later**. Anything in Now has a branch or PR open. Anything in Later is an idea, not a commitment.
 >
-> Updated at phase boundaries — not every PR. Last bump: after PR #36 + Hub vision doc.
+> Updated at phase boundaries — not every PR. Last bump: after the highscore removal (MISSION LOG + `HighScores` module deleted).
 
 ---
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | P0 | Match-4 / Tetris prototype with modes, tiers, field sizes, Pixi renderer, mission-select screen | **Shipped** |
 | P1 | Resource ledger: ores tallied per run, credits awarded, results screen | Now |
-| P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSIONS tab hosts today's 3×3 board; fixes current centering + MISSION LOG overlap defects | Next |
+| P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSIONS tab hosts today's 3×3 board; replaces today's transitional mission-select entirely | Next |
 | P3 | Persistent meta-state (`MetaState`, `persistence.js`) + rep-tier gates on mission cards | Later |
 | P4 | Active-missions idle tick (`IdleClock`, `MissionRegistry`): left column ticks ETAs, completion → results → hub with rewards | Later |
 | P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue, upgrade list | Later |
@@ -61,13 +61,13 @@ when it's addressed.
   (window.innerWidth - HUD_W) / 2`. On wide monitors the panel ends up in the
   top-left cluster of the viewport instead of filling. Reference:
   [`images/current-layout-bug-2026-04-20.png`](images/current-layout-bug-2026-04-20.png).
-  → Fix lands with P2 hub scaffolding (hub is viewport-filling by
-    construction).
-- **MISSION LOG panel overlaps the dispatcher card + title bar.** Same
-  screenshot. The mission-log panel is layered above the dispatcher identity
-  card instead of stacking cleanly.
-  → Fix lands with P2 hub scaffolding (MISSION LOG moves to a dedicated home
-    per `UI-HUB.md` — either a top-bar chip modal or a CREW-tab sub-panel).
+  → Partially mitigated by the MISSION LOG deletion (single-panel layout now
+    centers on width). Full viewport-filling fix still lands with P2 hub
+    scaffolding.
+- ~~**MISSION LOG panel overlaps the dispatcher card + title bar.**~~ Fixed by
+  deleting the MISSION LOG panel entirely (the highscore system is gone;
+  gameplay is about mission-run resources, not a leaderboard). Dispatcher card
+  now sits directly beneath the mission grid in a single centered panel.
 
 ## Next (P2 — Hub scaffolding)
 
@@ -86,9 +86,11 @@ Deliverables:
   queue + upgrade rows land in P5.
 - **Bottom nav** — 6 pill buttons. MISSIONS is the default active tab. Other
   tabs render a `Unlocks at Rep Tier N` stub panel.
-- **MISSIONS tab** — hosts today's 3×3 mission board + MISSION LOG, but owned
-  by its own container. Dispatcher identity card is relocated; no more overlap.
-- Side effect: both "known issues" above (centering + overlap) disappear.
+- **MISSIONS tab** — hosts today's 3×3 mission board, owned by its own
+  container. Dispatcher identity card is relocated into the top bar alongside
+  the resource strip.
+- Side effect: the remaining centering known-issue disappears (hub is
+  viewport-filling by construction).
 
 Out of scope for P2: idle ticking, persistence, upgrades, research, crew,
 market, star map, station 3D.
