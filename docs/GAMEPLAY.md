@@ -211,6 +211,55 @@ not a standalone storage module.
 
 ---
 
+## Persistence (MetaState profile)
+
+Shipped in P3. The hub's resource strip, fleet roster, and crew roster
+are now backed by a persistent player profile saved to
+`localStorage` under `stellarVentureSaveV1`. See
+`adr/0008-meta-state-persistence.md`.
+
+### Profile shape
+
+| Field | Type | Starter | Notes |
+|---|---|---|---|
+| `version` | int | `1` | Schema version. Mismatches are refused on load. |
+| `credits` | int | `4800` | Soft currency. Awarded by mission rewards (P1+). |
+| `hubResources.o2` | int (0–100) | `82` | Life-support percent. |
+| `hubResources.fuel` | int | `640` | Consumed per mission dispatch (P4). |
+| `hubResources.minerals` | int | `1200` | Aggregate ore count for display. |
+| `hubResources.warp` | int | `3` | Warp-cell charges. |
+| `ores.{red, orange, yellow, green, blue, purple}` | int | `0` each | Per-tile-colour ore counts. Granular; used for crafting / upgrades (P5+). |
+| `fleet[]` | `{id, name, className, hull (0–100), status}` | 3 starter ships | Ids are stable; only `hull` and `status` persist — cosmetic fields fall back to the starter roster. |
+| `crew[]` | `{id, name, role, level, status}` | 3 starter crew | Same merge rule as fleet: ids are stable, only `level`/`status` persist. |
+| `reputationTier` | int | `1` | Gates hub tabs (STAR MAP / BUILD / RESEARCH / CREW / MARKET). |
+| `completedMissionIds` | `string[]` | `[]` | Deduped on `applyMissionReward(... missionId)`. |
+
+### Storage contract
+
+- Single key: `stellarVentureSaveV1`.
+- Saves fire on every `MetaState.emit('change')`. In P3 only the
+  constructor-time merge + manual test hooks produce mutations; P1
+  wires the results-screen into `applyMissionReward`.
+- Missing / unparseable / wrong-version blobs all fall back to the
+  starter profile. No "nuke your save" instructions — the next save
+  overwrites the bad blob.
+- No localStorage (SSR / private-mode Safari / sandboxed iframe):
+  game still boots, saves no-op.
+
+### Mutation API (used by P1+)
+
+| Method | Emits `kind` | Effect |
+|---|---|---|
+| `setCredits(n)` / `addCredits(n)` | `credits` | Clamps ≥ 0, floors to int. |
+| `setHubResource(id, n)` | `hub-resource` | Same clamping. `id='credits'` delegates to `setCredits`. |
+| `addOre(color, n)` | `ore` | Unknown colours are ignored. |
+| `applyMissionReward({credits, ores, missionId})` | `mission-reward` | One event for a full reward envelope. `completedMissionIds` dedupes by id. |
+| `setShipHull(id, n)` / `setShipStatus(id, s)` | `ship-hull` / `ship-status` | Hull clamps to 0–100. |
+| `setCrewLevel(id, n)` / `setCrewStatus(id, s)` | `crew-level` / `crew-status` | Level clamps ≥ 1. |
+| `setReputationTier(n)` | `rep` | Clamps ≥ 1. |
+
+---
+
 ## Tunable numbers summary (index)
 
 When you need to tune any of these, update the constant **and** this file in the same PR:

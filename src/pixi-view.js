@@ -133,19 +133,9 @@ const HUB_COL_W = 276;
 const HUB_GUTTER = 14;
 const HUB_MIN_CENTER_W = 460;
 
-// Starter fleet + crew rosters. Static until P3 persistence + P4 idle
-// ticking land; until then the right column shows this roster on every
-// session.
-const STARTER_FLEET = Object.freeze([
-    { id: 'ship-1', name: 'Nyx-I',      className: 'Corvette', hull: 100, status: 'Standby' },
-    { id: 'ship-2', name: 'Oblivion',   className: 'Hauler',   hull: 78,  status: 'Standby' },
-    { id: 'ship-3', name: 'Dawnbreak',  className: 'Scout',    hull: 92,  status: 'Standby' },
-]);
-const STARTER_CREW = Object.freeze([
-    { id: 'crew-1', name: 'V. Draeven', role: 'Captain',   level: 4, status: 'Available' },
-    { id: 'crew-2', name: 'T. Halveri', role: 'Engineer',  level: 3, status: 'Available' },
-    { id: 'crew-3', name: 'K. Saros',   role: 'Navigator', level: 2, status: 'Resting'   },
-]);
+// Fleet + crew rosters now live on MetaState (src/meta-state.js) and
+// are hydrated from localStorage on boot. The view reads snapshots via
+// `this.meta.fleetSnapshot()` / `crewSnapshot()`.
 
 // Galactic News ticker pool. Static flavor strings for P2; runtime
 // mission-complete / ship-damaged / anomaly events wire in from P4.
@@ -171,15 +161,32 @@ const HUB_TABS = Object.freeze([
     { id: 'market',     label: 'MARKET',        locked: true,  lockRep: 2 },
 ]);
 
-// Starter resource strip. Values are placeholder until P3 MetaState
-// wires real counts; the visual is what P2 ships.
+// Resource strip metadata. Numeric values come from MetaState at
+// render time via `_formatHubResource`. `metaId` is the MetaState key
+// for that chip; chip.id is the cosmetic identifier used by the DOM
+// layout. Fields are split so adding a new chip doesn't require
+// touching MetaState.
 const HUB_RESOURCES = Object.freeze([
-    { id: 'o2',   label: 'O\u2082',    value: '82%',   color: 0x67e8f9 },
-    { id: 'fuel', label: 'Fuel',       value: '640',   color: 0xfcd34d },
-    { id: 'mins', label: 'Minerals',   value: '1.2k',  color: 0xc4b5fd },
-    { id: 'cred', label: 'Credits',    value: '4,800', color: 0x86efac },
-    { id: 'warp', label: 'Warp',       value: '3',     color: 0xf9a8d4 },
+    { id: 'o2',   metaId: 'o2',       label: 'O\u2082',   format: 'percent', color: 0x67e8f9 },
+    { id: 'fuel', metaId: 'fuel',     label: 'Fuel',      format: 'int',     color: 0xfcd34d },
+    { id: 'mins', metaId: 'minerals', label: 'Minerals',  format: 'kilo',    color: 0xc4b5fd },
+    { id: 'cred', metaId: 'credits',  label: 'Credits',   format: 'comma',   color: 0x86efac },
+    { id: 'warp', metaId: 'warp',     label: 'Warp',      format: 'int',     color: 0xf9a8d4 },
 ]);
+
+// Format a numeric MetaState value for the top-bar chip. Keeping
+// formatting in one place means tuning the display (e.g. shortening
+// "1.2k" to "1.2K" later) is a single edit.
+function formatHubResourceValue(value, format) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
+    switch (format) {
+        case 'percent': return `${Math.round(value)}%`;
+        case 'kilo':    return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(Math.round(value));
+        case 'comma':   return value.toLocaleString('en-US');
+        case 'int':
+        default:        return String(Math.round(value));
+    }
+}
 
 // Risk -> label/color mapping on mission-board cards.
 const HUB_RISK_PRESETS = Object.freeze({
@@ -203,8 +210,9 @@ const STAR_REACTIONS = {
 };
 
 export class PixiView {
-    constructor({ state, elements }) {
+    constructor({ state, meta = null, elements }) {
         this.state = state;
+        this.meta = meta;
         this.el = elements;
 
         this.app = null;
@@ -1360,8 +1368,25 @@ export class PixiView {
         });
         container.addChild(dispatcherBadge);
 
-        const chips = HUB_RESOURCES.map((r) => this._buildResourceChip(r));
+        const chips = HUB_RESOURCES.map((r) => {
+            const chip = this._buildResourceChip(r);
+            chip.metaId = r.metaId;
+            chip.format = r.format;
+            return chip;
+        });
         chips.forEach((chip) => container.addChild(chip.container));
+        // Sync chip values with MetaState now, and re-sync whenever
+        // MetaState emits `change` so P1+ reward grants surface in the
+        // top bar without a full hub rebuild.
+        this._syncResourceChips(chips);
+        if (this.meta && !this._metaChipSyncBound) {
+            this._metaChipSyncBound = true;
+            this.meta.on('change', () => {
+                if (this._startScreen && this._startScreen.topBar) {
+                    this._syncResourceChips(this._startScreen.topBar.chips);
+                }
+            });
+        }
 
         const gear = new Text({
             text: '\u2699',
@@ -1375,7 +1400,15 @@ export class PixiView {
         return { container, bg, star, brand, dispatcherBadge, chips, gear };
     }
 
-    _buildResourceChip({ label, value, color }) {
+    _syncResourceChips(chips) {
+        if (!chips) return;
+        for (const chip of chips) {
+            const value = this.meta ? this.meta.getHubResource(chip.metaId) : null;
+            chip.valueText.text = formatHubResourceValue(value, chip.format);
+        }
+    }
+
+    _buildResourceChip({ label, color }) {
         const container = new Container();
         container.eventMode = 'static';
 
@@ -1396,7 +1429,7 @@ export class PixiView {
         container.addChild(labelText);
 
         const valueText = new Text({
-            text: value,
+            text: '-',
             style: new TextStyle({
                 fontFamily: '"Courier New", monospace',
                 fontSize: 14,
@@ -1553,7 +1586,9 @@ export class PixiView {
         fleetLabel.position.set(14, 38);
         panel.addChild(fleetLabel);
 
-        const fleetRows = STARTER_FLEET.map((ship, i) => {
+        const fleet = this.meta ? this.meta.fleetSnapshot() : [];
+        const crew  = this.meta ? this.meta.crewSnapshot()  : [];
+        const fleetRows = fleet.map((ship, i) => {
             const row = this._buildFleetRow(ship, HUB_COL_W - 28);
             row.container.position.set(14, 56 + i * 46);
             panel.addChild(row.container);
@@ -1564,12 +1599,12 @@ export class PixiView {
             text: 'CREW',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
         });
-        crewLabel.position.set(14, 56 + STARTER_FLEET.length * 46 + 10);
+        crewLabel.position.set(14, 56 + fleet.length * 46 + 10);
         panel.addChild(crewLabel);
 
-        const crewRows = STARTER_CREW.map((crew, i) => {
+        const crewRows = crew.map((crew, i) => {
             const row = this._buildCrewRow(crew, HUB_COL_W - 28);
-            row.container.position.set(14, 56 + STARTER_FLEET.length * 46 + 28 + i * 38);
+            row.container.position.set(14, 56 + fleet.length * 46 + 28 + i * 38);
             panel.addChild(row.container);
             return row;
         });
