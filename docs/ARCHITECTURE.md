@@ -30,6 +30,12 @@
    │              │                     │  starfield   │
    └──────────────┘                     └──────────────┘
 
+   ┌──────────────┐    change    ┌──────────────┐
+   │  MetaState   │ ───────────▶ │ Persistence  │
+   │  (pure)      │              │ (localStorage)│
+   └──────▲───────┘              └──────────────┘
+          │ hydrate / read
+          │
    ┌──────────────┐                     ┌──────────────┐
    │  missions    │                     │  audio       │
    │  (pure)      │                     │              │
@@ -37,7 +43,7 @@
 
    ┌──────────────────────────────────────────────────┐
    │              main.js (orchestrator)              │
-   │  constructs state + view, wires events,          │
+   │  constructs state + meta + view, wires events,   │
    │  owns the GameState ↔ screen-transition seam     │
    └──────────────────────────────────────────────────┘
 ```
@@ -74,6 +80,16 @@ Piece shape pool per complexity. Read-only.
 ### `src/audio.js`
 
 WebAudio tone generators. Wired to state events from `main.js`.
+
+### `src/meta-state.js` — pure
+
+Persistent player profile. Owns **credits**, **hub resources** (O₂, fuel, minerals, warp), **per-color ore counts** (6 ores, one per tile color), **fleet roster** (ship id / name / class / hull % / status), **crew roster** (id / name / role / level / status), **reputation tier**, and **completed mission ids**. Emits a `change` event with `{ kind, detail }` on every mutation so `Persistence` saves and `PixiView` re-syncs the top-bar chips without a full rebuild.
+
+Exposes reads (`credits`, `getHubResource(id)`, `getOre(color)`, `fleetSnapshot()`, `crewSnapshot()`, `snapshot()`) and writes (`setCredits`, `addCredits`, `addOre`, `applyMissionReward`, `setShipHull`, `setShipStatus`, `setCrewLevel`, `setCrewStatus`, `setReputationTier`). Constructor takes an optional hydrated blob and shallow-merges it onto the starter profile so malformed saves fall back to defaults instead of breaking the game.
+
+### `src/persistence.js`
+
+Versioned localStorage wrapper for the `MetaState` snapshot. One key — `stellarVentureSaveV1` (exported as `STORAGE_KEY`). Every method (`load`, `save`, `clear`) is non-throwing: SSR / private-mode Safari / quota-exceeded / unparseable blobs all return a safe default so the game keeps booting. Refuses to hydrate a blob with a mismatched `version` — the caller falls back to the starter profile and the next save overwrites the bad blob. Storage is dependency-injected (`new Persistence({ storage })`) so tests pass a `createMemoryStorage()` fake.
 
 ### `src/pixi-view.js`
 

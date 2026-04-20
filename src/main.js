@@ -7,6 +7,8 @@ import { GameState } from './game-state.js';
 import { PixiView } from './pixi-view.js';
 import { Audio } from './audio.js';
 import { bindInput } from './input.js';
+import { MetaState } from './meta-state.js';
+import { Persistence } from './persistence.js';
 import {
     GAME_MODES,
     PIECE_COMPLEXITY,
@@ -28,13 +30,20 @@ async function boot() {
     };
 
     const audio = new Audio();
+    // Persistence + MetaState. If localStorage is unavailable (SSR,
+    // private-mode Safari, quota errors) the game still boots with a
+    // fresh starter profile; save() just no-ops. No feature flag --
+    // persistence is always on where the platform supports it.
+    const persistence = new Persistence();
+    const meta = new MetaState(persistence.load());
+    meta.on('change', () => { persistence.save(meta.snapshot()); });
     const state = new GameState({
         schedule: (fn, ms) => setTimeout(fn, ms),
         mode: DEFAULT_MODE,
         complexity: DEFAULT_COMPLEXITY,
         fieldSizeId: DEFAULT_SIZE_ID,
     });
-    const view = new PixiView({ state, elements });
+    const view = new PixiView({ state, meta, elements });
     // Pixi needs an async bootstrap. Await it before createBoard so
     // the stage/ticker are ready before any state event fires.
     await view.init();
