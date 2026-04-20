@@ -30,7 +30,7 @@ import {
     LOW_FX_CELL_THRESHOLD,
 } from './constants.js';
 
-import { buildMissions, ORES } from './missions.js';
+import { buildMissions, pickMissionBoard, ORES } from './missions.js';
 
 import { createPixiStarfield } from './pixi-starfield.js';
 
@@ -118,6 +118,76 @@ const COLOR_YELLOW_300 = 0xfde047;
 const COLOR_GREEN_300 = 0x86efac;
 const COLOR_PINK_300 = 0xf9a8d4;
 const COLOR_WHITE = 0xffffff;
+
+// --------------------------------------------------------------------
+// Hub shell layout. Unlike the fixed in-game HUD, the hub fills the
+// viewport: top bar + news ticker + 3 columns + bottom nav + a mission
+// board modal overlay. All numbers here are target pixel sizes at 1:1
+// viewport; _layoutHubShell() repositions them on resize.
+// --------------------------------------------------------------------
+const HUB_TOPBAR_H = 72;
+const HUB_NEWS_H = 28;
+const HUB_NAV_H = 56;
+const HUB_COL_W = 276;
+const HUB_GUTTER = 14;
+const HUB_MIN_CENTER_W = 460;
+
+// Starter fleet + crew rosters. Static until P3 persistence + P4 idle
+// ticking land; until then the right column shows this roster on every
+// session.
+const STARTER_FLEET = Object.freeze([
+    { id: 'ship-1', name: 'Nyx-I',      className: 'Corvette', hull: 100, status: 'Standby' },
+    { id: 'ship-2', name: 'Oblivion',   className: 'Hauler',   hull: 78,  status: 'Standby' },
+    { id: 'ship-3', name: 'Dawnbreak',  className: 'Scout',    hull: 92,  status: 'Standby' },
+]);
+const STARTER_CREW = Object.freeze([
+    { id: 'crew-1', name: 'V. Draeven', role: 'Captain',   level: 4, status: 'Available' },
+    { id: 'crew-2', name: 'T. Halveri', role: 'Engineer',  level: 3, status: 'Available' },
+    { id: 'crew-3', name: 'K. Saros',   role: 'Navigator', level: 2, status: 'Resting'   },
+]);
+
+// Galactic News ticker pool. Static flavor strings for P2; runtime
+// mission-complete / ship-damaged / anomaly events wire in from P4.
+const HUB_NEWS_POOL = Object.freeze([
+    'Omega-4 Belt reports heightened pirate chatter. Escorts recommended.',
+    'Xeno-archeology guild posts bounty on Verdanite-rich ruins.',
+    'Trade Route Defense contracts paying +15% this quarter.',
+    'Black-hole anomaly detected at Event Horizon Shadow. Research teams invited.',
+    'Seismic Rift survey crews report hazard pay doubled after last week\'s collapse.',
+    'Voidwreck Field salvage rights auctioned; registered dispatchers only.',
+    'Kuiper Fringe relics recovered from Dig-47 fetch record bids at market.',
+    'Terminus Core Protocol advisory: escort clearance required.',
+]);
+
+// Hub bottom-nav tabs. Only MISSIONS is active in P2; the rest render a
+// locked stub panel. `lockRep` is a placeholder gate until P3 rep lands.
+const HUB_TABS = Object.freeze([
+    { id: 'star-map',   label: 'STAR MAP',      locked: true,  lockRep: 2 },
+    { id: 'missions',   label: 'MISSIONS',      locked: false },
+    { id: 'build',      label: 'BUILD/UPGRADE', locked: true,  lockRep: 3 },
+    { id: 'research',   label: 'RESEARCH',      locked: true,  lockRep: 4 },
+    { id: 'crew',       label: 'CREW',          locked: true,  lockRep: 3 },
+    { id: 'market',     label: 'MARKET',        locked: true,  lockRep: 2 },
+]);
+
+// Starter resource strip. Values are placeholder until P3 MetaState
+// wires real counts; the visual is what P2 ships.
+const HUB_RESOURCES = Object.freeze([
+    { id: 'o2',   label: 'O\u2082',    value: '82%',   color: 0x67e8f9 },
+    { id: 'fuel', label: 'Fuel',       value: '640',   color: 0xfcd34d },
+    { id: 'mins', label: 'Minerals',   value: '1.2k',  color: 0xc4b5fd },
+    { id: 'cred', label: 'Credits',    value: '4,800', color: 0x86efac },
+    { id: 'warp', label: 'Warp',       value: '3',     color: 0xf9a8d4 },
+]);
+
+// Risk -> label/color mapping on mission-board cards.
+const HUB_RISK_PRESETS = Object.freeze({
+    1: { label: 'LOW',      color: 0x86efac },
+    2: { label: 'MODERATE', color: 0xfde047 },
+    3: { label: 'ELEVATED', color: 0xfbbf24 },
+    4: { label: 'HIGH',     color: 0xfb923c },
+    5: { label: 'CRITICAL', color: 0xf87171 },
+});
 
 // Title-star reaction -> {color, periodMs, kind}. kind drives the
 // animation shape; periodMs matches the DOM @keyframes durations.
@@ -280,6 +350,7 @@ export class PixiView {
             this._tickPulse();
             this._tickStar(ticker.deltaMS);
             this._tickTweens(ticker.deltaMS);
+            this._tickHubNews(ticker.deltaMS);
         });
 
         // Click-to-match input: forward canvas clicks to game state as
@@ -1186,199 +1257,606 @@ export class PixiView {
         };
     }
 
+    // -----------------------------------------------------------------
+    // Hub shell. Replaces the old single-panel mission grid with a five-
+    // zone viewport-filling layout + MISSION BOARD modal. See
+    // docs/UI-HUB.md for the target spec.
+    //
+    //   top bar (brand + resources + dispatcher badge + gear)
+    //   galactic news ticker
+    //   left: ACTIVE MISSIONS     center: tab content    right: FLEET & CREW
+    //   bottom nav (6 tabs)
+    //   MISSION BOARD modal floats above center on MISSIONS tab
+    //
+    // All zone containers are direct children of the hub root and get
+    // positioned in viewport coordinates by _layoutHubShell(). The fixed
+    // in-game HUD (sceneRoot / HUD_W / HUD_H) is untouched -- it lives
+    // inside sceneRoot which is hidden while the hub is visible.
+    // -----------------------------------------------------------------
     _buildStartScreen() {
         const root = new Container();
+        root.eventMode = 'static';
         this.uiRoot.addChild(root);
 
-        // Single-panel layout. The old MISSION LOG / leaderboard side
-        // panel was deleted; the dispatcher identity card moved beneath
-        // the mission grid. Hub scaffolding (P2) replaces this panel
-        // entirely.
-        const left = this._drawHologramPanel(720, 700);
-        root.addChild(left);
+        const topBar = this._buildHubTopBar();
+        const news = this._buildHubNewsTicker();
+        const leftCol = this._buildHubActiveMissions();
+        const centerPanel = this._buildHubCenter();
+        const rightCol = this._buildHubFleetCrew();
+        const bottomNav = this._buildHubBottomNav();
+        const modal = this._buildMissionBoardModal();
 
-        const star = this._drawStarShape(20, 0xfacc15);
-        left.addChild(star);
-        const titleGradient = new FillGradient(0, 0, 420, 0);
-        titleGradient.addColorStop(0, 0x22d3ee);
-        titleGradient.addColorStop(0.5, 0xfacc15);
-        titleGradient.addColorStop(1, 0xf87171);
-        const title = new Text({
-            text: 'STELLAR VENTURE',
-            style: new TextStyle({
-                fontFamily: 'Inter, "Segoe UI", sans-serif',
-                fontSize: 52,
-                fontWeight: '800',
-                letterSpacing: 2,
-                fill: titleGradient,
-                dropShadow: { color: 0xfacc15, alpha: 0.28, blur: 8, distance: 0, angle: 0 },
-            }),
-        });
-        left.addChild(title);
-        const subtitle = new Text({
-            text: 'Cosmic blocks with explosive chain reactions!',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 16, fill: 0x67e8f9 }),
-        });
-        left.addChild(subtitle);
-
-        const missionPanel = this._drawHologramPanel(680, 500);
-        left.addChild(missionPanel);
-        const missionLabel = this._panelLabel('AVAILABLE MISSIONS', COLOR_CYAN_300, { size: 17 });
-        missionLabel.x = 20;
-        missionLabel.y = 16;
-        missionPanel.addChild(missionLabel);
-
-        const missionGrid = new Container();
-        missionGrid.position.set(20, 54);
-        missionPanel.addChild(missionGrid);
-
-        // 3 columns x 3 rows of mission cards. Cards are click-to-deploy
-        // so there's no separate BEGIN button -- one primary action is
-        // cleaner and matches the "dispatcher picks an asteroid" frame.
-        const MCARD_W = 210;
-        const MCARD_H = 138;
-        const MCARD_GAP_X = 10;
-        const MCARD_GAP_Y = 14;
-        const missionCards = this._missions.map((mission, idx) => {
-            const col = idx % 3;
-            const row = Math.floor(idx / 3);
-            const card = this._buildMissionCard(mission, MCARD_W, MCARD_H);
-            card.container.x = col * (MCARD_W + MCARD_GAP_X);
-            card.container.y = row * (MCARD_H + MCARD_GAP_Y);
-            card.container.on('pointertap', () => this._onMissionCardTapped(mission));
-            missionGrid.addChild(card.container);
-            return card;
-        });
-
-        // Dispatcher identity card lives directly under the mission grid
-        // in the same left panel. Persistence + rep/rank advancement are a
-        // later-PR (P3 hub) concern.
-        const dispatcherCard = this._drawHologramPanel(680, 96, { accent: 0xfacc15 });
-        left.addChild(dispatcherCard);
-        const dispatcherRole = new Text({
-            text: 'CHIEF DISPATCHER',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 18, fontWeight: '800', letterSpacing: 2, fill: 0xfde68a }),
-        });
-        dispatcherRole.position.set(20, 12);
-        dispatcherCard.addChild(dispatcherRole);
-        const dispatcherCallsign = new Text({
-            text: `Callsign ${this._rollCallsign()}`,
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 13, fill: 0x93c5fd }),
-        });
-        dispatcherCallsign.position.set(20, 38);
-        dispatcherCard.addChild(dispatcherCallsign);
-        const dispatcherStatus = new Text({
-            text: 'Status: Ready for dispatch',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x86efac }),
-        });
-        dispatcherStatus.position.set(20, 62);
-        dispatcherCard.addChild(dispatcherStatus);
+        root.addChild(topBar.container);
+        root.addChild(news.container);
+        root.addChild(leftCol.container);
+        root.addChild(centerPanel.container);
+        root.addChild(rightCol.container);
+        root.addChild(bottomNav.container);
+        root.addChild(modal.container);
 
         this._startScreen = {
             root,
-            left,
-            title,
-            star,
-            subtitle,
-            missionPanel,
-            missionGrid,
-            missionCards,
-            dispatcherCard,
-            dispatcherRole,
-            dispatcherCallsign,
-            dispatcherStatus,
+            topBar,
+            news,
+            leftCol,
+            centerPanel,
+            rightCol,
+            bottomNav,
+            modal,
+            activeTabId: 'missions',
         };
-        this._refreshStartButtons();
+
+        this._layoutHubShell();
+        this._setHubActiveTab('missions');
     }
 
-    // Build one mission card. `mission` comes from buildMissions(). The
-    // card is a self-contained clickable container -- the caller wires
-    // the pointertap handler and adds it to the grid.
-    _buildMissionCard(mission, w, h) {
+    _buildHubTopBar() {
         const container = new Container();
         container.eventMode = 'static';
-        container.cursor = 'pointer';
 
-        const tierFill = parseInt((mission.tierColor || '#67e8f9').replace('#', ''), 16);
-
-        // Background panel. Uses the same hologram gradient as the
-        // other panels so cards read as part of the UI family; the
-        // tier color drives the left-edge accent bar + border.
-        const grad = new FillGradient(0, 0, 0, h);
-        grad.addColorStop(0, PANEL_BG_TOP);
-        grad.addColorStop(1, PANEL_BG_BOT);
-        const bgFill = new Graphics();
-        bgFill.roundRect(0, 0, w, h, 8).fill(grad);
-        bgFill.alpha = 0.7;
-        container.addChild(bgFill);
         const bg = new Graphics();
-        bg.roundRect(0, 0, w, h, 8).stroke({ color: tierFill, width: 1, alpha: 0.6 });
         container.addChild(bg);
 
-        // Tier accent strip along the top 3px so the gradient difficulty
-        // cue (green -> red across the grid) reads at a glance.
-        const accent = new Graphics();
-        accent.rect(0, 0, w, 4).fill({ color: tierFill, alpha: 0.9 });
-        container.addChild(accent);
+        const star = this._drawStarShape(14, 0xfacc15);
+        container.addChild(star);
 
-        // Tier short + index badge in the top-right corner.
-        const tierBadge = new Text({
-            text: `T${mission.tierIndex} · ${mission.label.toUpperCase()}`,
+        const brandGradient = new FillGradient(0, 0, 320, 0);
+        brandGradient.addColorStop(0, 0x22d3ee);
+        brandGradient.addColorStop(0.5, 0xfacc15);
+        brandGradient.addColorStop(1, 0xf87171);
+        const brand = new Text({
+            text: 'STELLAR VENTURE',
+            style: new TextStyle({
+                fontFamily: 'Inter, "Segoe UI", sans-serif',
+                fontSize: 22,
+                fontWeight: '800',
+                letterSpacing: 3,
+                fill: brandGradient,
+                dropShadow: { color: 0xfacc15, alpha: 0.24, blur: 6, distance: 0, angle: 0 },
+            }),
+        });
+        container.addChild(brand);
+
+        const dispatcherBadge = new Text({
+            text: `CHIEF DISPATCHER \u00B7 ${this._rollCallsign()}`,
+            style: new TextStyle({
+                fontFamily: '"Courier New", monospace',
+                fontSize: 11,
+                fontWeight: '700',
+                letterSpacing: 1,
+                fill: 0xfde68a,
+            }),
+        });
+        container.addChild(dispatcherBadge);
+
+        const chips = HUB_RESOURCES.map((r) => this._buildResourceChip(r));
+        chips.forEach((chip) => container.addChild(chip.container));
+
+        const gear = new Text({
+            text: '\u2699',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 20, fill: 0x93c5fd }),
+        });
+        gear.anchor.set(0.5);
+        gear.eventMode = 'static';
+        gear.cursor = 'pointer';
+        container.addChild(gear);
+
+        return { container, bg, star, brand, dispatcherBadge, chips, gear };
+    }
+
+    _buildResourceChip({ label, value, color }) {
+        const container = new Container();
+        container.eventMode = 'static';
+
+        const bg = new Graphics();
+        container.addChild(bg);
+
+        const labelText = new Text({
+            text: label,
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 10,
                 fontWeight: '700',
                 letterSpacing: 1,
+                fill: color,
+            }),
+        });
+        labelText.anchor.set(0, 0.5);
+        container.addChild(labelText);
+
+        const valueText = new Text({
+            text: value,
+            style: new TextStyle({
+                fontFamily: '"Courier New", monospace',
+                fontSize: 14,
+                fontWeight: '700',
+                fill: 0xf8fafc,
+            }),
+        });
+        valueText.anchor.set(0, 0.5);
+        container.addChild(valueText);
+
+        return { container, bg, labelText, valueText, color };
+    }
+
+    _buildHubNewsTicker() {
+        const container = new Container();
+
+        const bg = new Graphics();
+        container.addChild(bg);
+
+        const prefix = new Text({
+            text: 'GALACTIC NEWS',
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 10,
+                fontWeight: '700',
+                letterSpacing: 2,
+                fill: 0xfde047,
+            }),
+        });
+        prefix.anchor.set(0, 0.5);
+        container.addChild(prefix);
+
+        // Scrolling text clips to a masked band so the hub edges stay
+        // clean. The body string is pre-joined with a bullet separator
+        // so the ticker reads as one long headline stream.
+        const clipMask = new Graphics();
+        container.addChild(clipMask);
+
+        const scroller = new Container();
+        scroller.mask = clipMask;
+        container.addChild(scroller);
+
+        const body = new Text({
+            text: HUB_NEWS_POOL.join('   \u25C7   '),
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 13,
+                fill: 0xcbd5e1,
+            }),
+        });
+        scroller.addChild(body);
+
+        return { container, bg, prefix, clipMask, scroller, body, offset: 0 };
+    }
+
+    _buildHubActiveMissions() {
+        const container = new Container();
+        const panel = this._drawHologramPanel(HUB_COL_W, 420);
+        container.addChild(panel);
+
+        const header = this._panelLabel('ACTIVE MISSIONS', COLOR_CYAN_300, { size: 14 });
+        header.position.set(14, 12);
+        panel.addChild(header);
+
+        const counter = new Text({
+            text: '0 / 2',
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0x93c5fd }),
+        });
+        counter.anchor.set(1, 0);
+        counter.position.set(HUB_COL_W - 14, 12);
+        panel.addChild(counter);
+
+        // Empty-state card. Renders in place of any running missions
+        // until P4 wires idle ticking + real mission state.
+        const empty = this._drawHologramPanel(HUB_COL_W - 24, 108, { accent: 0x38bdf8 });
+        empty.position.set(12, 40);
+        panel.addChild(empty);
+
+        const emptyTitle = new Text({
+            text: 'No active missions',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: 0xe2e8f0 }),
+        });
+        emptyTitle.position.set(14, 14);
+        empty.addChild(emptyTitle);
+
+        const emptyHint = new Text({
+            text: 'Deploy from the MISSIONS tab to\nput a ship to work.',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0x94a3b8, wordWrap: true, wordWrapWidth: HUB_COL_W - 52 }),
+        });
+        emptyHint.position.set(14, 38);
+        empty.addChild(emptyHint);
+
+        return { container, panel, header, counter, empty, emptyTitle, emptyHint };
+    }
+
+    _buildHubCenter() {
+        const container = new Container();
+
+        const panel = this._drawHologramPanel(600, 420);
+        container.addChild(panel);
+
+        const tabTitle = new Text({
+            text: 'MISSION BOARD',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: '800', letterSpacing: 2, fill: COLOR_CYAN_300 }),
+        });
+        tabTitle.position.set(16, 12);
+        panel.addChild(tabTitle);
+
+        // Galactic-map backdrop stub: a dim star-grid hint so the
+        // center panel reads as "looking at a region of space" even
+        // before the real map ships (P4). The mission-board modal
+        // floats on top when MISSIONS tab is active.
+        const map = new Graphics();
+        panel.addChild(map);
+
+        const stub = new Text({
+            text: '',
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 13,
+                fill: 0x94a3b8,
+                align: 'center',
+                wordWrap: true,
+                wordWrapWidth: 480,
+            }),
+        });
+        stub.anchor.set(0.5);
+        panel.addChild(stub);
+
+        const openBoardButton = this._buildStartButton({
+            text: 'OPEN MISSION BOARD',
+            width: 220,
+            height: 38,
+            onTap: () => this._openMissionBoard(),
+        });
+        panel.addChild(openBoardButton.container);
+
+        return { container, panel, tabTitle, map, stub, openBoardButton };
+    }
+
+    _buildHubFleetCrew() {
+        const container = new Container();
+        const panel = this._drawHologramPanel(HUB_COL_W, 420);
+        container.addChild(panel);
+
+        const header = this._panelLabel('FLEET & CREW', COLOR_CYAN_300, { size: 14 });
+        header.position.set(14, 12);
+        panel.addChild(header);
+
+        const fleetLabel = new Text({
+            text: 'FLEET',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
+        });
+        fleetLabel.position.set(14, 38);
+        panel.addChild(fleetLabel);
+
+        const fleetRows = STARTER_FLEET.map((ship, i) => {
+            const row = this._buildFleetRow(ship, HUB_COL_W - 28);
+            row.container.position.set(14, 56 + i * 46);
+            panel.addChild(row.container);
+            return row;
+        });
+
+        const crewLabel = new Text({
+            text: 'CREW',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
+        });
+        crewLabel.position.set(14, 56 + STARTER_FLEET.length * 46 + 10);
+        panel.addChild(crewLabel);
+
+        const crewRows = STARTER_CREW.map((crew, i) => {
+            const row = this._buildCrewRow(crew, HUB_COL_W - 28);
+            row.container.position.set(14, 56 + STARTER_FLEET.length * 46 + 28 + i * 38);
+            panel.addChild(row.container);
+            return row;
+        });
+
+        return { container, panel, header, fleetLabel, fleetRows, crewLabel, crewRows };
+    }
+
+    _buildFleetRow(ship, w) {
+        const container = new Container();
+
+        const name = new Text({
+            text: `${ship.name}`,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: 0xe2e8f0 }),
+        });
+        name.position.set(0, 0);
+        container.addChild(name);
+
+        const klass = new Text({
+            text: ship.className,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+        });
+        klass.anchor.set(1, 0);
+        klass.position.set(w, 2);
+        container.addChild(klass);
+
+        // Hull % bar + value.
+        const barBg = new Graphics();
+        barBg.roundRect(0, 22, w, 8, 4).fill({ color: 0x0f172a, alpha: 0.85 });
+        container.addChild(barBg);
+
+        const hullColor = ship.hull >= 75 ? 0x86efac : ship.hull >= 45 ? 0xfde047 : 0xf87171;
+        const bar = new Graphics();
+        bar.roundRect(0, 22, Math.max(2, (w) * (ship.hull / 100)), 8, 4).fill({ color: hullColor, alpha: 0.9 });
+        container.addChild(bar);
+
+        const hullText = new Text({
+            text: `HULL ${ship.hull}%`,
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 10, fill: 0x93c5fd }),
+        });
+        hullText.position.set(0, 34);
+        container.addChild(hullText);
+
+        const status = new Text({
+            text: ship.status.toUpperCase(),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 1, fill: 0x86efac }),
+        });
+        status.anchor.set(1, 0);
+        status.position.set(w, 34);
+        container.addChild(status);
+
+        return { container, name, klass, barBg, bar, hullText, status, hull: ship.hull };
+    }
+
+    _buildCrewRow(crew, w) {
+        const container = new Container();
+        const name = new Text({
+            text: crew.name,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xe2e8f0 }),
+        });
+        container.addChild(name);
+
+        const role = new Text({
+            text: `${crew.role} \u00B7 Lv ${crew.level}`,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+        });
+        role.position.set(0, 16);
+        container.addChild(role);
+
+        const status = new Text({
+            text: crew.status.toUpperCase(),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 1,
+                fill: crew.status === 'Available' ? 0x86efac : 0xfde047 }),
+        });
+        status.anchor.set(1, 0);
+        status.position.set(w, 4);
+        container.addChild(status);
+
+        return { container, name, role, status };
+    }
+
+    _buildHubBottomNav() {
+        const container = new Container();
+        const bg = new Graphics();
+        container.addChild(bg);
+
+        const tabs = HUB_TABS.map((tab) => {
+            const button = this._buildHubNavTab(tab);
+            container.addChild(button.container);
+            button.container.on('pointertap', () => this._setHubActiveTab(tab.id));
+            return button;
+        });
+
+        return { container, bg, tabs };
+    }
+
+    _buildHubNavTab(tab) {
+        const container = new Container();
+        container.eventMode = 'static';
+        container.cursor = tab.locked ? 'not-allowed' : 'pointer';
+
+        const bg = new Graphics();
+        container.addChild(bg);
+
+        const label = new Text({
+            text: tab.label,
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 12,
+                fontWeight: '800',
+                letterSpacing: 2,
+                fill: tab.locked ? 0x64748b : 0xe2e8f0,
+            }),
+        });
+        label.anchor.set(0.5);
+        container.addChild(label);
+
+        const sublabel = new Text({
+            text: tab.locked ? `Unlocks at Rep Tier ${tab.lockRep ?? 2}` : '',
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 9,
+                fill: 0x64748b,
+            }),
+        });
+        sublabel.anchor.set(0.5);
+        container.addChild(sublabel);
+
+        return { container, bg, label, sublabel, tab };
+    }
+
+    _buildMissionBoardModal() {
+        const container = new Container();
+        container.eventMode = 'static';
+        container.visible = false;
+
+        // Dim overlay covers the whole viewport.
+        const dim = new Graphics();
+        dim.eventMode = 'static';
+        dim.on('pointertap', () => this._closeMissionBoard());
+        container.addChild(dim);
+
+        const panel = this._drawHologramPanel(640, 480, { accent: 0x22d3ee });
+        container.addChild(panel);
+
+        const title = new Text({
+            text: 'MISSION BOARD',
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 18,
+                fontWeight: '800',
+                letterSpacing: 3,
+                fill: 0x67e8f9,
+                dropShadow: { color: 0x67e8f9, alpha: 0.3, blur: 8, distance: 0, angle: 0 },
+            }),
+        });
+        title.position.set(18, 14);
+        panel.addChild(title);
+
+        const subtitle = new Text({
+            text: 'Select a contract to dispatch',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x94a3b8 }),
+        });
+        subtitle.position.set(18, 42);
+        panel.addChild(subtitle);
+
+        // Roll the initial 2x2 subset. Seed from the session's
+        // mission-name RNG so the visible board stays stable between
+        // opens within one boot but still varies run-to-run.
+        this._hubBoardSeed = Math.floor(Math.random() * 0xffffffff);
+        const picks = pickMissionBoard(this._missions, { count: 4, seed: this._hubBoardSeed });
+
+        const cardsContainer = new Container();
+        cardsContainer.position.set(18, 70);
+        panel.addChild(cardsContainer);
+
+        const cardW = 290;
+        const cardH = 180;
+        const cardGap = 14;
+        const cards = picks.map((m, i) => {
+            const col = i % 2;
+            const row = Math.floor(i / 2);
+            const card = this._buildNarrativeMissionCard(m, cardW, cardH);
+            card.container.x = col * (cardW + cardGap);
+            card.container.y = row * (cardH + cardGap);
+            card.container.on('pointertap', () => this._onMissionCardTapped(m));
+            cardsContainer.addChild(card.container);
+            return card;
+        });
+
+        const rerollButton = this._buildStartButton({
+            text: 'REROLL BOARD',
+            width: 160,
+            height: 34,
+            onTap: () => this._rerollMissionBoard(),
+        });
+        panel.addChild(rerollButton.container);
+
+        const closeButton = this._buildStartButton({
+            text: 'CLOSE',
+            width: 100,
+            height: 34,
+            onTap: () => this._closeMissionBoard(),
+        });
+        panel.addChild(closeButton.container);
+
+        return { container, dim, panel, title, subtitle, cardsContainer, cards, rerollButton, closeButton };
+    }
+
+    _buildNarrativeMissionCard(mission, w, h) {
+        const container = new Container();
+        container.eventMode = 'static';
+        container.cursor = 'pointer';
+
+        // Card background with tier-color accent.
+        const tierFill = parseInt((mission.tierColor || '#67e8f9').replace('#', ''), 16);
+        const grad = new FillGradient(0, 0, 0, h);
+        grad.addColorStop(0, PANEL_BG_TOP);
+        grad.addColorStop(1, PANEL_BG_BOT);
+        const bgFill = new Graphics();
+        bgFill.roundRect(0, 0, w, h, 10).fill(grad);
+        bgFill.alpha = 0.78;
+        container.addChild(bgFill);
+
+        const border = new Graphics();
+        border.roundRect(0, 0, w, h, 10).stroke({ color: tierFill, width: 1, alpha: 0.55 });
+        container.addChild(border);
+
+        const accent = new Graphics();
+        accent.rect(0, 0, w, 3).fill({ color: tierFill, alpha: 0.9 });
+        container.addChild(accent);
+
+        // Type tag (top-left) + sector name (top-right).
+        const typeTag = new Text({
+            text: mission.type.toUpperCase(),
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 10,
+                fontWeight: '800',
+                letterSpacing: 2,
                 fill: tierFill,
             }),
         });
-        tierBadge.anchor.set(1, 0);
-        tierBadge.position.set(w - 10, 10);
-        container.addChild(tierBadge);
+        typeTag.position.set(12, 12);
+        container.addChild(typeTag);
 
-        // Asteroid name (primary title on the card).
+        const sector = new Text({
+            text: mission.sector,
+            style: new TextStyle({
+                fontFamily: '"Courier New", monospace',
+                fontSize: 10,
+                fill: 0x93c5fd,
+            }),
+        });
+        sector.anchor.set(1, 0);
+        sector.position.set(w - 12, 12);
+        container.addChild(sector);
+
+        // Narrative name.
         const name = new Text({
-            text: mission.name,
+            text: mission.narrativeName,
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 15,
                 fontWeight: '800',
                 fill: 0xf8fafc,
                 wordWrap: true,
-                wordWrapWidth: w - 20,
+                wordWrapWidth: w - 24,
             }),
         });
-        name.position.set(10, 22);
+        name.position.set(12, 30);
         container.addChild(name);
 
-        // Mode + complexity + size summary. One line, muted.
-        const sizeLabel = mission.gameConfig.fieldSizeId.toUpperCase();
-        const configLine = new Text({
-            text: `${this._prettyMode(mission.gameConfig.mode)} · ${this._prettyComplexity(mission.gameConfig.complexity)} · ${sizeLabel}`,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0x7dd3fc }),
-        });
-        configLine.position.set(10, 56);
-        container.addChild(configLine);
-
-        // One-line flavor brief.
-        const brief = new Text({
-            text: mission.brief,
+        // Risk + ETA + credits row.
+        const risk = HUB_RISK_PRESETS[mission.risk] || HUB_RISK_PRESETS[3];
+        const riskText = new Text({
+            text: `RISK ${mission.risk} \u00B7 ${risk.label}`,
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 11,
-                fill: 0xcbd5e1,
-                wordWrap: true,
-                wordWrapWidth: w - 20,
+                fontWeight: '700',
+                letterSpacing: 1,
+                fill: risk.color,
             }),
         });
-        brief.position.set(10, 74);
-        container.addChild(brief);
+        riskText.position.set(12, h - 86);
+        container.addChild(riskText);
 
-        // Ore preview dots along the bottom-left. Each dot colored by
-        // the gameplay palette so the player can see which ore mix to
-        // expect before launching.
+        const etaText = new Text({
+            text: `ETA ${mission.etaLabel}`,
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0xcbd5e1 }),
+        });
+        etaText.anchor.set(1, 0);
+        etaText.position.set(w - 12, h - 86);
+        container.addChild(etaText);
+
+        // Ore preview dots.
         const oreRow = new Container();
-        oreRow.position.set(10, h - 22);
+        oreRow.position.set(12, h - 62);
         container.addChild(oreRow);
         mission.expectedOres.forEach((oreId, i) => {
             const ore = ORES.find((o) => o.id === oreId);
@@ -1386,62 +1864,132 @@ export class PixiView {
             const pal = CELL_PALETTE[ore.color];
             if (!pal) return;
             const dot = new Graphics();
-            dot.circle(0, 0, ore.rarity === 'rare' ? 4.5 : 4)
+            dot.circle(0, 0, ore.rarity === 'rare' ? 5 : 4.5)
                 .fill({ color: pal.glow, alpha: ore.rarity === 'rare' ? 1 : 0.9 });
-            dot.circle(0, 0, 4).stroke({ color: 0x0f172a, width: 1, alpha: 0.7 });
-            dot.x = i * 12 + 6;
+            dot.x = i * 13 + 6;
             dot.y = 6;
             oreRow.addChild(dot);
         });
 
-        // Credit reward (right side, aligned with ore dots).
         const reward = new Text({
-            text: `+${mission.baseCredits}⟁`,
+            text: `+${mission.baseCredits} CR`,
             style: new TextStyle({
                 fontFamily: '"Courier New", monospace',
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: '700',
                 fill: 0xfde047,
             }),
         });
-        reward.anchor.set(1, 1);
-        reward.position.set(w - 10, h - 10);
+        reward.anchor.set(1, 0.5);
+        reward.position.set(w - 12, h - 56);
         container.addChild(reward);
 
-        // Difficulty tag (bottom-left over the ore dots? No -- push it
-        // under the brief so ore dots read cleanly).
-        const diff = new Text({
-            text: mission.difficulty,
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 10,
-                fontWeight: '700',
-                letterSpacing: 1,
-                fill: tierFill,
-            }),
+        // ACCEPT button spans the card's bottom edge.
+        const accept = this._buildStartButton({
+            text: 'ACCEPT',
+            width: w - 24,
+            height: 30,
+            fill: 0x14532d,
+            hoverFill: 0x166534,
         });
-        diff.position.set(10, h - 44);
-        container.addChild(diff);
+        accept.container.position.set(12, h - 40);
+        container.addChild(accept.container);
 
-        // Hover state: raise the border opacity + tier glow.
-        const redraw = (hovered, active) => {
-            bg.clear();
-            bg.roundRect(0, 0, w, h, 8).stroke({ color: tierFill, width: active ? 2 : 1, alpha: hovered || active ? 0.95 : 0.55 });
-            bgFill.alpha = hovered ? 0.82 : 0.7;
+        // Hover state: brighten border. Click forwards through the
+        // parent card's pointertap (set by the caller).
+        const redraw = (hovered) => {
+            border.clear();
+            border.roundRect(0, 0, w, h, 10).stroke({ color: tierFill, width: hovered ? 2 : 1, alpha: hovered ? 0.95 : 0.55 });
+            bgFill.alpha = hovered ? 0.9 : 0.78;
         };
-        container.on('pointerover', () => redraw(true, !!container.__active));
-        container.on('pointerout',  () => redraw(false, !!container.__active));
+        container.on('pointerover', () => redraw(true));
+        container.on('pointerout', () => redraw(false));
 
-        return {
-            container,
-            missionId: mission.id,
-            tierId: mission.tierId,
-            setActive: (active) => {
-                container.__active = !!active;
-                redraw(false, active);
-            },
-        };
+        return { container, border, bgFill, accept, missionId: mission.id };
     }
+
+    _rerollMissionBoard() {
+        // Bump seed so pickMissionBoard returns a different subset, then
+        // rebuild the card container in place. Cheap enough to dispose
+        // and recreate; the hub doesn't hit this on a hot path.
+        this._hubBoardSeed = (this._hubBoardSeed + 0x9E3779B9) >>> 0;
+        const modal = this._startScreen?.modal;
+        if (!modal) return;
+        modal.cardsContainer.removeChildren();
+        const picks = pickMissionBoard(this._missions, { count: 4, seed: this._hubBoardSeed });
+        const cardW = 290;
+        const cardH = 180;
+        const cardGap = 14;
+        modal.cards = picks.map((m, i) => {
+            const col = i % 2;
+            const row = Math.floor(i / 2);
+            const card = this._buildNarrativeMissionCard(m, cardW, cardH);
+            card.container.x = col * (cardW + cardGap);
+            card.container.y = row * (cardH + cardGap);
+            card.container.on('pointertap', () => this._onMissionCardTapped(m));
+            modal.cardsContainer.addChild(card.container);
+            return card;
+        });
+    }
+
+    _openMissionBoard() {
+        if (this._startScreen?.modal) this._startScreen.modal.container.visible = true;
+    }
+
+    _closeMissionBoard() {
+        if (this._startScreen?.modal) this._startScreen.modal.container.visible = false;
+    }
+
+    _setHubActiveTab(tabId) {
+        const start = this._startScreen;
+        if (!start) return;
+        start.activeTabId = tabId;
+        start.bottomNav.tabs.forEach((t) => {
+            const isActive = t.tab.id === tabId;
+            const w = t.container.__width || 0;
+            const h = t.container.__height || 0;
+            t.bg.clear();
+            if (isActive) {
+                t.bg.roundRect(0, 0, w, h, 6).fill({ color: 0x0e7490, alpha: 0.55 });
+                t.bg.roundRect(0, 0, w, h, 6).stroke({ color: 0x22d3ee, width: 2, alpha: 0.95 });
+            } else {
+                t.bg.roundRect(0, 0, w, h, 6).fill({ color: 0x0f172a, alpha: 0.6 });
+                t.bg.roundRect(0, 0, w, h, 6).stroke({ color: 0x38bdf8, width: 1, alpha: 0.25 });
+            }
+        });
+        // Center panel contents change per tab. MISSIONS opens the
+        // modal; every other tab shows a locked-stub hint.
+        const c = start.centerPanel;
+        const activeTab = HUB_TABS.find((t) => t.id === tabId) || HUB_TABS[1];
+        if (tabId === 'missions') {
+            c.tabTitle.text = 'MISSIONS \u2014 MISSION BOARD';
+            c.stub.text = '';
+            c.openBoardButton.container.visible = true;
+            this._openMissionBoard();
+        } else {
+            c.tabTitle.text = activeTab.label;
+            c.stub.text = `${activeTab.label} \u2014 Unlocks at Rep Tier ${activeTab.lockRep ?? 2}.\nComing in a later phase.`;
+            c.openBoardButton.container.visible = false;
+            this._closeMissionBoard();
+        }
+    }
+
+    _tickHubNews(deltaMs) {
+        const news = this._startScreen?.news;
+        if (!news || !this._startScreen?.root?.visible) return;
+        const speedPxPerMs = 0.06;
+        news.offset -= speedPxPerMs * deltaMs;
+        const bodyW = news.body.width || 0;
+        const bandW = news.__bandWidth || 0;
+        if (bodyW > 0 && bandW > 0 && news.offset < -bodyW) {
+            news.offset = bandW;
+        }
+        news.body.x = Math.round(news.offset);
+    }
+
+    // Kept for compat with _onMissionCardTapped. Hub cards don't have a
+    // persistent selected state; every tap just launches the mission.
+    _refreshStartButtons() {}
 
     _prettyMode(m) {
         if (m === GAME_MODES.STELLAR) return 'STELLAR';
@@ -1459,7 +2007,7 @@ export class PixiView {
 
     _rollCallsign() {
         // 3-letter prefix + 3-digit suffix. Not persistent yet; just a
-        // session-stable bit of flavor so the dispatcher card doesn't
+        // session-stable bit of flavor so the dispatcher badge doesn't
         // read like a test harness.
         const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
         const pick = () => letters[Math.floor(Math.random() * letters.length)];
@@ -1475,7 +2023,7 @@ export class PixiView {
         this._startState.complexity = mission.gameConfig.complexity;
         this._startState.fieldSizeId = mission.gameConfig.fieldSizeId;
         this._startState.selectedMissionId = mission.id;
-        this._refreshStartButtons();
+        this._closeMissionBoard();
         if (typeof this._onStartGameRequested === 'function') {
             this._onStartGameRequested({
                 mode: mission.gameConfig.mode,
@@ -1515,12 +2063,6 @@ export class PixiView {
                 draw(active ? hoverFill : fill, active);
             },
         };
-    }
-
-    _refreshStartButtons() {
-        const start = this._startScreen;
-        if (!start) return;
-        start.missionCards?.forEach((card) => card.setActive(card.missionId === this._startState.selectedMissionId));
     }
 
     // ---- Title bar with reactive star ---------------------------------
@@ -1677,38 +2219,215 @@ export class PixiView {
     }
 
     _layoutStartScreen() {
+        this._layoutHubShell();
+    }
+
+    _layoutHubShell() {
         if (!this.app || !this._startScreen) return;
         const w = this.app.screen.width;
         const h = this.app.screen.height;
-        // Single centered panel. Width tracks viewport up to a cap so
-        // the mission grid stays readable on ultrawide screens without
-        // clustering in the top-left corner.
-        const panelW = Math.min(1080, Math.max(720, w - 40));
-        const panelH = Math.min(760, Math.max(560, h - 40));
-        const x = Math.round((w - panelW) / 2);
-        const y = Math.round((h - panelH) / 2);
         const s = this._startScreen;
-        s.left.scale.set(1);
-        s.left.position.set(x, y);
-        s.leftScale = Math.min(panelW / 720, panelH / 700);
-        this._startPanelBounds = { x, y, panelW, panelH, leftScale: s.leftScale };
-        s.left.scale.set(s.leftScale);
 
-        s.star.position.set(30, 58);
-        s.title.position.set(58, 34);
-        s.title.style.fontSize = Math.max(32, Math.floor((720 * s.leftScale) * 0.07));
-        s.subtitle.position.set(24, 98);
-        s.missionPanel.position.set(20, 130);
-        const missionScaleX = Math.min(1, (panelW - 40) / 680);
-        const missionScaleY = Math.min(1, (panelH - 260) / 500);
-        const missionScale = Math.min(missionScaleX / Math.max(s.leftScale, 0.001), missionScaleY / Math.max(s.leftScale, 0.001));
-        s.missionPanel.scale.set(Math.max(0.7, missionScale));
+        // --- Top bar: full viewport width, fixed height.
+        this._layoutHubTopBar(s.topBar, w);
 
-        // Dispatcher card slots under the mission panel with a small
-        // vertical gap. Scaled mission panel is 680px tall at base; when
-        // the viewport shrinks the dispatcher slides up with it.
-        const dispatcherY = 130 + 500 * Math.max(0.7, missionScale) + 14;
-        s.dispatcherCard.position.set(20, dispatcherY);
+        // --- News ticker: full viewport width, under top bar.
+        this._layoutHubNewsTicker(s.news, w, HUB_TOPBAR_H);
+
+        // --- Columns + center live in the middle band.
+        const columnsY = HUB_TOPBAR_H + HUB_NEWS_H + HUB_GUTTER;
+        const columnsH = Math.max(360, h - columnsY - HUB_NAV_H - HUB_GUTTER);
+        const leftX = HUB_GUTTER;
+        const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, w - HUB_COL_W - HUB_GUTTER);
+        // Center gets whatever is left; clamp to a minimum so cards
+        // don't overlap at narrow viewports.
+        const centerX = leftX + HUB_COL_W + HUB_GUTTER;
+        const centerW = Math.max(HUB_MIN_CENTER_W, rightX - centerX - HUB_GUTTER);
+
+        this._layoutHubColumnPanel(s.leftCol, leftX, columnsY, HUB_COL_W, columnsH);
+        this._layoutHubColumnPanel(s.rightCol, rightX, columnsY, HUB_COL_W, columnsH);
+        this._layoutHubCenterPanel(s.centerPanel, centerX, columnsY, centerW, columnsH);
+
+        // --- Bottom nav: full viewport width, pinned to bottom.
+        this._layoutHubBottomNav(s.bottomNav, w, h - HUB_NAV_H, HUB_NAV_H);
+
+        // --- Modal is centered on the viewport. Panel clamps to viewport.
+        this._layoutHubModal(s.modal, w, h);
+    }
+
+    _layoutHubTopBar(topBar, w) {
+        const h = HUB_TOPBAR_H;
+        topBar.container.position.set(0, 0);
+        topBar.bg.clear();
+        topBar.bg.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.9 });
+        topBar.bg.rect(0, h - 1, w, 1).fill({ color: 0x0e7490, alpha: 0.55 });
+
+        const starX = 20;
+        topBar.star.position.set(starX, h / 2);
+        topBar.brand.position.set(starX + 22, h / 2 - topBar.brand.height / 2);
+
+        // Dispatcher badge sits just under the brand, left-aligned.
+        topBar.dispatcherBadge.position.set(starX + 22, h / 2 + topBar.brand.height / 2 - 2);
+
+        // Gear sits at the far right edge.
+        topBar.gear.position.set(w - 24, h / 2);
+
+        // Resource chips flex between the dispatcher badge and the gear.
+        const chipCount = topBar.chips.length;
+        const chipGap = 14;
+        const chipW = 88;
+        const stripW = chipCount * chipW + (chipCount - 1) * chipGap;
+        const stripRight = w - 52;
+        const stripLeft = stripRight - stripW;
+        topBar.chips.forEach((chip, i) => {
+            const cx = stripLeft + i * (chipW + chipGap);
+            chip.container.position.set(cx, h / 2 - 18);
+            chip.bg.clear();
+            chip.bg.roundRect(0, 0, chipW, 36, 6).fill({ color: 0x0b1b3a, alpha: 0.75 });
+            chip.bg.roundRect(0, 0, chipW, 36, 6).stroke({ color: chip.color, width: 1, alpha: 0.55 });
+            chip.labelText.position.set(10, 10);
+            chip.valueText.position.set(10, 22);
+        });
+    }
+
+    _layoutHubNewsTicker(news, w, y) {
+        const h = HUB_NEWS_H;
+        news.container.position.set(0, y);
+        news.bg.clear();
+        news.bg.rect(0, 0, w, h).fill({ color: 0x0b1b3a, alpha: 0.7 });
+        news.bg.rect(0, h - 1, w, 1).fill({ color: 0x38bdf8, alpha: 0.2 });
+
+        news.prefix.position.set(14, h / 2);
+
+        const prefixRight = 14 + news.prefix.width + 16;
+        const bandWidth = Math.max(120, w - prefixRight - 14);
+        news.clipMask.clear();
+        news.clipMask.rect(prefixRight, 0, bandWidth, h).fill({ color: 0xffffff });
+
+        news.scroller.position.set(prefixRight, h / 2 - news.body.height / 2);
+        news.__bandWidth = bandWidth;
+        if (typeof news.offset !== 'number' || news.offset > bandWidth) {
+            news.offset = bandWidth;
+        }
+        news.body.x = Math.round(news.offset);
+    }
+
+    _layoutHubColumnPanel(col, x, y, w, h) {
+        col.container.position.set(x, y);
+        this._redrawHologramPanel(col.panel, w, h);
+        if (col.counter) col.counter.position.set(w - 14, 12);
+        if (col.empty) {
+            this._redrawHologramPanel(col.empty, w - 24, 108);
+            col.empty.position.set(12, 40);
+        }
+        if (col.fleetRows) {
+            const rowW = w - 28;
+            col.fleetRows.forEach((row, i) => {
+                row.container.position.set(14, 56 + i * 54);
+                row.klass.position.set(rowW, 2);
+                row.barBg.clear();
+                row.barBg.roundRect(0, 22, rowW, 8, 4).fill({ color: 0x0f172a, alpha: 0.85 });
+                row.bar.clear();
+                const hull = typeof row.hull === 'number' ? row.hull : 0;
+                const hullColor = hull >= 75 ? 0x86efac : hull >= 45 ? 0xfde047 : 0xf87171;
+                row.bar.roundRect(0, 22, Math.max(2, rowW * (hull / 100)), 8, 4).fill({ color: hullColor, alpha: 0.9 });
+                row.status.position.set(rowW, 34);
+            });
+            if (col.crewLabel) col.crewLabel.position.set(14, 56 + col.fleetRows.length * 54 + 10);
+            if (col.crewRows) {
+                col.crewRows.forEach((row, i) => {
+                    row.container.position.set(14, 56 + col.fleetRows.length * 54 + 28 + i * 38);
+                    row.status.position.set(rowW, 4);
+                });
+            }
+        }
+    }
+
+    _layoutHubCenterPanel(center, x, y, w, h) {
+        center.container.position.set(x, y);
+        this._redrawHologramPanel(center.panel, w, h);
+        center.map.clear();
+        // Faint dotted grid to evoke a star map.
+        const gridStep = 40;
+        for (let gx = gridStep; gx < w - 10; gx += gridStep) {
+            for (let gy = 56; gy < h - 20; gy += gridStep) {
+                center.map.circle(gx, gy, 1).fill({ color: 0x67e8f9, alpha: 0.25 });
+            }
+        }
+        center.stub.position.set(w / 2, h / 2 + 10);
+        center.stub.style.wordWrapWidth = w - 60;
+        // Open-board button centered near the bottom of the center panel.
+        const btnW = center.openBoardButton.width;
+        center.openBoardButton.container.position.set((w - btnW) / 2, h - 64);
+    }
+
+    _layoutHubBottomNav(nav, w, y, h) {
+        nav.container.position.set(0, y);
+        nav.bg.clear();
+        nav.bg.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.9 });
+        nav.bg.rect(0, 0, w, 1).fill({ color: 0x0e7490, alpha: 0.55 });
+
+        const tabCount = nav.tabs.length;
+        const pad = HUB_GUTTER;
+        const totalInner = w - pad * 2;
+        const gap = 10;
+        const tabW = Math.floor((totalInner - gap * (tabCount - 1)) / tabCount);
+        const tabH = h - 12;
+        nav.tabs.forEach((t, i) => {
+            const tx = pad + i * (tabW + gap);
+            t.container.position.set(tx, 6);
+            t.container.__width = tabW;
+            t.container.__height = tabH;
+            t.container.hitArea = new Rectangle(0, 0, tabW, tabH);
+            t.label.position.set(tabW / 2, tabH / 2 - 8);
+            t.sublabel.position.set(tabW / 2, tabH / 2 + 10);
+        });
+        // Re-apply the active-tab visual (depends on __width / __height).
+        this._setHubActiveTab(this._startScreen?.activeTabId || 'missions');
+    }
+
+    _layoutHubModal(modal, w, h) {
+        modal.dim.clear();
+        modal.dim.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.75 });
+        modal.dim.hitArea = new Rectangle(0, 0, w, h);
+
+        const panelW = Math.min(700, Math.max(520, w - 80));
+        const panelH = Math.min(540, Math.max(420, h - 120));
+        const px = Math.round((w - panelW) / 2);
+        const py = Math.round((h - panelH) / 2);
+        modal.panel.position.set(px, py);
+        this._redrawHologramPanel(modal.panel, panelW, panelH, 0x22d3ee);
+
+        // Reroll + close buttons pinned to the bottom of the panel.
+        const btnGap = 12;
+        const rerollW = modal.rerollButton.width;
+        const closeW = modal.closeButton.width;
+        const footerY = panelH - 44;
+        modal.rerollButton.container.position.set(16, footerY);
+        modal.closeButton.container.position.set(panelW - closeW - 16, footerY);
+    }
+
+    // Hologram panels build their layers once (bg gradient, border,
+    // scanline). When the viewport resizes we only need to redraw those
+    // layers at the new size. Walks the panel's children in the known
+    // (bgFill, border, scan) order created by _drawHologramPanel.
+    _redrawHologramPanel(panel, w, h, accent = 0x00d4ff) {
+        if (!panel) return;
+        const children = panel.children;
+        if (children.length < 3) return;
+        const [bgFill, border, scan] = children;
+        const grad = new FillGradient(0, 0, 0, h);
+        grad.addColorStop(0, PANEL_BG_TOP);
+        grad.addColorStop(1, PANEL_BG_BOT);
+        bgFill.clear();
+        bgFill.roundRect(0, 0, w, h, 6).fill(grad);
+        bgFill.alpha = 0.65;
+        border.clear();
+        border.roundRect(0, 0, w, h, 6).stroke({ color: accent, width: 1, alpha: PANEL_BORDER_ALPHA });
+        scan.clear();
+        for (let y = 1; y < h; y += 3) {
+            scan.rect(1, y, w - 2, 1).fill({ color: accent, alpha: 0.04 });
+        }
     }
 
     _drawStarShape(r, color) {
