@@ -29,6 +29,19 @@
    │  constants   │                     │  pixi-       │
    │              │                     │  starfield   │
    └──────────────┘                     └──────────────┘
+                                              │
+                                              │ registers
+                                              ▼
+                                        ┌──────────────┐
+                                        │ SceneManager │
+                                        │  ┌────────┐  │
+                                        │  │Results │  │
+                                        │  │ Scene  │  │
+                                        │  └────────┘  │
+                                        │  (Hub+Game   │
+                                        │  extract in  │
+                                        │   PRs 2+3)   │
+                                        └──────────────┘
 
    ┌──────────────┐    change    ┌──────────────┐
    │  MetaState   │ ───────────▶ │ Persistence  │
@@ -104,12 +117,34 @@ The only DOM/Pixi/visual code. Subscribes to GameState. Owns:
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
 - Starfield + scanner
 - Title bar with reactive "STELLAR VENTURE" star actor
-- Hub scene (top bar, ACTIVE MISSIONS, center panel, FLEET & CREW, bottom nav, MISSION BOARD modal)
-- Game-run scene (board layers, active piece, effects, particles)
-- Mission **results overlay** (hologram panel above the hub: stats grid, 6-ore breakdown, credits total + base/bonus line, CONTINUE button). Built lazily on first `showResultsScreen`, reused across runs via `_populateResultsScreen(summary)`.
+- Hub scene (top bar, ACTIVE MISSIONS, center panel, FLEET & CREW, bottom nav, MISSION BOARD modal) — still inline; extracts to `HubScene` in a follow-up PR
+- Game-run scene (board layers, active piece, effects, particles) — still inline; extracts to `GameScene` in a follow-up PR
+- `SceneManager` + registered `ResultsScene` (see below). `showResultsScreen(summary, {onContinue})` / `hideResultsScreen()` delegate to the manager and handle the cross-scene visibility dance (hide hub + in-game HUD + top controls while the overlay is up).
 - HUD columns (score / level / tips / controls), piece previews, sound/exit top controls
 
 Input — keyboard + pointer — flows through `src/input.js` and into GameState actions. View never runs game logic.
+
+### `src/scenes/scene-manager.js`
+
+Tiny registry (~70 lines, zero Pixi imports). `register(name, scene)` / `show(name, ...args)` / `hide(name)` / `isVisible(name)` / `layout(screen)` / `destroy()`. Scenes are duck-typed — any object exposing `show` / `hide` / optional `layout` / optional `destroy` / read-only `visible` works. `layout(screen)` fans out to **every** registered scene (hidden or not) so a scene re-shown after a viewport resize doesn't flash at the old size. Unit-tested with plain-object fakes (see `tests/scene-manager.test.js`).
+
+### `src/scenes/results-scene.js`
+
+Mission-report overlay, extracted from `PixiView` in the first scene-graph PR (see ADR-0009). Owns its Pixi `Container`, attaches to a `uiRoot` passed at construction. Builds lazily on first `show`, reuses its text nodes across runs via a `_populate(summary)` helper so subsequent runs don't re-create the stat grid.
+
+Constructor shape:
+
+```js
+new ResultsScene({
+    app,                    // Pixi Application (read-only; for screen rect)
+    uiRoot,                 // Pixi Container to attach into
+    drawHologramPanel,      // shared panel-chrome helper (still on PixiView)
+    buildStartButton,       // shared button helper (still on PixiView)
+    palette,                // CELL_PALETTE for ore icon tints
+});
+```
+
+Shared helpers are passed in by reference so scenes don't import from `PixiView` (no circular imports). When the hub + game scenes land, the helpers move to a standalone `pixi-ui-kit.js` module.
 
 ### `src/pixi-starfield.js`
 
