@@ -2,7 +2,7 @@
 
 > Three buckets only: **Now**, **Next**, **Later**. Anything in Now has a branch or PR open. Anything in Later is an idea, not a commitment.
 >
-> Updated at phase boundaries — not every PR. Last bump: after the highscore removal (MISSION LOG + `HighScores` module deleted).
+> Updated at phase boundaries — not every PR. Last bump: hub wireframe pivot (FLEET & CREW on the right, MISSION BOARD modal with narrative mission cards, rename to Stellar Venture). See [ADR-0006](adr/0006-rename-stellar-venture.md) + [ADR-0007](adr/0007-hub-wireframe-pivot.md).
 
 ---
 
@@ -12,10 +12,10 @@
 |---|---|---|
 | P0 | Match-4 / Tetris prototype with modes, tiers, field sizes, Pixi renderer, mission-select screen | **Shipped** |
 | P1 | Resource ledger: ores tallied per run, credits awarded, results screen | Now |
-| P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSIONS tab hosts today's 3×3 board; replaces today's transitional mission-select entirely | Next |
-| P3 | Persistent meta-state (`MetaState`, `persistence.js`) + rep-tier gates on mission cards | Later |
-| P4 | Active-missions idle tick (`IdleClock`, `MissionRegistry`): left column ticks ETAs, completion → results → hub with rewards | Later |
-| P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue, upgrade list | Later |
+| P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSION BOARD modal with narrative mission cards (mapped 1:1 to the 9 tier archetypes), Galactic News ticker; replaces today's transitional mission-select entirely | Next |
+| P3 | Persistent meta-state (`MetaState`, `FleetRegistry`, `persistence.js`) + rep-tier gates on narrative mission cards | Later |
+| P4 | Active-missions idle tick (`IdleClock`, `MissionRegistry`): left column ticks ETAs, completion → results → hub with rewards; FLEET & CREW live updates (hull damage, crew injured) on return | Later |
+| P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue + available-upgrade list (moved from the earlier BASE COMMAND right-column concept per [ADR-0007](adr/0007-hub-wireframe-pivot.md)) | Later |
 | P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | Later |
 | P7 | STAR MAP tab: sector exploration, mission discovery tied to the map | Later |
 
@@ -82,13 +82,20 @@ Deliverables:
   the session `MetaState` stub), settings gear.
 - **Left column** — `ACTIVE MISSIONS` header + empty-state card (`No active
   missions. Deploy from the MISSIONS tab.`). Real ticking lands in P4.
-- **Right column** — `BASE COMMAND` header + placeholder empty-state. Real
-  queue + upgrade rows land in P5.
-- **Bottom nav** — 6 pill buttons. MISSIONS is the default active tab. Other
-  tabs render a `Unlocks at Rep Tier N` stub panel.
-- **MISSIONS tab** — hosts today's 3×3 mission board, owned by its own
-  container. Dispatcher identity card is relocated into the top bar alongside
-  the resource strip.
+- **Right column** — `FLEET & CREW STATUS` header + a static readout of the
+  starter fleet (3 ships, class/callsign/hull/availability) and starter crew
+  (3 members, name/role/level/status). Live ticking lands in P4.
+- **Galactic News ticker** — one-line scrolling strip below the top bar.
+  Static pool of flavor strings in P2; runtime events wire in from P4.
+- **Bottom nav** — 6 pill buttons. MISSIONS is the default active tab with
+  the MISSION BOARD modal open at boot. Other tabs render a `Unlocks at Rep
+  Tier N` stub panel.
+- **MISSIONS tab + MISSION BOARD modal** — tab background is a static
+  galactic-map thumbnail; modal floats a 2×2 grid of narrative mission cards
+  (session-rolled subset of the 9-entry catalog in [`UI-HUB.md` §7](UI-HUB.md#narrative-mission-catalog)).
+  Each card maps 1:1 to a `HIGHSCORE_TIERS` archetype; clicking ACCEPT
+  launches the puzzle run with the tier's `gameConfig`. Dispatcher identity
+  is folded into the top bar brand area.
 - Side effect: the remaining centering known-issue disappears (hub is
   viewport-filling by construction).
 

@@ -81,7 +81,7 @@ The only DOM/Pixi/visual code. Subscribes to GameState. Owns:
 
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
 - Starfield + scanner
-- Title bar with reactive "STELLAR COLLAPSE" star actor
+- Title bar with reactive "STELLAR VENTURE" star actor
 - Mission-select scene (cards, dispatcher identity card)
 - Game-run scene (board layers, active piece, effects, particles)
 - HUD columns (score / level / tips / controls), piece previews, sound/exit top controls

@@ -25,3 +25,5 @@ Skip an ADR for small / easily-reversible choices (naming, code style). Write on
 - `0003-tier-to-mission-1to1.md` — Each ranked tier maps to exactly one mission archetype, for a 9-mission board. **Accepted.**
 - `0004-hub-scene-graph.md` — Main menu evolves from a fixed Pixi panel into a viewport-filling hub scene graph (top bar + 3 columns + 6-tab nav). **Accepted.**
 - `0005-delete-highscore-system.md` — Delete the HighScores leaderboard system (storage module, UI panel, game-over save). Resource tallies replace the feedback role. **Accepted.**
+- `0006-rename-stellar-venture.md` — Rename the game (not the repo) from "Stellar Collapse" to "Stellar Venture"; keep the repo URL + Pages URL unchanged. **Accepted.**
+- `0007-hub-wireframe-pivot.md` — Hub wireframe pivot: right column becomes FLEET & CREW STATUS (build queue + upgrades move inside BUILD/UPGRADE tab), center MISSIONS tab opens a MISSION BOARD modal with narrative mission cards mapped 1:1 to the 9 tier archetypes, Galactic News ticker added. **Accepted.** (Refines ADR-0004.)

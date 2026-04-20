@@ -10,10 +10,17 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ### Added
 
-- **Hub vision doc** (`docs/UI-HUB.md`). Captures the target main-menu layout — viewport-filling top resource bar, left ACTIVE MISSIONS column, tab-swapped center, right BASE COMMAND column, 6-tab bottom nav — that P2 → P7 builds toward. Also commits `docs/images/hub-vision.png` as the ground-truth mock.
+- **Hub vision doc** (`docs/UI-HUB.md`). Captures the target main-menu layout — viewport-filling top resource bar, Galactic News ticker, left ACTIVE MISSIONS column, tab-swapped center with a MISSION BOARD modal of narrative mission cards, right FLEET & CREW STATUS column (ships + crew), 6-tab bottom nav — that P2 → P7 builds toward. `docs/images/hub-mission-board-mock.png` is the new ground-truth reference; the earlier `hub-vision.png` is superseded but retained for history.
+- **Narrative mission catalog** in `UI-HUB.md` §7. 9 narrative missions mapped 1:1 to the 9 `HIGHSCORE_TIERS` archetypes, each with a flavor name, type tag (Mining / Exploration / Research / Salvage / Combat), sector, risk factor, duration ETA, and ore preview. Gameplay-level `gameConfig` stays the 9-tier matrix; narrative is a flavor skin.
 - **ADR-0004** — "Main menu evolves from fixed Pixi panel into a viewport-filling hub scene graph." Context, decision, alternatives (grow in place, DOM/React, full framework) all recorded.
 - **ADR-0005** — "Delete the HighScores leaderboard system." The game is about banking per-run resources, not a bragging-rights score. Storage module + UI panel + game-over save hook all removed.
+- **ADR-0006** — "Rename the game from Stellar Collapse to Stellar Venture." Repo URL + Pages URL unchanged; in-game title bar, `<title>`, README, docs, and `package.json.name` follow the new brand.
+- **ADR-0007** — "Hub wireframe pivot." Right column is FLEET & CREW STATUS (was BASE COMMAND); BASE COMMAND's build queue + upgrade list move into the BUILD/UPGRADE tab. MISSIONS tab opens a MISSION BOARD modal with narrative cards by default. Galactic News ticker added. Refines ADR-0004, does not supersede.
 - **ROADMAP Known Issues section** tracking remaining main-menu defects (centering on wide viewports). The MISSION LOG overlap defect is now resolved by deletion.
+
+### Changed — branding
+
+- **Rebranded Stellar Collapse → Stellar Venture.** In-game Pixi title bar (start screen + game-over screen), `<title>` in `index.html`, `README.md`, `docs/*.md` headings, `package.json` `name` / `description` all updated. Repo URL (`Sergutsu/StellarCollapse`) and GitHub Pages URL unchanged — they stay encoded as "StellarCollapse" to preserve existing bookmarks and CI config. Historical CHANGELOG entries (0.1.0 and earlier) and accepted ADRs remain verbatim (append-only log).
 
 ### Removed
 

@@ -1,6 +1,10 @@
-# Stellar Collapse
+# Stellar Venture
 
-A cosmic block puzzle that mashes falling-block stacking with color-match mechanics. Drop pieces, clear lines, and (if you're feeling brave) chain 4+ color runs into snakes and bombs for board-clearing combos.
+> Previously **Stellar Collapse**. Renamed with the pivot to a hybrid
+> casual/idle space-dispatcher game; repo URL stays `Sergutsu/StellarCollapse`.
+> See [ADR-0006](docs/adr/0006-rename-stellar-venture.md) for context.
+
+You are the **Chief Dispatcher** of a fringe outpost. Missions come in, you pick which rock is worth the fuel, and the puzzle is the shift: match 4+ runs, stack falling blocks, chain snakes and bombs, bank the ore. Short runs stack into an idle meta-loop (hub, rep tier, upgrades) landing in phases after the core puzzle.
 
 ### ▶ [**Play Now**](https://sergutsu.github.io/StellarCollapse/)
 
@@ -61,7 +65,7 @@ Or run it locally (see [Local Development](#local-development) below).
 
 Pick one on the start screen:
 
-- **Stellar** — Runs of 4+ matching cells only clear when you *click* one of them. The classic Stellar Collapse flow.
+- **Stellar** — Runs of 4+ matching cells only clear when you *click* one of them. The classic Stellar Venture flow (formerly Stellar Collapse click-match).
 - **Auto-Match** — Every 4+ run clears automatically the moment a piece locks. No clicking.
 - **Blocks** — Click-to-match is disabled. Only full horizontal line clears score. Pure block-stacking.
 
@@ -93,18 +97,12 @@ Color match:   cells × 10 × level
 Bomb blast:    cells × 25 × level
 ```
 
-### Leaderboard tiers (easy → hard)
+### Mission tiers (easy → hard)
 
-The start screen shows a tab strip with one tab per tier. Each tab keeps its own top-5.
+9 `(mode, complexity)` archetypes make up the mission catalogue. Green → red difficulty gradient across the 3×3 start-screen grid. Canonical list: `HIGHSCORE_TIERS` in [`src/constants.js`](src/constants.js); tuned tier ↔ narrative mapping: [`docs/UI-HUB.md` § Narrative mission catalog](docs/UI-HUB.md#narrative-mission-catalog).
 
-| # | Mode         | Complexity          | Icon color |
-| - | ------------ | ------------------- | ---------- |
-| 1 | Stellar      | Classic             | green      |
-| 2 | Stellar      | Mutated             | lime       |
-| 3 | Auto-Match   | Classic             | yellow     |
-| 4 | Auto-Match   | Totally Collapsed   | orange     |
-| 5 | Blocks       | Mutated             | red        |
-| 6 | Blocks       | Totally Collapsed   | deep red   |
+> Leaderboard removed — the game is about banking per-run ores + credits, not
+> a top-5 table. See [ADR-0005](docs/adr/0005-delete-highscore-system.md).
 
 ---
 
@@ -129,35 +127,15 @@ The game-state logic is covered by [`node --test`](https://nodejs.org/api/test.h
 npm test
 ```
 
-Covers movement, rotation, gravity, line clears, color matches, and the special-block mechanics (bomb, snake). More cases are added as modes/complexity features land (see PR history).
+Covers movement, rotation, gravity, line clears, color matches, the special-block mechanics (bomb, snake), and the mission catalogue. More cases are added as modes/complexity/mission features land (see PR history).
 
 ---
 
 ## Architecture
 
-```
-index.html           HTML + CSS only. Loads src/main.js as <script type="module">.
-src/
-├── constants.js     Grid size, colors, shape constants, modes/complexity/tier tables.
-├── shapes.js        CLASSIC_SHAPES (7), MUTATED_SHAPES (15), COLLAPSED_SHAPES alias, getShapePool().
-├── emitter.js       Tiny event emitter shared by state/view/audio.
-├── game-state.js    Pure game logic. No DOM, no Web Audio, no setTimeout.
-│                    Takes { rng, schedule, mode, complexity } at construction.
-│                    Emits ~15 events (piece-moved, piece-locked, match-cleared, ...).
-├── pixi-view.js     Pixi.js v8 board + HUD renderer (loaded via CDN ESM
-│                    import map in index.html -- no build step).
-├── pixi-starfield.js Pixi-native animated starfield + procedural nebulae.
-├── input.js         Keyboard + click wiring.
-├── audio.js         Web Audio SFX. Subscribes to state events.
-├── highscores.js    Per-tier localStorage persistence (with legacy migration).
-└── main.js          Bootstrap: wires everything, handles screen transitions + toggles.
+Short version — pure `GameState` + `missions.js` (Node-testable, no DOM, no timers), Pixi-only view, event-emitter bus, static `index.html` shell. For the full module graph, scene-graph, persistence plan, and house rules see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-tests/
-├── game-state.test.js   Core gameplay: movement, gravity, scoring, modes, complexity.
-└── highscores.test.js   Per-tier save/top/migration.
-```
-
-**Design rule**: `GameState` never reaches into the DOM and never talks to `setTimeout`/`Date.now` directly. The host injects `rng` and `schedule`. That's what lets the whole thing run under `node --test` with a seeded RNG and synchronous scheduler.
+**Design rule:** `GameState` never reaches into the DOM and never talks to `setTimeout`/`Date.now` directly. The host injects `rng` and `schedule`. That's what lets the whole thing run under `node --test` with a seeded RNG and synchronous scheduler.
 
 ---
 

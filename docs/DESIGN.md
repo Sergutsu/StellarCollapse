@@ -1,4 +1,4 @@
-# Stellar Collapse — Design Doc
+# Stellar Venture — Design Doc
 
 > The **why** and **what** of the game. For the **how** of the code, see `ARCHITECTURE.md`. For canonical mechanics + tunable numbers, see `GAMEPLAY.md`.
 
@@ -32,7 +32,14 @@ MISSION BOARD  ─(click a card)─▶  MISSION RUN  ─(win or game-over)─▶
 
 One screen per stage. No pauses inserted between them.
 
-- **Mission board** — 9 mission cards (3×3 grid, one per ranked tier). Each card shows asteroid name, tier, mode/complexity/size summary, flavor brief, difficulty tag, expected ore preview dots, credit reward.
+- **Mission board** — narrative mission cards (see [`UI-HUB.md` § Narrative
+  mission catalog](UI-HUB.md#narrative-mission-catalog)). Each card shows
+  mission name, type (Mining / Exploration / Research / Salvage / Combat),
+  sector, flavor brief, risk factor, duration ETA, expected ore preview,
+  credit reward. Under the hood each narrative mission resolves to one
+  `HIGHSCORE_TIERS` archetype (`gameConfig`) so the puzzle run stays the same
+  9-tier matrix. Today's transitional screen still shows the raw tier
+  archetype grid (3×3); the narrative re-skin lands with the P2 hub.
 - **Mission run** — the puzzle. Same game as before: match-4 / auto-match / block-drop, three complexities, three field sizes per complexity.
 - **Results** — asteroid name, final score, credits earned, ore breakdown, CONTINUE back to the board.
 
@@ -59,9 +66,13 @@ This is all **P2+** work. P1 only introduces the per-run tally and results scree
 ### Main menu — long-term target: the Hub
 
 The main menu will become a **viewport-filling hub** with a persistent top
-resource bar, left ACTIVE MISSIONS column, right BASE COMMAND column, a
-tab-swapped center pane, and a 6-tab bottom nav (STAR MAP, MISSIONS,
-BUILD/UPGRADE, RESEARCH, CREW, MARKET). Full element-by-element spec lives in
+resource bar + Galactic News ticker, left ACTIVE MISSIONS column, right
+**FLEET & CREW STATUS** column (ships with hull %, assigned crew, availability),
+a tab-swapped center pane, and a 6-tab bottom nav (STAR MAP, MISSIONS,
+BUILD/UPGRADE, RESEARCH, CREW, MARKET). The MISSIONS tab opens a **MISSION
+BOARD modal** with narrative mission cards (Operation: Black Hole Anomaly,
+Xeno-archeology Dig, Trade Route Defense, Relic Recovery, …). Full
+element-by-element spec + narrative mission catalog live in
 [`UI-HUB.md`](UI-HUB.md). That is the destination we are migrating toward — it
 is NOT the current implementation.
 
@@ -73,7 +84,7 @@ centered panel:
 - **AVAILABLE MISSIONS** heading + 3×3 mission card grid.
 - **CHIEF DISPATCHER** identity card (role + callsign + status) directly under
   the mission grid in the same panel.
-- Title bar on top: shiny "STELLAR COLLAPSE" with the reactive star actor.
+- Title bar on top: shiny "STELLAR VENTURE" with the reactive star actor.
 
 No player-name input. No BEGIN button. No mode/complexity/size toggles — each
 card encapsulates its own config. No MISSION LOG / leaderboard panel — the
@@ -154,7 +165,9 @@ Canonical tier list lives in `constants.HIGHSCORE_TIERS`. Field-size defaults an
 ## Non-goals
 
 - **Not a live-service game.** No server, no accounts, no PvP. All state is local.
-- **Not a narrative game.** Missions have flavor briefs, not cutscenes.
+- **Not a cutscene-driven narrative.** Missions have flavor names + one-line
+  briefs (`"Trade Route Defense—Outer Rim"`) that reskin tier archetypes, not
+  branching stories. No VO, no dialogue trees, no scripted NPCs.
 - **Not a deckbuilder / roguelite.** Runs don't mutate rules mid-session; variety comes from mission choice + tier.
 - **Not mobile-first** (yet). Targeted at desktop browsers until the desktop loop is tight.
 

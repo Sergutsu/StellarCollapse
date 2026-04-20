@@ -1,8 +1,8 @@
 {
-  "name": "stellar-collapse",
+  "name": "stellar-venture",
   "private": true,
   "version": "0.0.0",
-  "description": "Cosmic block puzzle with chain reactions.",
+  "description": "Space-dispatcher idle puzzle: hub + mission runs + ore-tally loop (formerly Stellar Collapse).",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
