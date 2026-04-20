@@ -195,15 +195,19 @@ All hub constants (`HUB_TABS`, `HUB_RESOURCES`, `HUB_NEWS_POOL`, `HUB_RISK_PRESE
 
 Each hub bottom-nav tab with bespoke content is its own scene class, hosted by `HubScene` inside the center panel (see [ADR-0010](adr/0010-hub-tab-scenes.md)). Tab scenes follow the same duck-typed `show / hide / layout / destroy` contract as top-level scenes, but they register on `HubScene._nodes.tabs` (not the top-level `SceneManager`) because they depend on the hub's center-panel Pixi container.
 
-- `_setActiveTab(tabId)` hides every extracted tab scene, then shows the one matching `tabId` (if any). Tabs still using the shared inline stub (locked tabs: `BUILD/UPGRADE`, `RESEARCH`, `CREW`, `MARKET`) fall through to the default branch that sets `stub.text`.
+- `_setActiveTab(tabId)` hides every extracted tab scene, then shows the one matching `tabId` (if any). After `scene.show()` lazy-builds the tab's Pixi nodes on first call, `_setActiveTab` immediately invokes `scene.layout({ width, height })` with the center panel's last-known inner dims (stashed on `center._w / center._h` by `_layoutCenterPanel`) so the newly-built content renders in the right positions on first show — not at the (0, 0) default that the hub-build-time fan-out would leave behind. Tabs still using the shared inline stub (locked tabs: `BUILD/UPGRADE`, `CREW`, `MARKET`) fall through to the default branch that sets `stub.text`.
 - `_layoutCenterPanel(...)` fans out `tab.layout({ width, height })` to every tab scene (visible or not) after the hologram frame is redrawn, so a hidden tab does not flash at the old size on re-show.
 - `destroy()` tears down tab scenes before the center panel's own destroy.
 
-Shipped today: `src/scenes/tabs/star-map-tab.js` (STAR MAP). Subsequent PRs add the rest.
+Shipped today: `src/scenes/tabs/star-map-tab.js` (STAR MAP) + `src/scenes/tabs/research-tab.js` (RESEARCH). Subsequent PRs add the rest.
 
 ### `src/scenes/tabs/star-map-tab.js`
 
 Galactic-cartography view for the STAR MAP bottom-nav tab. Mounts its root under the hub's center-panel hologram surface (`centerPanel.panel`). Owns: title strip (`STAR MAP · ORION CARTOGRAPHY`), coordinate grid with longitude/latitude tick labels, 8 sector pins colored by `kind` (`star` / `belt` / `station` / `hazard`), bottom-left `MAP LEGEND` sub-panel, top-right `GALACTIC OVERVIEW` thumbnail with a mini spiral + current-position crosshair, and a floating `SYSTEM DATA` panel with a stub `PLOT COURSE` button. Sector catalog is static for now; real warp-cell deduction + mission dispatch lands in P7.
+
+### `src/scenes/tabs/research-tab.js`
+
+Technology-tree view for the RESEARCH bottom-nav tab. Mounts its root under the hub's center-panel hologram surface (`centerPanel.panel`). Owns: amber `RESEARCH · TECHNOLOGY TREE` title strip, four category columns (Propulsion / Resource Extraction / Defense / Economics), 12 pointy-top hex nodes (`HEX_R = 22`) with 2-char glyph + level pill + wrap-capped name, 9 prerequisite edges routed orthogonally between columns, a floating ~260×210 `RESEARCH NODE` detail card (cost row, effect blurb, state-aware CTA), and a ~220×76 bottom-left legend sub-panel mapping the four node states (`available` / `researching` / `completed` / `locked`) to color swatches. The `INITIATE RESEARCH` / `VIEW PROGRESS` CTA is a stub; real cost deduction, tick-based research clock, and upgrade-apply land under ROADMAP P8. `RESEARCH_NODES`, `RESEARCH_EDGES`, and `RESEARCH_CATEGORIES` are re-exported so future work (MetaState research slice, catalog editor) can iterate over them without duplicating the tree shape.
 
 Constructor shape:
 

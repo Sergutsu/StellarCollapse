@@ -244,6 +244,75 @@ Not yet wired (tracked under P7):
 - Sector catalog is hard-coded; procedural sector generation is a
   later phase.
 
+### 5b. RESEARCH tab — technology tree
+
+Reference mock: `assets/mock-research-tab.png`. Renders inside the
+hub's center panel when the **RESEARCH** bottom-nav tab is active.
+The palette leans amber (vs. STAR MAP's cyan) to signal "tech /
+engineering" context. Owns these elements:
+
+- **Title strip (top-left).** `RESEARCH · TECHNOLOGY TREE` at 14px,
+  uppercase, 2px tracking, amber. Sits where the MISSIONS tab would
+  put `MISSIONS — MISSION BOARD`.
+- **Four category columns.** Left-to-right: Propulsion, Resource
+  Extraction, Defense, Economics. Column headers are 12px slate,
+  center-anchored over the column's normalized x-position
+  (`0.12 / 0.38 / 0.64 / 0.88` of the tree region's width).
+- **Hex nodes.** Each research node is a pointy-top hexagon
+  (`HEX_R = 22`). 12 seeded nodes span the four categories (3 per
+  column). Each node shows a 2-char glyph at its center, an `L<n>`
+  level pill just below the hex, and a wrap-capped name label under
+  the pill.
+- **Prerequisite edges.** Thin cyan polylines connect each node to
+  its downstream dependents (`EDGES`). Edges route orthogonally
+  (horizontal-then-vertical) when nodes sit in different columns, so
+  cross-column dependencies read as clean right-angle steps.
+- **Node states** (4, each with a distinct stroke + icon color):
+  - `available` (cyan stroke, cyan glyph): prereqs met, ready to start.
+  - `researching` (amber stroke, amber glyph): in progress; the
+    detail card shows a progress bar + ETA.
+  - `completed` (emerald stroke + fill): already unlocked.
+  - `locked` (slate stroke): prereqs unmet; detail card's CTA is
+    dimmed.
+- **Detail card (right side, floating).** ~260×210 hologram sub-panel
+  pinned to the right of the tree, vertically centered. Contents:
+  - `RESEARCH NODE` header (amber, 11px, 1px tracking)
+  - `<name> Lvl <n>` (14px, slate)
+  - Status line: `Locked` (rose) / `Available` (cyan) /
+    `Currently Researching` (amber) / `Completed` (emerald)
+  - Cost row: `<minerals> minerals · <credits> credits · <time>`
+    (hidden for completed nodes)
+  - Progress bar + `<pct>%  ·  ETA HH:MM:SS` (only for researching)
+  - Effect blurb (wrap-capped, 11px, slate dim)
+  - CTA button: `INITIATE RESEARCH` (available) /
+    `PREREQUISITES LOCKED` (locked, dimmed) /
+    `VIEW PROGRESS` (researching) / hidden (completed)
+- **Legend strip (bottom-left card).** ~220×76 hologram sub-panel
+  listing the four node states with color dots. Mirrors the
+  reference mock.
+
+Interactions:
+
+- **Click a hex →** selects that node; detail card rebuilds with its
+  cost / status / CTA / effect. Selection highlight is a thin
+  amber outer ring (`HEX_R + 4`) around the active hex.
+- **Click the CTA on an available node →** stub for now (the button
+  is a visual affordance). Real cost deduction + tick-based
+  research clock lands under ROADMAP P8.
+- **Leaving the tab →** `hide()` keeps the last-selected node around
+  so the card re-opens to the same state on re-show.
+
+Not yet wired (tracked under P8):
+
+- All 12 nodes are static data. No `MetaState.research` slice exists
+  yet — node states do not persist across reloads.
+- Costs are not deducted. INITIATE RESEARCH is a no-op.
+- Research ticking is not implemented (the `researching` state's
+  progress + ETA are frozen at the mock values for the seeded
+  Habitat Extension node).
+- Completing a node does not apply the upgrade effect anywhere
+  (`ion-thrusters` does not actually reduce ETA yet, etc.).
+
 ### 5. MISSION BOARD modal (MISSIONS tab default overlay)
 
 Floating panel over the MISSIONS tab. 2×2 grid of narrative mission

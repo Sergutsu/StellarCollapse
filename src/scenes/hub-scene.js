@@ -44,6 +44,7 @@ import {
     drawStarShape,
 } from '../pixi-ui-kit.js';
 import { StarMapTab } from './tabs/star-map-tab.js';
+import { ResearchTab } from './tabs/research-tab.js';
 
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
@@ -85,7 +86,7 @@ const HUB_TABS = Object.freeze([
     { id: 'star-map',   label: 'STAR MAP',      locked: false },
     { id: 'missions',   label: 'MISSIONS',      locked: false },
     { id: 'build',      label: 'BUILD/UPGRADE', locked: true,  lockRep: 3 },
-    { id: 'research',   label: 'RESEARCH',      locked: true,  lockRep: 4 },
+    { id: 'research',   label: 'RESEARCH',      locked: false },
     { id: 'crew',       label: 'CREW',          locked: true,  lockRep: 3 },
     { id: 'market',     label: 'MARKET',        locked: true,  lockRep: 2 },
 ]);
@@ -246,7 +247,8 @@ export class HubScene {
         // extracted today; the other 5 tabs still render a locked stub
         // via the centerPanel's own text layer.
         const starMapTab = new StarMapTab({ parent: centerPanel.panel });
-        const tabs = { 'star-map': starMapTab };
+        const researchTab = new ResearchTab({ parent: centerPanel.panel });
+        const tabs = { 'star-map': starMapTab, research: researchTab };
 
         root.addChild(topBar.container);
         root.addChild(news.container);
@@ -983,16 +985,26 @@ export class HubScene {
             c.map.visible = true;
             c.openBoardButton.container.visible = true;
             this._openMissionBoard();
-        } else if (tabId === 'star-map') {
-            // Star-map tab scene owns its own title + surface; hide
-            // the default chrome so they don't overlap. Layout is
-            // already up-to-date via _layoutCenterPanel fan-out.
+        } else if (tabId === 'star-map' || tabId === 'research') {
+            // Extracted tab scenes own their own title + surface; hide
+            // the default chrome so they don't overlap.
             c.tabTitle.visible = false;
             c.stub.visible = false;
             c.map.visible = false;
             c.openBoardButton.container.visible = false;
             this._closeMissionBoard();
-            n.tabs['star-map'].show();
+            const scene = n.tabs[tabId];
+            scene.show();
+            // show() lazy-builds the scene's Pixi nodes on first call.
+            // The _layoutCenterPanel fan-out only fires during
+            // _layoutShell, which ran at hub-build time (before the
+            // nodes existed and scene.layout early-returned). Call
+            // layout now with the center panel's last-known inner
+            // dims so the newly-built content positions itself
+            // correctly on first show instead of collapsing to (0, 0).
+            if (typeof scene.layout === 'function' && c._w && c._h) {
+                scene.layout({ width: c._w, height: c._h });
+            }
         } else {
             c.tabTitle.visible = true;
             c.tabTitle.text = activeTab.label;
@@ -1166,6 +1178,11 @@ export class HubScene {
 
     _layoutCenterPanel(center, x, y, w, h) {
         center.container.position.set(x, y);
+        // Stash the last-known inner dims so tab-scene switches can
+        // lay out the newly-shown scene even when it was lazy-built
+        // AFTER the most recent _layoutShell pass (see _setActiveTab).
+        center._w = w;
+        center._h = h;
         redrawHologramPanel(center.panel, w, h);
         center.map.clear();
         // Faint dotted grid to evoke a star map.
