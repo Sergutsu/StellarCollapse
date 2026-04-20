@@ -43,6 +43,7 @@ import {
     panelLabel,
     drawStarShape,
 } from '../pixi-ui-kit.js';
+import { StarMapTab } from './tabs/star-map-tab.js';
 
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
@@ -81,7 +82,7 @@ const HUB_NEWS_POOL = Object.freeze([
 // Hub bottom-nav tabs. Only MISSIONS is active; the rest render a
 // locked stub panel. `lockRep` is a placeholder gate until rep lands.
 const HUB_TABS = Object.freeze([
-    { id: 'star-map',   label: 'STAR MAP',      locked: true,  lockRep: 2 },
+    { id: 'star-map',   label: 'STAR MAP',      locked: false },
     { id: 'missions',   label: 'MISSIONS',      locked: false },
     { id: 'build',      label: 'BUILD/UPGRADE', locked: true,  lockRep: 3 },
     { id: 'research',   label: 'RESEARCH',      locked: true,  lockRep: 4 },
@@ -193,6 +194,14 @@ export class HubScene {
 
     destroy() {
         if (this._nodes) {
+            // Tear down any extracted tab scenes before the center
+            // panel itself is destroyed so their own refs are cleared.
+            const tabs = this._nodes.tabs;
+            if (tabs) {
+                Object.values(tabs).forEach((scene) => {
+                    if (typeof scene.destroy === 'function') scene.destroy();
+                });
+            }
             this._nodes.root.destroy({ children: true });
             this._nodes = null;
         }
@@ -231,6 +240,14 @@ export class HubScene {
         const bottomNav = this._buildBottomNav();
         const modal = this._buildMissionBoardModal();
 
+        // Hub-tab scenes (ADR-0010). Mutually-exclusive scenes hosted
+        // inside the center panel's hologram surface. _setActiveTab
+        // shows the right one and hides the others. Only STAR MAP is
+        // extracted today; the other 5 tabs still render a locked stub
+        // via the centerPanel's own text layer.
+        const starMapTab = new StarMapTab({ parent: centerPanel.panel });
+        const tabs = { 'star-map': starMapTab };
+
         root.addChild(topBar.container);
         root.addChild(news.container);
         root.addChild(leftCol.container);
@@ -248,6 +265,7 @@ export class HubScene {
             rightCol,
             bottomNav,
             modal,
+            tabs,
             activeTabId: 'missions',
         };
 
@@ -943,18 +961,44 @@ export class HubScene {
         if (!n) return;
         n.activeTabId = tabId;
         this._redrawTabHighlights(tabId);
-        // Center panel contents change per tab. MISSIONS opens the
-        // modal; every other tab shows a locked-stub hint.
+        // Center panel contents change per tab.
+        //   MISSIONS  -> mission-board modal + open-board button.
+        //   STAR MAP  -> extracted tab scene (ADR-0010).
+        //   any other -> locked stub text (until that tab is extracted).
         const c = n.centerPanel;
         const activeTab = HUB_TABS.find((t) => t.id === tabId) || HUB_TABS[1];
+
+        // Hide every extracted tab scene first; then show the one that
+        // owns this tabId, if any. This keeps the show/hide logic
+        // symmetric regardless of which tab was previously active.
+        Object.entries(n.tabs).forEach(([id, scene]) => {
+            if (id !== tabId) scene.hide();
+        });
+
         if (tabId === 'missions') {
+            c.tabTitle.visible = true;
             c.tabTitle.text = 'MISSIONS \u2014 MISSION BOARD';
+            c.stub.visible = true;
             c.stub.text = '';
+            c.map.visible = true;
             c.openBoardButton.container.visible = true;
             this._openMissionBoard();
+        } else if (tabId === 'star-map') {
+            // Star-map tab scene owns its own title + surface; hide
+            // the default chrome so they don't overlap. Layout is
+            // already up-to-date via _layoutCenterPanel fan-out.
+            c.tabTitle.visible = false;
+            c.stub.visible = false;
+            c.map.visible = false;
+            c.openBoardButton.container.visible = false;
+            this._closeMissionBoard();
+            n.tabs['star-map'].show();
         } else {
+            c.tabTitle.visible = true;
             c.tabTitle.text = activeTab.label;
+            c.stub.visible = true;
             c.stub.text = `${activeTab.label} \u2014 Unlocks at Rep Tier ${activeTab.lockRep ?? 2}.\nComing in a later phase.`;
+            c.map.visible = true;
             c.openBoardButton.container.visible = false;
             this._closeMissionBoard();
         }
@@ -1136,6 +1180,19 @@ export class HubScene {
         // Open-board button centered near the bottom of the center panel.
         const btnW = center.openBoardButton.width;
         center.openBoardButton.container.position.set((w - btnW) / 2, h - 64);
+
+        // Fan out to any extracted tab scenes hosted in the center
+        // panel. They lay out against the panel's inner surface (same
+        // w/h) regardless of which one is currently visible so a
+        // hidden scene doesn't flash at the old size on re-show.
+        const tabs = this._nodes?.tabs;
+        if (tabs) {
+            Object.values(tabs).forEach((scene) => {
+                if (typeof scene.layout === 'function') {
+                    scene.layout({ width: w, height: h });
+                }
+            });
+        }
     }
 
     _layoutBottomNav(nav, w, y, h) {
