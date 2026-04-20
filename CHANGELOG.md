@@ -8,6 +8,10 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed
+
+- **Scene-graph refactor (PR 1 of several).** `PixiView` starts splitting into scenes under `src/scenes/`. New `SceneManager` (~70 lines, zero Pixi imports, own unit test suite) registers named scenes with a `show` / `hide` / `layout` / `destroy` contract. First extraction: `ResultsScene` — the mission-report overlay — moves out of the monolith with zero behavioural change. `PixiView.showResultsScreen(summary, {onContinue})` and `PixiView.hideResultsScreen()` keep the same public signature and now delegate to the manager. New ADR-0009 documents the staged path through HubScene, GameScene, and the six hub-tab scenes + 6+ minigame scenes that will register under the same manager. 106/106 tests pass (97 existing + 9 new scene-manager tests).
+
 ### Added
 
 - **P1 shipped — per-run ore tally, credits formula, and Pixi results screen.** A completed mission now rolls up ores cleared (`match-cleared` / `bomb-exploded` / `lines-cleared` → tile colour → ore id) and awards `baseCredits + floor(score/10)` credits. A new hologram overlay shows asteroid name + sector, run stats (score / level / lines / cells / matches / bombs), a 6-ore haul breakdown, and the credits payout with base/bonus split; CONTINUE applies the reward through `MetaState.applyMissionReward(...)` (which persists through `stellarVentureSaveV1`) and returns to the hub. Top-bar chips auto-repaint from the new profile. New `src/run-ledger.js` pure module + 11 unit tests (97/97 passing).
