@@ -102,6 +102,86 @@ const TIER_DIFFICULTY_BY_ID = {
     'blocks-collapsed':     'CRITICAL',
 };
 
+// Narrative metadata per tier. Renders on the hub's MISSION BOARD modal
+// cards -- each card shows a narrative name + type tag + sector + risk
+// factor + ETA, but the underlying gameConfig still maps 1:1 to a tier
+// archetype. Keeps ADR-0003 intact (one archetype per ranked tier) while
+// dressing the card in the language the pivoted game uses.
+//
+// Source-of-truth table: docs/UI-HUB.md §7 "Narrative mission catalog".
+// Keep these in sync when tuning names or risk values.
+const NARRATIVE_BY_TIER_ID = {
+    'stellar-classic': {
+        narrativeName: 'Asteroid Mining: Omega-4 Belt',
+        type: 'Mining',
+        sector: 'Omega-4 Belt',
+        risk: 1,
+        etaLabel: '8h',
+    },
+    'stellar-mutated': {
+        narrativeName: 'Ice-Shard Harvest: Gliese Fringe',
+        type: 'Mining',
+        sector: 'Gliese Fringe',
+        risk: 1,
+        etaLabel: '12h',
+    },
+    'auto-match-classic': {
+        narrativeName: 'Gliese Exploration: Scout Sweep',
+        type: 'Exploration',
+        sector: 'Gliese-876 System',
+        risk: 2,
+        etaLabel: '12h',
+    },
+    'auto-match-mutated': {
+        narrativeName: 'Xeno-archeology Dig: Uncharted Crag',
+        type: 'Research',
+        sector: 'Kuiper Fringe',
+        risk: 2,
+        etaLabel: '16h',
+    },
+    'stellar-collapsed': {
+        narrativeName: 'Operation: Black Hole Anomaly',
+        type: 'Exploration',
+        sector: 'Event Horizon Shadow',
+        risk: 3,
+        etaLabel: '15h',
+    },
+    'auto-match-collapsed': {
+        narrativeName: 'Relic Recovery: Voidwreck',
+        type: 'Salvage',
+        sector: 'Voidwreck Field',
+        risk: 4,
+        etaLabel: '20h',
+    },
+    'blocks-classic': {
+        narrativeName: 'Trade Route Defense: Outer Rim',
+        type: 'Combat',
+        sector: 'Outer Rim Lanes',
+        risk: 4,
+        etaLabel: '18h',
+    },
+    'blocks-mutated': {
+        narrativeName: 'Deep Core Survey: Seismic Rift',
+        type: 'Exploration',
+        sector: 'Seismic Rift',
+        risk: 5,
+        etaLabel: '22h',
+    },
+    'blocks-collapsed': {
+        narrativeName: 'Core Breach: Terminus Protocol',
+        type: 'Combat',
+        sector: 'Terminus Core',
+        risk: 5,
+        etaLabel: '24h 2m',
+    },
+};
+
+// Mission types exist as a small enum so UIs can filter / tint cards by
+// discipline later (e.g. highlight Combat missions if the player has a
+// combat specialist on crew). Order matches the catalog's first-
+// appearance order.
+export const MISSION_TYPES = Object.freeze(['Mining', 'Exploration', 'Research', 'Salvage', 'Combat']);
+
 // A short flavor brief shown on the card. One line each so the layout
 // stays predictable.
 const TIER_BRIEF_BY_ID = {
@@ -122,6 +202,13 @@ function missionFromTier(tier, idx, nameRng) {
     const pool = ASTEROID_NAMES[tier.id] || [tier.label];
     const name = pool[Math.floor(nameRng() * pool.length) % pool.length];
     const sizeId = TIER_SIZE_BY_ID[tier.id] || 'medium';
+    const narrative = NARRATIVE_BY_TIER_ID[tier.id] || {
+        narrativeName: tier.label,
+        type: 'Mining',
+        sector: name,
+        risk: Math.min(5, Math.max(1, Math.ceil((idx + 1) / 2))),
+        etaLabel: '8h',
+    };
     return Object.freeze({
         id: `mission-${tier.id}`,
         tierId: tier.id,
@@ -132,6 +219,12 @@ function missionFromTier(tier, idx, nameRng) {
         difficulty: TIER_DIFFICULTY_BY_ID[tier.id] || 'MODERATE',
         brief: TIER_BRIEF_BY_ID[tier.id] || '',
         baseCredits: baseCreditsFor(idx + 1),
+        // Narrative flavor (rendered on the MISSION BOARD modal cards).
+        narrativeName: narrative.narrativeName,
+        type: narrative.type,
+        sector: narrative.sector,
+        risk: narrative.risk,
+        etaLabel: narrative.etaLabel,
         // Expected ore preview on the card: the four "common" ores are
         // always in play, plus a rare-ore hint on collapsed tiers.
         expectedOres: Object.freeze([
@@ -170,6 +263,43 @@ function rng(seed) {
 export function buildMissions({ seed } = {}) {
     const pick = rng(seed);
     return HIGHSCORE_TIERS.map((tier, idx) => missionFromTier(tier, idx, pick));
+}
+
+// Pick a subset of missions for the MISSION BOARD modal (2x2 grid by
+// default, 4 cards). Deterministic given a seed so a session's visible
+// board stays stable between modal open/close within a single boot.
+// Biases toward low-risk missions in the first slot and escalates
+// across the board so the player sees a risk gradient every time --
+// mechanics: stratified shuffle across risk tiers 1..5, then truncate.
+export function pickMissionBoard(missions, { count = 4, seed } = {}) {
+    if (!Array.isArray(missions) || missions.length === 0) return [];
+    const n = Math.max(1, Math.min(count, missions.length));
+    const pick = rng(seed);
+    // Group by risk so we can sample across the difficulty spread.
+    const byRisk = new Map();
+    for (const m of missions) {
+        const r = typeof m.risk === 'number' ? m.risk : 3;
+        if (!byRisk.has(r)) byRisk.set(r, []);
+        byRisk.get(r).push(m);
+    }
+    const risks = [...byRisk.keys()].sort((a, b) => a - b);
+    const out = [];
+    // Round-robin across risk buckets, drawing a deterministic entry
+    // from each until we hit `count`. Copies the buckets so repeated
+    // calls with the same seed return the same list.
+    const buckets = new Map(risks.map((r) => [r, byRisk.get(r).slice()]));
+    let safety = 0;
+    while (out.length < n && safety < n * risks.length * 2) {
+        for (const r of risks) {
+            if (out.length >= n) break;
+            const bucket = buckets.get(r);
+            if (!bucket || bucket.length === 0) continue;
+            const i = Math.floor(pick() * bucket.length) % bucket.length;
+            out.push(bucket.splice(i, 1)[0]);
+        }
+        safety++;
+    }
+    return out;
 }
 
 // Look up a mission by id from a built list. Returns null if missing.

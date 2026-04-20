@@ -56,25 +56,22 @@ Capture real defects the team has spotted that aren't scoped to any single
 phase. Don't let these rot — each should be linked to the PR that fixes it
 when it's addressed.
 
-- **Main menu not centered on wide viewports.** The current start scene uses a
-  fixed `HUD_W × HUD_H` (860 × 820) panel and centers via `sceneRoot.x =
-  (window.innerWidth - HUD_W) / 2`. On wide monitors the panel ends up in the
-  top-left cluster of the viewport instead of filling. Reference:
+- ~~**Main menu not centered on wide viewports.**~~ Fixed by the P2 hub shell —
+  the start screen is now a viewport-filling scene graph (top bar + columns +
+  bottom nav repositioned in `_layoutHubShell()` on resize), not a fixed
+  `HUD_W × HUD_H` panel. Historical reference:
   [`images/current-layout-bug-2026-04-20.png`](images/current-layout-bug-2026-04-20.png).
-  → Partially mitigated by the MISSION LOG deletion (single-panel layout now
-    centers on width). Full viewport-filling fix still lands with P2 hub
-    scaffolding.
 - ~~**MISSION LOG panel overlaps the dispatcher card + title bar.**~~ Fixed by
   deleting the MISSION LOG panel entirely (the highscore system is gone;
   gameplay is about mission-run resources, not a leaderboard). Dispatcher card
   now sits directly beneath the mission grid in a single centered panel.
 
-## Next (P2 — Hub scaffolding)
+## Now (P2 — Hub scaffolding, shipping)
 
 Goal: replace today's fixed-panel start screen with the **hub scene graph** from
 [`UI-HUB.md`](UI-HUB.md). No new gameplay yet — the hub just wraps what exists.
 
-Deliverables:
+Delivered in this PR:
 
 - Viewport-filling hub scene. Top bar + 3 columns + bottom nav are containers,
   not absolute-positioned children of a fixed panel. Resize fills the screen.
