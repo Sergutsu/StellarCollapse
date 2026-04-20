@@ -119,17 +119,16 @@ Zero Pixi / DOM imports — the ledger is pure data, same contract as `GameState
 
 ### `src/pixi-view.js`
 
-The only DOM/Pixi/visual code. Subscribes to GameState. Owns:
+The Pixi bootstrap + scene host. After the 3-stage scene-graph split (ADR-0009), PixiView no longer holds any game logic or hub logic — it's a thin shell (~390 lines, down from 3110 before the split) that owns:
 
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
-- Starfield + scanner
-- Title bar with reactive "STELLAR VENTURE" star actor
-- `SceneManager` + registered `HubScene` + `ResultsScene` (see below). Public API (`showStartScreen`, `showGameScreen`, `showResultsScreen(summary, {onContinue})`, `hideResultsScreen`, `onStartGame`) delegates to the manager and handles the cross-scene visibility dance (hide/show the in-game HUD + top controls around whichever overlay is up).
-- Game-run scene (board layers, active piece, effects, particles) — still inline; extracts to `GameScene` in PR 3
-- HUD columns (score / level / tips / controls), piece previews, sound/exit top controls
-- Shared Pixi helpers (`_drawHologramPanel`, `_redrawHologramPanel`, `_buildStartButton`, `_panelLabel`, `_drawStarShape`) — injected into scenes by reference; move to a standalone `pixi-ui-kit.js` module once 2+ scenes need them directly
+- Viewport-filling starfield + cinematic hub backdrop
+- `SceneManager` + registered `HubScene` + `GameScene` + `ResultsScene`
+- Shared Pixi helpers (`_drawHologramPanel`, `_redrawHologramPanel`, `_buildStartButton`, `_panelLabel`, `_drawStarShape`) — injected into scenes by reference; move to a standalone `pixi-ui-kit.js` module in the next scene-split PR now that 3 scenes depend on them
+- Single `app.ticker` that drives `starfield.update(deltaMs)` and fans out `tick(deltaMs)` to every scene that exposes one
+- Window `resize` listener that rebuilds the starfield + calls `SceneManager.layout(screen)`
 
-Input — keyboard + pointer — flows through `src/input.js` and into GameState actions. View never runs game logic.
+Public API (unchanged across the entire scene-split series so `main.js` never needed updating): `init`, `createBoard`, `createPreviews`, `setTopControlsHandlers`, `setSoundEnabled`, `setTip`, `showStartScreen`, `showGameScreen`, `showResultsScreen`, `hideResultsScreen`, `onStartGame`, `_levelInfoFor` setter. Every entry point is a thin delegate onto the appropriate scene; there is no game logic, no hub logic, and no Pixi event handling left in `PixiView`.
 
 ### `src/scenes/scene-manager.js`
 
@@ -181,6 +180,43 @@ Public API consumed by `PixiView`:
 - `getMissions()` — returns the deterministic per-boot mission catalog (same `buildMissions({ seed })` call the old start screen used).
 
 All hub constants (`HUB_TABS`, `HUB_RESOURCES`, `HUB_NEWS_POOL`, `HUB_RISK_PRESETS`) moved with the scene. PixiView no longer imports `missions.js` — the scene owns the catalog.
+
+### `src/scenes/game-scene.js`
+
+The in-game HUD + board, extracted from `PixiView` in the third scene-graph PR (see ADR-0009). Owns everything the player sees during a run:
+
+- The 860×820 HUD frame — title bar with reactive star, LEVEL + COMING UP columns, SCORE + TIPS + CONTROLS columns, sound/exit top controls
+- The board tree — `boardRoot` + 4 `layers` (`board` → `active` → `effects` → `overlay`). Cell pools (`boardCells[y][x]` + `activeCells[y][x]`) are rebuilt on every `createBoard()` so each field size gets a fresh grid
+- All GameState subscriptions (`piece-spawned`, `piece-locked`, `match-cleared`, `lines-cleared`, `bomb-detonating`, `bomb-exploded`, `snake-activated`, `gravity-applied`, `floating-changed`, `score-changed`, `level-up`, `game-over`, plus the COLLAPSED `special-armed` / `-cleared` / `-expired` / `-moved` / `-cleared-all` family)
+- Click-to-match input handling (attaches a canvas `click` listener; translates into cell coords and forwards to `state.clickCell(...)`)
+- All animations driven off the shared `tick(deltaMs)`: scanner sweep, bomb/snake pulse, title-star reactions, effect tween pool, snake-walk trail
+- Special-overlay countdown rings (the 5-second arming clock on bomb/snake cells in COLLAPSED mode)
+
+Builds lazily on first `show()` — the HUD + board + layers are all created inside `_build()` so a sandbox boot that never enters a run pays no Pixi construction cost for game nodes.
+
+Constructor shape:
+
+```js
+new GameScene({
+    app,                    // Pixi Application (read-only; for canvas + screen)
+    state,                  // GameState (subscribed for the full game event bus)
+    sceneRoot,              // Pixi Container shared with the hub (HUD + board live here)
+    uiRoot,                 // Pixi Container for floating chrome (top controls)
+    drawHologramPanel,      // shared panel-chrome helper
+    drawStarShape,          // shared star-icon helper
+    panelLabel,             // shared text-label helper
+});
+```
+
+Public API forwarded from `PixiView` so `main.js` never sees the scene directly:
+
+- `createBoard()` — rebuild cell pools for a new run's grid
+- `createPreviews()` — no-op kept for API parity; previews are wired inside `_buildHud`
+- `setTip(text)` / `setSoundEnabled(on)` — update HUD copy; buffered if called before the HUD builds so main.js's init-time priming works
+- `setTopControlsHandlers({ onExit, onToggleSound })` — wires the sound/exit buttons
+- `setLevelInfoFor(fn)` — level-name formatter; proxied from `view._levelInfoFor = fn`
+
+PixiView no longer holds any game state fields (no `boardCells`, `_tweens`, `_particlePool`, `_specialOverlays`, `_clockMs`, or `layers`) — those all live inside `GameScene` now. The `CELL_PALETTE` render data is shared across scenes via [`src/scenes/cell-palette.js`](../src/scenes/cell-palette.js).
 
 ### `src/pixi-starfield.js`
 
