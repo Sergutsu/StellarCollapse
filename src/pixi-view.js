@@ -13,6 +13,7 @@
 
 import {
     Application,
+    Assets,
     Container,
     FillGradient,
     Graphics,
@@ -308,6 +309,16 @@ export class PixiView {
             mount.style.boxShadow = 'none';
             mount.style.background = 'transparent';
             mount.style.animation = 'none';
+        }
+
+        // Preload the cinematic hub backdrop before the first starfield
+        // build so the base layer is present on boot. We don't block on
+        // failure: if the asset 404s (e.g. on a stripped deploy) the
+        // starfield falls back to procedural-only rendering silently.
+        try {
+            this._backdropTexture = await Assets.load('./assets/hub-backdrop.jpg');
+        } catch {
+            this._backdropTexture = null;
         }
 
         this._rebuildStarfield(app.screen.width, app.screen.height);
@@ -2210,7 +2221,11 @@ export class PixiView {
             this.app.stage.removeChild(this._starfield.container);
             this._starfield.destroy();
         }
-        this._starfield = createPixiStarfield(this.app, { width, height });
+        this._starfield = createPixiStarfield(this.app, {
+            width,
+            height,
+            backdropTexture: this._backdropTexture,
+        });
         this.app.stage.addChildAt(this._starfield.container, 0);
     }
 
