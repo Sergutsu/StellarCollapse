@@ -69,7 +69,7 @@ Piece shape pool per complexity. Read-only.
 
 ### `src/missions.js` — pure
 
-`buildMissions({ seed })`, `findMission(list, id)`, `ORES`, `ORE_BY_COLOR`, `baseCreditsFor(tierIndex)`. Seeded Mulberry32 for deterministic asteroid-name rolling. No side effects.
+`buildMissions({ seed })`, `findMission(list, id)`, `pickMissionBoard(missions, { count, seed })`, `baseCreditsFor(tierIndex)`, `ORES`, `ORE_BY_COLOR`, `MISSION_TYPES`. Seeded Mulberry32 for deterministic asteroid-name rolling and for the risk-stratified MISSION BOARD subset roll. Every mission also carries narrative metadata (`narrativeName`, `type`, `sector`, `risk` 1–5, `etaLabel`) that the hub MISSION BOARD cards render on top of the underlying tier archetype. No side effects.
 
 ### `src/audio.js`
 

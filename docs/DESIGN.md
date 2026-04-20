@@ -73,29 +73,35 @@ BUILD/UPGRADE, RESEARCH, CREW, MARKET). The MISSIONS tab opens a **MISSION
 BOARD modal** with narrative mission cards (Operation: Black Hole Anomaly,
 Xeno-archeology Dig, Trade Route Defense, Relic Recovery, …). Full
 element-by-element spec + narrative mission catalog live in
-[`UI-HUB.md`](UI-HUB.md). That is the destination we are migrating toward — it
-is NOT the current implementation.
+[`UI-HUB.md`](UI-HUB.md).
 
-### Main menu — today (transitional)
+### Main menu — today (P2 hub shell)
 
-What ships today is a slimmed version of the future hub's MISSIONS tab, one
-centered panel:
+The P2 hub shell is live (#41). The start screen is the viewport-filling
+5-zone hub from [`UI-HUB.md`](UI-HUB.md):
 
-- **AVAILABLE MISSIONS** heading + 3×3 mission card grid.
-- **CHIEF DISPATCHER** identity card (role + callsign + status) directly under
-  the mission grid in the same panel.
-- Title bar on top: shiny "STELLAR VENTURE" with the reactive star actor.
+- **Top bar** — STELLAR VENTURE brand, Chief Dispatcher callsign badge,
+  resource strip (O₂ / Fuel / Minerals / Credits / Warp Cells — static
+  placeholders until P3 meta-state), settings gear.
+- **Galactic News ticker** under the top bar, right→left scrolling flavor.
+- **Left column — ACTIVE MISSIONS** with an empty-state card. Real idle
+  ticking + mission progress bars land in P4.
+- **Center panel** — tab-swapped; MISSIONS opens the MISSION BOARD modal,
+  the other 5 tabs show an "Unlocks at Rep Tier N" stub.
+- **MISSION BOARD modal** — 2×2 narrative mission cards over a dim overlay.
+  Each card maps 1:1 to a `HIGHSCORE_TIERS` archetype under the hood, so
+  ACCEPT launches the existing puzzle gameplay with the tier's
+  `gameConfig` (ADR-0003 holds).
+- **Right column — FLEET & CREW STATUS** with 3 starter ships + 3 starter
+  crew (static placeholders until P3).
+- **Bottom nav** — 6 tab pills (STAR MAP, MISSIONS, BUILD/UPGRADE,
+  RESEARCH, CREW, MARKET). MISSIONS is active at boot; the rest are
+  locked stubs.
 
-No player-name input. No BEGIN button. No mode/complexity/size toggles — each
-card encapsulates its own config. No MISSION LOG / leaderboard panel — the
-HighScores system was removed. The game is about banking resources, not a
-bragging scoreboard.
-
-Known layout defects on today's main menu (tracked in `ROADMAP.md`):
-
-- Whole layout is clustered in the top-left of wide viewports instead of
-  filling the screen. Partially mitigated by the single-panel layout; fully
-  fixed by the hub in P2.
+No player-name input. No BEGIN button. No mode/complexity/size toggles —
+each mission card encapsulates its own config. No MISSION LOG / leaderboard
+panel — the HighScores system was removed. The game is about banking
+resources, not a bragging scoreboard.
 
 ### Mission run (gameplay)
 

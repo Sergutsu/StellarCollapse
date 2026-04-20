@@ -1940,10 +1940,13 @@ export class PixiView {
         if (this._startScreen?.modal) this._startScreen.modal.container.visible = false;
     }
 
-    _setHubActiveTab(tabId) {
+    // Repaints only the bottom-nav highlights at their current size.
+    // Safe to call on every resize/layout pass: it does NOT touch the
+    // center panel contents or modal visibility, so a user-dismissed
+    // modal stays dismissed across window resizes.
+    _redrawHubTabHighlights(tabId) {
         const start = this._startScreen;
         if (!start) return;
-        start.activeTabId = tabId;
         start.bottomNav.tabs.forEach((t) => {
             const isActive = t.tab.id === tabId;
             const w = t.container.__width || 0;
@@ -1957,6 +1960,16 @@ export class PixiView {
                 t.bg.roundRect(0, 0, w, h, 6).stroke({ color: 0x38bdf8, width: 1, alpha: 0.25 });
             }
         });
+    }
+
+    // Full tab-switch: updates active id, redraws highlights, swaps
+    // center panel content, and opens/closes the MISSION BOARD modal.
+    // Only call on explicit user-driven tab clicks or at initial build.
+    _setHubActiveTab(tabId) {
+        const start = this._startScreen;
+        if (!start) return;
+        start.activeTabId = tabId;
+        this._redrawHubTabHighlights(tabId);
         // Center panel contents change per tab. MISSIONS opens the
         // modal; every other tab shows a locked-stub hint.
         const c = start.centerPanel;
@@ -2317,7 +2330,10 @@ export class PixiView {
         this._redrawHologramPanel(col.panel, w, h);
         if (col.counter) col.counter.position.set(w - 14, 12);
         if (col.empty) {
-            this._redrawHologramPanel(col.empty, w - 24, 108);
+            // Keep the sky-400 accent set by _buildHubActiveMissions;
+            // re-using the default cyan here would mute the empty card
+            // against the panel border.
+            this._redrawHologramPanel(col.empty, w - 24, 108, 0x38bdf8);
             col.empty.position.set(12, 40);
         }
         if (col.fleetRows) {
@@ -2383,7 +2399,9 @@ export class PixiView {
             t.sublabel.position.set(tabW / 2, tabH / 2 + 10);
         });
         // Re-apply the active-tab visual (depends on __width / __height).
-        this._setHubActiveTab(this._startScreen?.activeTabId || 'missions');
+        // Uses the highlight-only variant so a user-dismissed modal is
+        // not forcibly reopened on every window resize.
+        this._redrawHubTabHighlights(this._startScreen?.activeTabId || 'missions');
     }
 
     _layoutHubModal(modal, w, h) {

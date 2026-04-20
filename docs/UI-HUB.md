@@ -1,10 +1,14 @@
-# UI — Hub Screen (target vision)
+# UI — Hub Screen
 
-> This doc captures the **target** main-menu layout we are building toward.
-> It is NOT the current state — today's start screen is a single centered
-> Pixi panel with a 3×3 mission grid and a dispatcher identity card. The
-> hub is the destination; we will migrate toward it in small phased PRs
-> (see [`ROADMAP.md`](ROADMAP.md)).
+> **Status:** The P2 hub shell has shipped (#41). The 5-zone layout
+> described in §1–§6 is the **live implementation** of the start screen —
+> viewport-filling top bar / news ticker / 3 columns / bottom nav / MISSION
+> BOARD modal all render in Pixi. What is still target-only is the data
+> behind the hub: the top-bar resource strip is static placeholders, the
+> ACTIVE MISSIONS column shows an empty-state card (idle ticking lands in
+> P4), FLEET & CREW values are static, and 5 of the 6 bottom-nav tabs are
+> locked stubs waiting on their respective phases (P3+ for persistence /
+> upgrades / research / crew / market / star map).
 >
 > Ground-truth reference: [`images/hub-mission-board-mock.png`](images/hub-mission-board-mock.png)
 > (a reference mock — not a pixel-perfect target, just the shape of the screen).
