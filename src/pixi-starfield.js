@@ -25,10 +25,11 @@ const STAR_TINTS = [
     0xfef3c7,
 ];
 
-// Only the very brightest ~5% of stars get a subtle 4-ray sparkle, and
-// the sparkle itself is much thinner/shorter than before. Every other
-// star is a pinprick.
-const SPARKLE_RATIO = 0.05;
+// Only stars in the top luminance band get the subtle 4-ray sparkle;
+// the rest are pinpricks. `lum = Math.random() ** 3.4` puts ~4.7% of
+// stars above the 0.85 threshold, which matches the reference image's
+// rare-sparkle density — no further gating needed.
+const SPARKLE_LUM_THRESHOLD = 0.85;
 
 // Retinted toward the hub-backdrop reference: dominant teals + cyans with
 // scattered warm ember pockets. The old deep purples/magentas washed out
@@ -228,7 +229,7 @@ export function createPixiStarfield(app, { width, height, backdropTexture } = {}
         // Luminance roll is heavily biased toward dim so the majority of
         // stars are sub-pixel pinpricks, mimicking the hub-backdrop.
         const lum = Math.random() ** 3.4;
-        const isSparkle = lum > 0.85 && Math.random() < SPARKLE_RATIO / 0.15;
+        const isSparkle = lum > SPARKLE_LUM_THRESHOLD;
 
         const s = new Sprite(isSparkle ? sparkleTex : pinprickTex);
         s.anchor.set(0.5);

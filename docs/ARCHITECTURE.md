@@ -90,7 +90,13 @@ Input — keyboard + pointer — flows through `src/input.js` and into GameState
 
 ### `src/pixi-starfield.js`
 
-Factory for the starfield container. Baked nebula `RenderTexture`, 160 blinking dot stars, 24 cross-sparkle stars. Exports a `{ container, update(dt) }`.
+Factory for the starfield container. Composition (bottom → top):
+
+1. **Optional cinematic backdrop sprite** (`assets/hub-backdrop.jpg`). Cover-fits the viewport, 0.82 alpha with a cool tint, drifts a few pixels on the starfield clock for subtle parallax. If no backdrop texture is passed, this layer is skipped and the rest of the field falls back to procedural-only.
+2. **Baked nebula `RenderTexture`.** 4 multi-lobed cloud systems tinted from the teal / cyan / ember palette (`NEBULA_TINTS`) to reinforce the backdrop; alpha is 0.6 when a backdrop is present, 0.92 when not.
+3. **Density-based star layer** sized to the viewport — ~`0.00045` stars/pixel, clamped to `260–1100`. Each star samples a power-law luminance roll; the top band (`lum > 0.85`, ~4.7% of stars) renders with a subtle 4-ray sparkle texture, the rest with a soft pinprick texture. Star twinkle is slow (`0.0003–0.0014` rad/ms) and softly amplitude-modulated so stars glimmer rather than throb.
+
+Exports `createPixiStarfield(app, { width, height, backdropTexture }) → { container, update(dt), destroy() }`.
 
 ### `src/main.js` — orchestrator
 
