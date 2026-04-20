@@ -8,7 +8,9 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **Start screen is Pixi-only** (PR #34). Deleted the dead DOM scaffolding that briefly flashed at page load: the `<input id="playerName">` (identity is fixed to "Chief Dispatcher" since PR #32), the entire `#gameScreen` DOM subtree (LEVEL / NEXT / COMING UP / SCORE / LINES / MULTIPLIER / MISSION TIP / CONTROLS panels, title bar with star, sound/exit buttons, board layer divs), plus the Tailwind + Font Awesome CDN tags that were no longer referenced. `index.html` is now a 50-line bare mount for the Pixi canvas. Fulfills the cleanup promised in the 0.1.0 notes below.
 
 ---
 

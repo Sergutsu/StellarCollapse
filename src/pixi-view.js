@@ -185,7 +185,6 @@ export class PixiView {
         this._topControls = null;
         this._highScores = null;
 
-        this._playerNameInput = this.el.playerName || null;
         this._startScreen = null;
         this._startPanelBounds = null;
         // The full mission catalog for this session. Deterministic per
@@ -1826,22 +1825,6 @@ export class PixiView {
         s.tierTabs.position.set(20, 164);
         s.tierLabel.position.set(20, 294);
         s.listContainer.position.set(20, 324);
-
-        this._positionPlayerNameInput();
-    }
-
-    _positionPlayerNameInput() {
-        const input = this._playerNameInput;
-        if (!input || !this._startPanelBounds) return;
-        const { x, y, leftW, leftScale } = this._startPanelBounds;
-        const scale = leftScale || (leftW / 720);
-        // Position in panel-local coordinates so the DOM input tracks
-        // the scaled Pixi layout.
-        const inputLocalX = 24;
-        const inputLocalY = 112;
-        input.style.left = `${Math.round(x + inputLocalX * scale)}px`;
-        input.style.top = `${Math.round(y + inputLocalY * scale)}px`;
-        input.style.width = `${Math.round(Math.min(360, 320 * scale))}px`;
     }
 
     _drawStarShape(r, color) {
@@ -2377,17 +2360,6 @@ export class PixiView {
         this._onStartGameRequested = typeof callback === 'function' ? callback : null;
     }
 
-    setPlayerNameInput(input) {
-        // Player identity is now fixed to "Chief Dispatcher" and shown
-        // on the mission-select dispatcher card. The legacy DOM input
-        // stays in the HTML for back-compat but is permanently hidden.
-        this._playerNameInput = input || null;
-        if (this._playerNameInput) {
-            this._playerNameInput.style.display = 'none';
-            this._playerNameInput.style.pointerEvents = 'none';
-        }
-    }
-
     setSelectedTier(tierId) {
         if (!tierId) return;
         this._startState.selectedTierId = tierId;
@@ -2399,10 +2371,6 @@ export class PixiView {
         if (this.sceneRoot) this.sceneRoot.visible = false;
         if (this._topControls) this._topControls.visible = false;
         if (this._startScreen?.root) this._startScreen.root.visible = true;
-        if (this._playerNameInput) {
-            this._playerNameInput.style.display = 'none';
-            this._playerNameInput.style.pointerEvents = 'none';
-        }
         this._refreshLeaderboard();
     }
 
@@ -2410,10 +2378,6 @@ export class PixiView {
         if (this.sceneRoot) this.sceneRoot.visible = true;
         if (this._topControls) this._topControls.visible = true;
         if (this._startScreen?.root) this._startScreen.root.visible = false;
-        if (this._playerNameInput) {
-            this._playerNameInput.style.display = 'none';
-            this._playerNameInput.style.pointerEvents = 'none';
-        }
     }
 
     setTopControlsHandlers({ onExit, onToggleSound } = {}) {
