@@ -295,7 +295,7 @@ are now backed by a persistent player profile saved to
 | `hubResources.fuel` | int | `640` | Consumed per mission dispatch (P4). |
 | `hubResources.minerals` | int | `1200` | Aggregate ore count for display. |
 | `hubResources.warp` | int | `3` | Warp-cell charges. |
-| `ores.{red, orange, yellow, green, blue, purple}` | int | `0` each | Per-tile-colour ore counts. Granular; used for crafting / upgrades (P5+). |
+| `ores.{red, blue, green, yellow, bomb, snake}` | int | `0` each | Per-tile-colour ore counts, matching the actual gameplay palette (four normal colours + the two hazard tiles). Granular; used for crafting / upgrades (P5+). |
 | `fleet[]` | `{id, name, className, hull (0–100), status}` | 3 starter ships | Ids are stable; only `hull` and `status` persist — cosmetic fields fall back to the starter roster. |
 | `crew[]` | `{id, name, role, level, status}` | 3 starter crew | Same merge rule as fleet: ids are stable, only `level`/`status` persist. |
 | `reputationTier` | int | `1` | Gates hub tabs (STAR MAP / BUILD / RESEARCH / CREW / MARKET). |
