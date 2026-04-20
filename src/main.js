@@ -26,10 +26,7 @@ const DEFAULT_SIZE_ID = DEFAULT_FIELD_SIZE_ID;
 async function boot() {
     const elements = {
         container: el('gameContainer'),
-        playerName: el('playerName'),
     };
-    const soundToggleBtn = el('soundToggleBtn');
-    const endGameBtn = el('endGameBtn');
 
     const audio = new Audio();
     const highScores = new HighScores();
@@ -64,8 +61,6 @@ async function boot() {
     view.createPreviews();
     audio.bindState(state);
     bindInput({ state, elements });
-    if (soundToggleBtn) soundToggleBtn.style.display = 'none';
-    if (endGameBtn) endGameBtn.style.display = 'none';
     view.setTopControlsHandlers({
         onExit: () => state.endGameEarly(),
         onToggleSound: () => {
@@ -113,7 +108,6 @@ async function boot() {
     state.on('game-started', refreshTip);
     state.on('level-up',     refreshTip);
 
-    view.setPlayerNameInput(elements.playerName);
     view.setHighScores(highScores);
     view.setSelectedTier(findTier(DEFAULT_MODE, DEFAULT_COMPLEXITY)?.id);
 
