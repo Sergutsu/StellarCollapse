@@ -882,7 +882,7 @@ export class GameScene {
 
     _attachCanvasClick() {
         if (!this.app?.canvas) return;
-        this.app.canvas.addEventListener('pointerdown', (ev) => this._handleCanvasClick(ev));
+        this.app.canvas.addEventListener('click', (ev) => this._handleCanvasClick(ev));
     }
 
     _handleCanvasClick(ev) {
@@ -893,15 +893,15 @@ export class GameScene {
         const toLogicalX = this.app.screen.width / rect.width;
         const toLogicalY = this.app.screen.height / rect.height;
         const px = ((ev.clientX - rect.left) * toLogicalX)
-            - (this.sceneRoot?.x || 0)
-            - (this.boardRoot?.x || 0);
+            - (this.sceneRoot?.x || 0);
         const py = ((ev.clientY - rect.top) * toLogicalY)
-            - (this.sceneRoot?.y || 0)
-            - (this.boardRoot?.y || 0);
+            - (this.sceneRoot?.y || 0);
         const scaleX = this.sceneRoot?.scale?.x || 1;
         const scaleY = this.sceneRoot?.scale?.y || 1;
-        const cx = Math.floor((px / scaleX) / this.blockPx);
-        const cy = Math.floor((py / scaleY) / this.blockPx);
+        const boardLocalX = (px / scaleX) - (this.boardRoot?.x || 0);
+        const boardLocalY = (py / scaleY) - (this.boardRoot?.y || 0);
+        const cx = Math.floor(boardLocalX / this.blockPx);
+        const cy = Math.floor(boardLocalY / this.blockPx);
         if (cx < 0 || cy < 0 || cx >= this.state.cols || cy >= this.state.rows) return;
         if (!this.state.board[cy][cx]) return;
         if (typeof this.state.clickCell === 'function') {
