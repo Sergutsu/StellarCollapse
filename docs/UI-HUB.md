@@ -572,7 +572,10 @@ Each phase is still a handful of small PRs, not one giant PR.
 - **Not a dialogue-driven narrative.** Mission cards have one-line
   flavor briefs; no VO, no NPC portraits with speech bubbles, no
   branching conversations.
-- **Not mobile-first.** Desktop target; mobile is a later pass.
+- **Not mobile-first.** Desktop remains the primary design target, but
+  the shipped hub/game surfaces now scale to fit narrow mobile
+  viewports and gameplay has touch gestures so runs remain playable on
+  phones.
 
 ---
 

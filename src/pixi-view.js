@@ -67,6 +67,7 @@ export class PixiView {
         this._starfield = null;
         this._backdropTexture = null;
         this._viewportUnsub = null;
+        this._gameScale = 1;
     }
 
     // -------------------------------------------------------------------
@@ -241,14 +242,27 @@ export class PixiView {
         const w = Math.max(1, Math.round(window.innerWidth || HUD_W));
         const h = Math.max(1, Math.round(window.innerHeight || HUD_H));
         this.app.renderer.resize(w, h);
-        this.sceneRoot.x = Math.round((w - HUD_W) / 2);
-        this.sceneRoot.y = Math.round((h - HUD_H) / 2);
+        // Game scene uses a fixed logical HUD size (HUD_W/H). On phones,
+        // fit that logical surface into the viewport by scaling sceneRoot
+        // uniformly; this keeps board/HUD proportions stable and avoids
+        // clipping while preserving desktop 1:1 rendering.
+        const gameScale = Math.min(w / HUD_W, h / HUD_H, 1);
+        this._gameScale = gameScale;
+        this.sceneRoot.scale.set(gameScale);
+        const scaledW = HUD_W * gameScale;
+        const scaledH = HUD_H * gameScale;
+        this.sceneRoot.x = Math.round((w - scaledW) / 2);
+        this.sceneRoot.y = Math.round((h - scaledH) / 2);
         // Fan out to every registered scene (hidden scenes also get
         // a layout pass so they don't flash at stale positions).
         this._sceneMgr.layout(this.app.screen);
         if (rebuildStarfield) {
             this._rebuildStarfield(w, h);
         }
+    }
+
+    get gameScale() {
+        return this._gameScale || 1;
     }
 
 }

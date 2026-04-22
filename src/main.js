@@ -68,7 +68,7 @@ async function boot() {
     view.createBoard();
     view.createPreviews();
     audio.bindState(state);
-    bindInput({ state, elements });
+    bindInput({ state, elements, view });
     view.setTopControlsHandlers({
         onExit: () => state.endGameEarly(),
         onToggleSound: () => {
