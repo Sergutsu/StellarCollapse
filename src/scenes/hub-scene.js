@@ -66,6 +66,8 @@ const HUB_NAV_H = 56;
 const HUB_COL_W = 276;
 const HUB_GUTTER = 14;
 const HUB_MIN_CENTER_W = 460;
+const HUB_MIN_LAYOUT_W = HUB_COL_W * 2 + HUB_MIN_CENTER_W + HUB_GUTTER * 4;
+const HUB_MIN_LAYOUT_H = 760;
 
 // Galactic News ticker pool. Static flavor strings for now; runtime
 // mission-complete / ship-damaged / anomaly events wire in from P4.
@@ -1057,18 +1059,30 @@ export class HubScene {
     _layoutShell(w, h) {
         const n = this._nodes;
         if (!n) return;
+        // Keep the desktop-first hub shell intact and scale it down as a
+        // single surface when the viewport is narrower than the layout's
+        // minimum width/height. This avoids panel overlap on phones while
+        // preserving one authoritative set of hub coordinates.
+        const scale = Math.min(w / HUB_MIN_LAYOUT_W, h / HUB_MIN_LAYOUT_H, 1);
+        const vw = Math.max(HUB_MIN_LAYOUT_W, w / scale);
+        const vh = Math.max(HUB_MIN_LAYOUT_H, h / scale);
+        n.root.scale.set(scale);
+        n.root.position.set(
+            Math.round((w - (vw * scale)) / 2),
+            Math.round((h - (vh * scale)) / 2),
+        );
 
         // --- Top bar: full viewport width, fixed height.
-        this._layoutTopBar(n.topBar, w);
+        this._layoutTopBar(n.topBar, vw);
 
         // --- News ticker: full viewport width, under top bar.
-        this._layoutNewsTicker(n.news, w, HUB_TOPBAR_H);
+        this._layoutNewsTicker(n.news, vw, HUB_TOPBAR_H);
 
         // --- Columns + center live in the middle band.
         const columnsY = HUB_TOPBAR_H + HUB_NEWS_H + HUB_GUTTER;
-        const columnsH = Math.max(360, h - columnsY - HUB_NAV_H - HUB_GUTTER);
+        const columnsH = Math.max(360, vh - columnsY - HUB_NAV_H - HUB_GUTTER);
         const leftX = HUB_GUTTER;
-        const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, w - HUB_COL_W - HUB_GUTTER);
+        const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, vw - HUB_COL_W - HUB_GUTTER);
         // Center gets whatever is left; clamp to a minimum so cards
         // don't overlap at narrow viewports.
         const centerX = leftX + HUB_COL_W + HUB_GUTTER;
@@ -1079,10 +1093,10 @@ export class HubScene {
         this._layoutCenterPanel(n.centerPanel, centerX, columnsY, centerW, columnsH);
 
         // --- Bottom nav: full viewport width, pinned to bottom.
-        this._layoutBottomNav(n.bottomNav, w, h - HUB_NAV_H, HUB_NAV_H);
+        this._layoutBottomNav(n.bottomNav, vw, vh - HUB_NAV_H, HUB_NAV_H);
 
         // --- Modal is centered on the viewport. Panel clamps to viewport.
-        this._layoutModal(n.modal, w, h);
+        this._layoutModal(n.modal, vw, vh);
     }
 
     _layoutTopBar(topBar, w) {
