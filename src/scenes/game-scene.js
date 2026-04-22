@@ -257,6 +257,12 @@ export class GameScene {
             this.layers.effects,
             this.layers.overlay,
         );
+        // createBoard() may trigger a lazy build while the hub scene is
+        // still active. Respect current visibility so game HUD/board
+        // never leak behind translucent hub panels on boot.
+        if (this._hudRoot) this._hudRoot.visible = this._visible;
+        if (this.boardRoot) this.boardRoot.visible = this._visible;
+        if (this._topControls) this._topControls.visible = this._visible;
         this._built = true;
     }
 
