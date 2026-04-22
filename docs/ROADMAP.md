@@ -126,8 +126,8 @@ Unsorted, not committed to — see phase table for rough ordering:
 - **Star map.** Sector exploration; mission discovery tied to the map.
 - **Daily reroll.** `buildMissions({ seed })` already supports this; swap the
   session seed for `dayOfYear`. Optional reroll button costs credits.
-- **Mobile / touch pass.** Right now the Pixi scene is mouse-first. Field
-  sizes already scale; input bindings + tab nav don't.
+- ~~**Mobile / touch pass.** Right now the Pixi scene is mouse-first. Field
+  sizes already scale; input bindings + tab nav don't.~~
 
 ---
 
