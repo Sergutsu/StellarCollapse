@@ -37,8 +37,10 @@ import { buildMissions, pickMissionBoard, ORES } from '../missions.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
 import {
-    drawHologramPanel,
-    redrawHologramPanel,
+    drawTechPanel,
+    redrawTechPanel,
+    drawTechChip,
+    redrawTechChip,
     buildStartButton,
     panelLabel,
     drawStarShape,
@@ -281,8 +283,8 @@ export class HubScene {
         const container = new Container();
         container.eventMode = 'static';
 
-        const bg = new Graphics();
-        container.addChild(bg);
+        const frame = drawTechPanel(960, HUB_TOPBAR_H, { accent: 'cyan' });
+        container.addChild(frame);
 
         const star = drawStarShape(14, 0xfacc15);
         container.addChild(star);
@@ -345,7 +347,9 @@ export class HubScene {
         gear.cursor = 'pointer';
         container.addChild(gear);
 
-        return { container, bg, star, brand, dispatcherBadge, chips, gear };
+        return {
+            container, frame, star, brand, dispatcherBadge, chips, gear,
+        };
     }
 
     _syncResourceChips(chips) {
@@ -357,11 +361,9 @@ export class HubScene {
     }
 
     _buildResourceChip({ label, color }) {
-        const container = new Container();
+        const chipFrame = drawTechChip(88, 36, { accent: color });
+        const { container, frame } = chipFrame;
         container.eventMode = 'static';
-
-        const bg = new Graphics();
-        container.addChild(bg);
 
         const labelText = new Text({
             text: label,
@@ -388,7 +390,7 @@ export class HubScene {
         valueText.anchor.set(0, 0.5);
         container.addChild(valueText);
 
-        return { container, bg, labelText, valueText, color };
+        return { container, frame, labelText, valueText, color };
     }
 
     _buildNewsTicker() {
@@ -435,7 +437,7 @@ export class HubScene {
 
     _buildActiveMissions() {
         const container = new Container();
-        const panel = drawHologramPanel(HUB_COL_W, 420);
+        const panel = drawTechPanel(HUB_COL_W, 420, { accent: 'amber' });
         container.addChild(panel);
 
         const header = panelLabel('ACTIVE MISSIONS', COLOR_CYAN_300, { size: 14 });
@@ -452,7 +454,7 @@ export class HubScene {
 
         // Empty-state card. Renders in place of any running missions
         // until P4 wires idle ticking + real mission state.
-        const empty = drawHologramPanel(HUB_COL_W - 24, 108, { accent: 0x38bdf8 });
+        const empty = drawTechPanel(HUB_COL_W - 24, 108, { accent: 'cyan' });
         empty.position.set(12, 40);
         panel.addChild(empty);
 
@@ -470,13 +472,15 @@ export class HubScene {
         emptyHint.position.set(14, 38);
         empty.addChild(emptyHint);
 
-        return { container, panel, header, counter, empty, emptyTitle, emptyHint };
+        return {
+            container, panel, panelAccent: 'amber', header, counter, empty, emptyTitle, emptyHint,
+        };
     }
 
     _buildCenter() {
         const container = new Container();
 
-        const panel = drawHologramPanel(600, 420);
+        const panel = drawTechPanel(600, 420, { accent: 'magenta' });
         container.addChild(panel);
 
         const tabTitle = new Text({
@@ -520,7 +524,7 @@ export class HubScene {
 
     _buildFleetCrew() {
         const container = new Container();
-        const panel = drawHologramPanel(HUB_COL_W, 420);
+        const panel = drawTechPanel(HUB_COL_W, 420, { accent: 'green' });
         container.addChild(panel);
 
         const header = panelLabel('FLEET & CREW', COLOR_CYAN_300, { size: 14 });
@@ -557,7 +561,9 @@ export class HubScene {
             return row;
         });
 
-        return { container, panel, header, fleetLabel, fleetRows, crewLabel, crewRows };
+        return {
+            container, panel, panelAccent: 'green', header, fleetLabel, fleetRows, crewLabel, crewRows,
+        };
     }
 
     _buildFleetRow(ship, w) {
@@ -635,8 +641,8 @@ export class HubScene {
 
     _buildBottomNav() {
         const container = new Container();
-        const bg = new Graphics();
-        container.addChild(bg);
+        const frame = drawTechPanel(960, HUB_NAV_H, { accent: 'cyan' });
+        container.addChild(frame);
 
         const tabs = HUB_TABS.map((tab) => {
             const button = this._buildNavTab(tab);
@@ -645,7 +651,7 @@ export class HubScene {
             return button;
         });
 
-        return { container, bg, tabs };
+        return { container, frame, tabs };
     }
 
     _buildNavTab(tab) {
@@ -653,8 +659,9 @@ export class HubScene {
         container.eventMode = 'static';
         container.cursor = tab.locked ? 'not-allowed' : 'pointer';
 
-        const bg = new Graphics();
-        container.addChild(bg);
+        const chipFrame = drawTechChip(120, 40, { accent: tab.locked ? 'amber' : 'cyan' });
+        const bg = chipFrame.frame;
+        container.addChild(chipFrame.container);
 
         const label = new Text({
             text: tab.label,
@@ -694,7 +701,7 @@ export class HubScene {
         dim.on('pointertap', () => this._closeMissionBoard());
         container.addChild(dim);
 
-        const panel = drawHologramPanel(640, 480, { accent: 0x22d3ee });
+        const panel = drawTechPanel(640, 480, { accent: 'cyan' });
         container.addChild(panel);
 
         const title = new Text({
@@ -946,14 +953,9 @@ export class HubScene {
             const isActive = t.tab.id === tabId;
             const w = t.container.__width || 0;
             const h = t.container.__height || 0;
-            t.bg.clear();
-            if (isActive) {
-                t.bg.roundRect(0, 0, w, h, 6).fill({ color: 0x0e7490, alpha: 0.55 });
-                t.bg.roundRect(0, 0, w, h, 6).stroke({ color: 0x22d3ee, width: 2, alpha: 0.95 });
-            } else {
-                t.bg.roundRect(0, 0, w, h, 6).fill({ color: 0x0f172a, alpha: 0.6 });
-                t.bg.roundRect(0, 0, w, h, 6).stroke({ color: 0x38bdf8, width: 1, alpha: 0.25 });
-            }
+            const accent = isActive ? 'cyan' : (t.tab.locked ? 'amber' : 'green');
+            redrawTechChip(t.bg, w, h, { accent });
+            t.label.style.fill = t.tab.locked ? (isActive ? 0xfef3c7 : 0x94a3b8) : (isActive ? 0xf0f9ff : 0xe2e8f0);
         });
     }
 
@@ -1102,9 +1104,7 @@ export class HubScene {
     _layoutTopBar(topBar, w) {
         const h = HUB_TOPBAR_H;
         topBar.container.position.set(0, 0);
-        topBar.bg.clear();
-        topBar.bg.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.9 });
-        topBar.bg.rect(0, h - 1, w, 1).fill({ color: 0x0e7490, alpha: 0.55 });
+        redrawTechPanel(topBar.frame, w, h, { accent: 'cyan' });
 
         const starX = 20;
         topBar.star.position.set(starX, h / 2);
@@ -1126,9 +1126,7 @@ export class HubScene {
         topBar.chips.forEach((chip, i) => {
             const cx = stripLeft + i * (chipW + chipGap);
             chip.container.position.set(cx, h / 2 - 18);
-            chip.bg.clear();
-            chip.bg.roundRect(0, 0, chipW, 36, 6).fill({ color: 0x0b1b3a, alpha: 0.75 });
-            chip.bg.roundRect(0, 0, chipW, 36, 6).stroke({ color: chip.color, width: 1, alpha: 0.55 });
+            redrawTechChip(chip.frame, chipW, 36, { accent: chip.color });
             chip.labelText.position.set(10, 10);
             chip.valueText.position.set(10, 22);
         });
@@ -1158,13 +1156,13 @@ export class HubScene {
 
     _layoutColumnPanel(col, x, y, w, h) {
         col.container.position.set(x, y);
-        redrawHologramPanel(col.panel, w, h);
+        redrawTechPanel(col.panel, w, h, { accent: col.panelAccent ?? 'cyan' });
         if (col.counter) col.counter.position.set(w - 14, 12);
         if (col.empty) {
             // Keep the sky-400 accent set by _buildActiveMissions;
             // re-using the default cyan here would mute the empty card
             // against the panel border.
-            redrawHologramPanel(col.empty, w - 24, 108, 0x38bdf8);
+            redrawTechPanel(col.empty, w - 24, 108, { accent: 'cyan' });
             col.empty.position.set(12, 40);
         }
         if (col.fleetRows) {
@@ -1197,7 +1195,7 @@ export class HubScene {
         // AFTER the most recent _layoutShell pass (see _setActiveTab).
         center._w = w;
         center._h = h;
-        redrawHologramPanel(center.panel, w, h);
+        redrawTechPanel(center.panel, w, h, { accent: 'magenta' });
         center.map.clear();
         // Faint dotted grid to evoke a star map.
         const gridStep = 40;
@@ -1228,9 +1226,7 @@ export class HubScene {
 
     _layoutBottomNav(nav, w, y, h) {
         nav.container.position.set(0, y);
-        nav.bg.clear();
-        nav.bg.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.9 });
-        nav.bg.rect(0, 0, w, 1).fill({ color: 0x0e7490, alpha: 0.55 });
+        redrawTechPanel(nav.frame, w, h, { accent: 'cyan' });
 
         const tabCount = nav.tabs.length;
         const pad = HUB_GUTTER;
@@ -1263,7 +1259,7 @@ export class HubScene {
         const px = Math.round((w - panelW) / 2);
         const py = Math.round((h - panelH) / 2);
         modal.panel.position.set(px, py);
-        redrawHologramPanel(modal.panel, panelW, panelH, 0x22d3ee);
+        redrawTechPanel(modal.panel, panelW, panelH, { accent: 'cyan' });
 
         // Reroll + close buttons pinned to the bottom of the panel.
         const rerollW = modal.rerollButton.width;
