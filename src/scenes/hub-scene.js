@@ -47,6 +47,7 @@ import {
 } from '../pixi-ui-kit.js';
 import { StarMapTab } from './tabs/star-map-tab.js';
 import { ResearchTab } from './tabs/research-tab.js';
+import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
 
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
@@ -89,7 +90,7 @@ const HUB_NEWS_POOL = Object.freeze([
 const HUB_TABS = Object.freeze([
     { id: 'star-map',   label: 'STAR MAP',      locked: false },
     { id: 'missions',   label: 'MISSIONS',      locked: false },
-    { id: 'build',      label: 'BUILD/UPGRADE', locked: true,  lockRep: 3 },
+    { id: 'build',      label: 'BUILD/UPGRADE', locked: false },
     { id: 'research',   label: 'RESEARCH',      locked: false },
     { id: 'crew',       label: 'CREW',          locked: true,  lockRep: 3 },
     { id: 'market',     label: 'MARKET',        locked: true,  lockRep: 2 },
@@ -247,12 +248,13 @@ export class HubScene {
 
         // Hub-tab scenes (ADR-0010). Mutually-exclusive scenes hosted
         // inside the center panel's hologram surface. _setActiveTab
-        // shows the right one and hides the others. Only STAR MAP is
-        // extracted today; the other 5 tabs still render a locked stub
-        // via the centerPanel's own text layer.
+        // shows the right one and hides the others. STAR MAP,
+        // BUILD/UPGRADE, and RESEARCH are extracted scenes; the
+        // remaining tabs still render a locked stub.
         const starMapTab = new StarMapTab({ parent: centerPanel.panel });
+        const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel });
         const researchTab = new ResearchTab({ parent: centerPanel.panel });
-        const tabs = { 'star-map': starMapTab, research: researchTab };
+        const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab };
 
         root.addChild(topBar.container);
         root.addChild(news.container);
@@ -969,7 +971,7 @@ export class HubScene {
         this._redrawTabHighlights(tabId);
         // Center panel contents change per tab.
         //   MISSIONS  -> mission-board modal + open-board button.
-        //   STAR MAP  -> extracted tab scene (ADR-0010).
+        //   STAR MAP / BUILD / RESEARCH -> extracted tab scene.
         //   any other -> locked stub text (until that tab is extracted).
         const c = n.centerPanel;
         const activeTab = HUB_TABS.find((t) => t.id === tabId) || HUB_TABS[1];
@@ -989,7 +991,7 @@ export class HubScene {
             c.map.visible = true;
             c.openBoardButton.container.visible = true;
             this._openMissionBoard();
-        } else if (tabId === 'star-map' || tabId === 'research') {
+        } else if (tabId === 'star-map' || tabId === 'build' || tabId === 'research') {
             // Extracted tab scenes own their own title + surface; hide
             // the default chrome so they don't overlap.
             c.tabTitle.visible = false;
