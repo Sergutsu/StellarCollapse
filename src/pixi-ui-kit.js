@@ -30,6 +30,12 @@ export const PANEL_BG_TOP = 0x0b1b3a;
 export const PANEL_BG_BOT = 0x050a1c;
 export const PANEL_BORDER_ALPHA = 0.28;
 export const PANEL_DEFAULT_ACCENT = 0x00d4ff;
+export const PANEL_ACCENT_VARIANTS = Object.freeze({
+    cyan: 0x22d3ee,
+    amber: 0xf59e0b,
+    magenta: 0xe879f9,
+    green: 0x22c55e,
+});
 
 // Default button tints used by the hub + mission-board CTAs.
 export const BUTTON_DEFAULT_FILL = 0x172554;
@@ -40,6 +46,106 @@ export const BUTTON_DEFAULT_TEXT = 0xffffff;
 // -------------------------------------------------------------------
 // Panel chrome
 // -------------------------------------------------------------------
+
+function _resolveAccentColor(accent) {
+    if (typeof accent === 'number' && Number.isFinite(accent)) return accent;
+    return PANEL_ACCENT_VARIANTS[accent] ?? PANEL_DEFAULT_ACCENT;
+}
+
+function _angledPoints(x, y, w, h, cut) {
+    const c = Math.max(2, Math.min(cut, Math.floor(Math.min(w, h) * 0.2)));
+    return [
+        x + c, y,
+        x + w - c, y,
+        x + w, y + c,
+        x + w, y + h - c,
+        x + w - c, y + h,
+        x + c, y + h,
+        x, y + h - c,
+        x, y + c,
+    ];
+}
+
+function _drawTechFrame({
+    bgFill,
+    outerStroke,
+    innerStroke,
+    glow,
+    scan,
+    w,
+    h,
+    accent,
+    cut = 10,
+    alpha = 0.65,
+    scanAlpha = 0.05,
+}) {
+    const accentColor = _resolveAccentColor(accent);
+    const grad = new FillGradient(0, 0, 0, h);
+    grad.addColorStop(0, PANEL_BG_TOP);
+    grad.addColorStop(1, PANEL_BG_BOT);
+    const outerPts = _angledPoints(0, 0, w, h, cut);
+    const innerPts = _angledPoints(2, 2, Math.max(4, w - 4), Math.max(4, h - 4), Math.max(2, cut - 2));
+
+    bgFill.clear();
+    bgFill.poly(outerPts).fill(grad);
+    bgFill.alpha = alpha;
+
+    glow.clear();
+    glow.poly(outerPts).stroke({ color: accentColor, width: 7, alpha: 0.1 });
+    glow.poly(innerPts).stroke({ color: accentColor, width: 3, alpha: 0.12 });
+
+    outerStroke.clear();
+    outerStroke.poly(outerPts).stroke({ color: accentColor, width: 1.25, alpha: PANEL_BORDER_ALPHA + 0.2 });
+
+    innerStroke.clear();
+    innerStroke.poly(innerPts).stroke({ color: accentColor, width: 1, alpha: PANEL_BORDER_ALPHA + 0.05 });
+
+    scan.clear();
+    for (let y = 3; y < h - 2; y += 3) {
+        const inset = y < cut || y > h - cut ? 3 : 2;
+        scan.rect(inset, y, Math.max(2, w - inset * 2), 1).fill({ color: accentColor, alpha: scanAlpha });
+    }
+}
+
+export function drawTechPanel(w, h, { accent = 'cyan', cut = 10 } = {}) {
+    const c = new Container();
+    const bgFill = new Graphics();
+    const glow = new Graphics();
+    const outerStroke = new Graphics();
+    const innerStroke = new Graphics();
+    const scan = new Graphics();
+    c.addChild(bgFill);
+    c.addChild(glow);
+    c.addChild(outerStroke);
+    c.addChild(innerStroke);
+    c.addChild(scan);
+    _drawTechFrame({ bgFill, outerStroke, innerStroke, glow, scan, w, h, accent, cut });
+    c.__techCut = cut;
+    return c;
+}
+
+export function redrawTechPanel(panel, w, h, { accent = 'cyan', cut = null } = {}) {
+    if (!panel) return;
+    if (!Array.isArray(panel.children) || panel.children.length < 5) return;
+    const [bgFill, glow, outerStroke, innerStroke, scan] = panel.children;
+    const resolvedCut = typeof cut === 'number' ? cut : (panel.__techCut ?? 10);
+    _drawTechFrame({
+        bgFill, outerStroke, innerStroke, glow, scan, w, h, accent, cut: resolvedCut,
+    });
+}
+
+export function drawTechChip(w, h, { accent = 'cyan' } = {}) {
+    const container = new Container();
+    const frame = drawTechPanel(w, h, { accent, cut: 8 });
+    container.addChild(frame);
+    return { container, frame, accent };
+}
+
+export function redrawTechChip(chipOrFrame, w, h, { accent = 'cyan' } = {}) {
+    if (!chipOrFrame) return;
+    const frame = chipOrFrame.frame ?? chipOrFrame;
+    redrawTechPanel(frame, w, h, { accent, cut: 8 });
+}
 
 /**
  * Draw a hologram panel -- translucent gradient background, thin
