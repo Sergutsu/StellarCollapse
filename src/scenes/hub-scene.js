@@ -71,6 +71,7 @@ const HUB_GUTTER = 14;
 const HUB_MIN_CENTER_W = 460;
 const HUB_MIN_LAYOUT_W = HUB_COL_W * 2 + HUB_MIN_CENTER_W + HUB_GUTTER * 4;
 const HUB_MIN_LAYOUT_H = 760;
+const HUB_IDLE_MAX_ACTIVE = 2;
 
 // Galactic News ticker pool. Static flavor strings for now; runtime
 // mission-complete / ship-damaged / anomaly events wire in from P4.
@@ -1139,15 +1140,22 @@ export class HubScene {
         idlePanel.offers = [];
         const cardW = Math.max(240, (this._nodes.centerPanel._w || 560) - 64);
         const offers = this._idleCatalog.slice(0, 4);
+        const atCapacity = this._idleMissions.length >= HUB_IDLE_MAX_ACTIVE;
+        const hasShip = !!this.meta?.fleetSnapshot().find((s) => s.status === 'Standby');
+        const hasCrew = !!this.meta?.crewSnapshot().find((c) => c.status === 'Available');
+        const canDispatch = !atCapacity && hasShip && hasCrew;
         offers.forEach((offer, i) => {
-            const row = this._buildIdleOfferRow(offer, cardW);
+            const row = this._buildIdleOfferRow(offer, cardW, {
+                canDispatch,
+                dispatchLabel: atCapacity ? 'FULL' : (hasShip && hasCrew ? 'DISPATCH' : 'NO TEAM'),
+            });
             row.container.y = i * 74;
             idlePanel.list.addChild(row.container);
             idlePanel.offers.push(row);
         });
     }
 
-    _buildIdleOfferRow(offer, w) {
+    _buildIdleOfferRow(offer, w, { canDispatch = true, dispatchLabel = 'DISPATCH' } = {}) {
         const container = new Container();
         const frame = drawTechPanel(w, 66, { accent: 'cyan' });
         container.addChild(frame);
@@ -1164,17 +1172,22 @@ export class HubScene {
         details.position.set(10, 32);
         frame.addChild(details);
         const dispatch = buildStartButton({
-            text: 'DISPATCH',
+            text: dispatchLabel,
             width: 108,
             height: 28,
+            fill: canDispatch ? 0x172554 : 0x334155,
+            hoverFill: canDispatch ? 0x1d4ed8 : 0x475569,
             onTap: () => this._dispatchIdleMission(offer),
         });
+        dispatch.container.cursor = canDispatch ? 'pointer' : 'not-allowed';
+        if (!canDispatch) dispatch.container.eventMode = 'none';
         dispatch.container.position.set(w - 118, 18);
         frame.addChild(dispatch.container);
         return { container, frame, dispatch };
     }
 
     _dispatchIdleMission(offer) {
+        if (this._idleMissions.length >= HUB_IDLE_MAX_ACTIVE) return;
         const ship = this.meta?.fleetSnapshot().find((s) => s.status === 'Standby');
         const crew = this.meta?.crewSnapshot().find((c) => c.status === 'Available');
         if (!ship || !crew) return;
@@ -1198,12 +1211,13 @@ export class HubScene {
         this.meta?.setShipStatus(ship.id, 'On Mission');
         this.meta?.setCrewStatus(crew.id, 'On Mission');
         this._refreshActiveIdleMissions();
+        this._refreshIdleMissionOffers();
     }
 
     _refreshActiveIdleMissions() {
         const left = this._nodes?.leftCol;
         if (!left) return;
-        left.counter.text = `${this._idleMissions.length} / 2`;
+        left.counter.text = `${this._idleMissions.length} / ${HUB_IDLE_MAX_ACTIVE}`;
         if (left.empty?.parent === left.list) {
             left.list.removeChild(left.empty);
         }
@@ -1219,7 +1233,7 @@ export class HubScene {
         }
         const rowW = HUB_COL_W - 24;
         const now = Date.now();
-        this._idleMissions.slice(0, 2).forEach((job, i) => {
+        this._idleMissions.slice(0, HUB_IDLE_MAX_ACTIVE).forEach((job, i) => {
             const remainingSec = Math.max(0, Math.ceil((job.endsAt - now) / 1000));
             const done = remainingSec <= 0;
             const row = this._buildActiveIdleRow(job, rowW, remainingSec, done);
@@ -1287,6 +1301,7 @@ export class HubScene {
         this.meta?.setCrewStatus(job.crewId, 'Available');
         this._idleMissions.splice(idx, 1);
         this._refreshActiveIdleMissions();
+        this._refreshIdleMissionOffers();
     }
 
     _rollCallsign() {
