@@ -31,8 +31,8 @@ test('fresh MetaState exposes the starter profile values', () => {
     for (const color of ORE_IDS) {
         assert.equal(meta.getOre(color), 0);
     }
-    assert.equal(meta.fleetSnapshot().length, 3);
-    assert.equal(meta.crewSnapshot().length, 3);
+    assert.equal(meta.fleetSnapshot().length, 5);
+    assert.equal(meta.crewSnapshot().length, 5);
     assert.deepEqual(meta.completedMissionIds, []);
 });
 
@@ -130,7 +130,7 @@ test('fleet / crew mutations clamp and emit', () => {
     assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-2').hull, 100);
     meta.setShipStatus('ship-2', 'Repairing');
     meta.setCrewLevel('crew-1', 5);
-    meta.setCrewStatus('crew-3', 'Available');
+    meta.setCrewStatus('crew-3', 'On Mission');
     assert.deepEqual(events, ['ship-hull', 'ship-hull', 'ship-status', 'crew-level', 'crew-status']);
     assert.equal(meta.crewSnapshot().find((c) => c.id === 'crew-1').level, 5);
 });
@@ -151,7 +151,7 @@ test('constructor merges saved data onto starter defaults', () => {
     assert.equal(meta.getHubResource('warp'), 3);
     assert.equal(meta.getOre('red'), 7);
     assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-1').hull, 55);
-    assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-1').className, 'Corvette');
+    assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-1').className, 'Scout');
     assert.equal(meta.crewSnapshot().find((c) => c.id === 'crew-2').level, 9);
     assert.equal(meta.reputationTier, 3);
     assert.deepEqual(meta.completedMissionIds, ['m-1']);
