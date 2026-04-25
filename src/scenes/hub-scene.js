@@ -33,7 +33,7 @@ import {
     PIECE_COMPLEXITY,
 } from '../constants.js';
 
-import { buildMissions, buildIdleMissions, pickMissionBoard, ORES } from '../missions.js';
+import { buildMissions, pickMissionBoard, ORES } from '../missions.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
 import {
@@ -71,7 +71,13 @@ const HUB_GUTTER = 14;
 const HUB_MIN_CENTER_W = 460;
 const HUB_MIN_LAYOUT_W = HUB_COL_W * 2 + HUB_MIN_CENTER_W + HUB_GUTTER * 4;
 const HUB_MIN_LAYOUT_H = 760;
-const HUB_IDLE_MAX_ACTIVE = 2;
+const MISSION_TYPES = Object.freeze([
+    'scout',
+    'defense',
+    'resource',
+    'terraform',
+    'trade',
+]);
 
 // Galactic News ticker pool. Static flavor strings for now; runtime
 // mission-complete / ship-damaged / anomaly events wire in from P4.
@@ -138,6 +144,26 @@ const HUB_RISK_PRESETS = Object.freeze({
     5: { label: 'CRITICAL', color: 0xf87171 },
 });
 
+const HUB_MISSION_OFFERS = Object.freeze([
+    { id: 'mission-scout-lanes', type: 'scout', title: 'Outer Lane Recon Sweep', risk: 2, etaSec: 180, rewardCredits: 160, manualReady: false },
+    { id: 'mission-defense-sat', type: 'defense', title: 'Orbital Relay Defense Drill', risk: 3, etaSec: 240, rewardCredits: 220, manualReady: false },
+    { id: 'mission-resource-rift', type: 'resource', title: 'Seismic Rift Resource Pull', risk: 2, etaSec: 210, rewardCredits: 240, manualReady: true },
+    { id: 'mission-terraform-soil', type: 'terraform', title: 'Astra-9 Soil Stabilization', risk: 1, etaSec: 260, rewardCredits: 210, manualReady: false },
+    { id: 'mission-trade-convoy', type: 'trade', title: 'Frontier Trade Convoy Escort', risk: 2, etaSec: 200, rewardCredits: 190, manualReady: false },
+]);
+
+// Hub mission taxonomy is player-facing and intentionally different
+// from the ranked gameplay mission catalog in missions.js. Manual
+// dispatch needs this mapping so we can launch a sensible playable
+// mission instead of always falling back to the first catalog entry.
+const HUB_TO_PLAYABLE_TYPES = Object.freeze({
+    scout: ['Exploration', 'Research'],
+    defense: ['Combat'],
+    resource: ['Mining'],
+    terraform: ['Research', 'Exploration'],
+    trade: ['Salvage', 'Combat'],
+});
+
 // CELL_PALETTE (ore preview dots on mission cards) is shared across
 // scenes via src/scenes/cell-palette.js.
 
@@ -157,10 +183,12 @@ export class HubScene {
         // Deterministic per-boot mission catalog so asteroid names on
         // cards don't shuffle every time the player re-opens the menu.
         this._missions = buildMissions({ seed: Math.floor(Math.random() * 0xffffffff) });
-        this._idleCatalog = buildIdleMissions(this._missions);
         this._idleMissions = [];
         this._idleMissionSeq = 1;
-        this._activeMissionScreen = 'manual';
+        this._selectedMissionDispatch = 'idle';
+        this._selectedMissionType = MISSION_TYPES[0];
+        this._selectedShipId = null;
+        this._selectedCrewId = null;
         this._lastIdleUiRefreshAt = 0;
 
         // Mirrors whichever mission is currently selected. HUD tier
@@ -469,7 +497,7 @@ export class HubScene {
         panel.addChild(header);
 
         const counter = new Text({
-            text: '0 / 2',
+            text: '0 / 0',
             style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0x93c5fd }),
         });
         counter.anchor.set(1, 0);
@@ -509,95 +537,130 @@ export class HubScene {
         container.addChild(panel);
 
         const tabTitle = new Text({
-            text: 'MISSION BOARD',
+            text: 'MISSIONS',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: '800', letterSpacing: 2, fill: COLOR_CYAN_300 }),
         });
         tabTitle.position.set(16, 12);
         panel.addChild(tabTitle);
 
-        const modeTabs = this._buildMissionModeTabs();
-        panel.addChild(modeTabs.container);
-
-        // Galactic-map backdrop stub: a dim star-grid hint so the
-        // center panel reads as "looking at a region of space" even
-        // before the real map ships. The mission-board modal floats
-        // on top when MISSIONS tab is active.
-        const map = new Graphics();
-        panel.addChild(map);
-
-        const stub = new Text({
-            text: '',
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 13,
-                fill: 0x94a3b8,
-                align: 'center',
-                wordWrap: true,
-                wordWrapWidth: 480,
-            }),
-        });
-        stub.anchor.set(0.5);
-        panel.addChild(stub);
-
-        const openBoardButton = buildStartButton({
-            text: 'OPEN MISSION BOARD',
-            width: 220,
-            height: 38,
-            onTap: () => this._openMissionBoard(),
-        });
-        panel.addChild(openBoardButton.container);
-
-        const idlePanel = this._buildIdleMissionPanel();
-        panel.addChild(idlePanel.container);
+        const planner = this._buildMissionPlannerPanel();
+        panel.addChild(planner.container);
 
         return {
             container,
             panel,
             tabTitle,
-            map,
-            stub,
-            openBoardButton,
-            modeTabs,
-            idlePanel,
+            planner,
         };
     }
 
-    _buildMissionModeTabs() {
+    _buildMissionPlannerPanel() {
         const container = new Container();
-        const manual = buildStartButton({
-            text: 'MANUAL MISSIONS',
-            width: 170,
-            height: 30,
-            onTap: () => this._setMissionScreen('manual'),
-        });
-        const idle = buildStartButton({
-            text: 'IDLE FLEET',
-            width: 130,
-            height: 30,
-            fill: 0x1f2937,
-            hoverFill: 0x334155,
-            onTap: () => this._setMissionScreen('idle'),
-        });
-        container.addChild(manual.container);
-        container.addChild(idle.container);
-        return { container, manual, idle };
-    }
-
-    _buildIdleMissionPanel() {
-        const container = new Container();
-        container.visible = false;
-        const frame = drawTechPanel(560, 300, { accent: 'cyan' });
+        const frame = drawTechPanel(560, 320, { accent: 'cyan' });
         container.addChild(frame);
-        const header = new Text({
-            text: 'Dispatch ships to autonomous contracts.',
+
+        const subtitle = new Text({
+            text: 'Pick ship, crew, mission, and dispatch mode.',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x94a3b8 }),
         });
-        header.position.set(12, 12);
-        frame.addChild(header);
-        const list = new Container();
-        list.position.set(12, 40);
-        frame.addChild(list);
-        return { container, frame, header, list, offers: [] };
+        subtitle.position.set(12, 12);
+        frame.addChild(subtitle);
+
+        const modeLabel = new Text({
+            text: 'DISPATCH MODE',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
+        });
+        modeLabel.position.set(12, 34);
+        frame.addChild(modeLabel);
+
+        const modeIdle = buildStartButton({
+            text: 'IDLE',
+            width: 96,
+            height: 28,
+            onTap: () => this._setDispatchMode('idle'),
+        });
+        frame.addChild(modeIdle.container);
+        const modeManual = buildStartButton({
+            text: 'MANUAL',
+            width: 110,
+            height: 28,
+            fill: 0x1f2937,
+            hoverFill: 0x334155,
+            onTap: () => this._setDispatchMode('manual'),
+        });
+        frame.addChild(modeManual.container);
+
+        const hint = new Text({
+            text: 'Manual gameplay currently available for RESOURCE missions only.',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+        });
+        hint.position.set(232, 40);
+        frame.addChild(hint);
+
+        const shipHeader = panelLabel('FREE SHIPS', COLOR_CYAN_300, { size: 11 });
+        shipHeader.position.set(12, 66);
+        frame.addChild(shipHeader);
+        const shipList = new Container();
+        frame.addChild(shipList);
+
+        const crewHeader = panelLabel('FREE CREWS', COLOR_CYAN_300, { size: 11 });
+        crewHeader.position.set(200, 66);
+        frame.addChild(crewHeader);
+        const crewList = new Container();
+        frame.addChild(crewList);
+
+        const missionHeader = panelLabel('MISSION TYPES', COLOR_CYAN_300, { size: 11 });
+        missionHeader.position.set(388, 66);
+        frame.addChild(missionHeader);
+        const missionList = new Container();
+        frame.addChild(missionList);
+
+        const outcomeCard = drawTechPanel(536, 96, { accent: 'green' });
+        frame.addChild(outcomeCard);
+        const outcomeTitle = new Text({
+            text: 'POSSIBLE OUTCOME',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: '700', letterSpacing: 1, fill: 0x86efac }),
+        });
+        outcomeTitle.position.set(10, 8);
+        outcomeCard.addChild(outcomeTitle);
+        const outcomeBody = new Text({
+            text: '',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0xcbd5e1, wordWrap: true, wordWrapWidth: 518 }),
+        });
+        outcomeBody.position.set(10, 28);
+        outcomeCard.addChild(outcomeBody);
+
+        const capacityText = new Text({
+            text: '',
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0x93c5fd }),
+        });
+        frame.addChild(capacityText);
+
+        const dispatch = buildStartButton({
+            text: 'DISPATCH',
+            width: 160,
+            height: 34,
+            onTap: () => this._dispatchSelectedMission(),
+        });
+        frame.addChild(dispatch.container);
+
+        return {
+            container,
+            frame,
+            modeIdle,
+            modeManual,
+            hint,
+            shipList,
+            crewList,
+            missionList,
+            outcomeCard,
+            outcomeBody,
+            capacityText,
+            dispatch,
+            shipRows: [],
+            crewRows: [],
+            missionRows: [],
+        };
     }
 
     _buildFleetCrew() {
@@ -1061,17 +1124,14 @@ export class HubScene {
 
         if (tabId === 'missions') {
             c.tabTitle.visible = true;
-            c.modeTabs.container.visible = true;
-            this._setMissionScreen(this._activeMissionScreen);
+            c.tabTitle.text = 'MISSIONS';
+            c.planner.container.visible = true;
+            this._refreshMissionPlanner();
         } else if (tabId === 'star-map' || tabId === 'build' || tabId === 'research') {
             // Extracted tab scenes own their own title + surface; hide
             // the default chrome so they don't overlap.
             c.tabTitle.visible = false;
-            c.stub.visible = false;
-            c.map.visible = false;
-            c.openBoardButton.container.visible = false;
-            c.modeTabs.container.visible = false;
-            c.idlePanel.container.visible = false;
+            c.planner.container.visible = false;
             this._closeMissionBoard();
             const scene = n.tabs[tabId];
             scene.show();
@@ -1088,136 +1148,193 @@ export class HubScene {
         } else {
             c.tabTitle.visible = true;
             c.tabTitle.text = activeTab.label;
-            c.stub.visible = true;
-            c.stub.text = `${activeTab.label} \u2014 Unlocks at Rep Tier ${activeTab.lockRep ?? 2}.\nComing in a later phase.`;
-            c.map.visible = true;
-            c.openBoardButton.container.visible = false;
-            c.modeTabs.container.visible = false;
-            c.idlePanel.container.visible = false;
+            c.planner.container.visible = false;
             this._closeMissionBoard();
         }
     }
 
-    _setMissionScreen(screenId) {
-        const n = this._nodes;
-        if (!n) return;
-        this._activeMissionScreen = screenId === 'idle' ? 'idle' : 'manual';
-        const c = n.centerPanel;
-        c.tabTitle.text = this._activeMissionScreen === 'manual'
-            ? 'MISSIONS \u2014 MANUAL'
-            : 'MISSIONS \u2014 IDLE FLEET';
-        c.stub.visible = this._activeMissionScreen === 'manual';
-        c.stub.text = '';
-        c.map.visible = this._activeMissionScreen === 'manual';
-        c.openBoardButton.container.visible = this._activeMissionScreen === 'manual';
-        c.idlePanel.container.visible = this._activeMissionScreen === 'idle';
-        if (this._activeMissionScreen === 'manual') {
-            this._openMissionBoard();
-        } else {
-            this._closeMissionBoard();
-            this._refreshIdleMissionOffers();
-        }
-        this._refreshMissionModeTabs();
+    _setDispatchMode(mode) {
+        this._selectedMissionDispatch = mode === 'manual' ? 'manual' : 'idle';
+        this._refreshMissionPlanner();
     }
 
-    _refreshMissionModeTabs() {
-        const c = this._nodes?.centerPanel?.modeTabs;
-        if (!c) return;
-        const manualActive = this._activeMissionScreen === 'manual';
-        const idleActive = !manualActive;
-        c.manual.label.style.fill = manualActive ? 0xffffff : 0x93c5fd;
-        c.idle.label.style.fill = idleActive ? 0xffffff : 0x93c5fd;
-    }
-
-    _refreshIdleMissionOffers() {
-        const idlePanel = this._nodes?.centerPanel?.idlePanel;
-        if (!idlePanel) return;
-        if (Array.isArray(idlePanel.offers)) {
-            idlePanel.offers.forEach((row) => {
-                row?.container?.destroy({ children: true });
-            });
-        }
-        idlePanel.offers = [];
-        const cardW = Math.max(240, (this._nodes.centerPanel._w || 560) - 64);
-        const offers = this._idleCatalog.slice(0, 4);
-        const atCapacity = this._idleMissions.length >= HUB_IDLE_MAX_ACTIVE;
-        const hasShip = !!this.meta?.fleetSnapshot().find((s) => s.status === 'Standby');
-        const hasCrew = !!this.meta?.crewSnapshot().find((c) => c.status === 'Available');
-        const canDispatch = !atCapacity && hasShip && hasCrew;
-        offers.forEach((offer, i) => {
-            const row = this._buildIdleOfferRow(offer, cardW, {
-                canDispatch,
-                dispatchLabel: atCapacity ? 'FULL' : (hasShip && hasCrew ? 'DISPATCH' : 'NO TEAM'),
-            });
-            row.container.y = i * 74;
-            idlePanel.list.addChild(row.container);
-            idlePanel.offers.push(row);
-        });
-    }
-
-    _buildIdleOfferRow(offer, w, { canDispatch = true, dispatchLabel = 'DISPATCH' } = {}) {
+    _buildSelectableRow(label, width, onTap) {
         const container = new Container();
-        const frame = drawTechPanel(w, 66, { accent: 'cyan' });
+        container.eventMode = 'static';
+        container.cursor = 'pointer';
+        const frame = drawTechPanel(width, 30, { accent: 'cyan' });
         container.addChild(frame);
         const title = new Text({
-            text: offer.title,
+            text: label,
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xf8fafc }),
         });
-        title.position.set(10, 10);
+        title.position.set(8, 7);
         frame.addChild(title);
-        const details = new Text({
-            text: `Risk ${offer.risk} · ETA ${formatDuration(offer.etaSec)} · +${offer.rewardCredits} CR`,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0x93c5fd }),
-        });
-        details.position.set(10, 32);
-        frame.addChild(details);
-        const dispatch = buildStartButton({
-            text: dispatchLabel,
-            width: 108,
-            height: 28,
-            fill: canDispatch ? 0x172554 : 0x334155,
-            hoverFill: canDispatch ? 0x1d4ed8 : 0x475569,
-            onTap: () => this._dispatchIdleMission(offer),
-        });
-        dispatch.container.cursor = canDispatch ? 'pointer' : 'not-allowed';
-        if (!canDispatch) dispatch.container.eventMode = 'none';
-        dispatch.container.position.set(w - 118, 18);
-        frame.addChild(dispatch.container);
-        return { container, frame, dispatch };
+        container.on('pointertap', onTap);
+        return { container, frame, title };
     }
 
-    _dispatchIdleMission(offer) {
-        if (this._idleMissions.length >= HUB_IDLE_MAX_ACTIVE) return;
-        const ship = this.meta?.fleetSnapshot().find((s) => s.status === 'Standby');
-        const crew = this.meta?.crewSnapshot().find((c) => c.status === 'Available');
-        if (!ship || !crew) return;
+    _refreshMissionPlanner() {
+        const planner = this._nodes?.centerPanel?.planner;
+        if (!planner) return;
+        const fleet = this.meta?.fleetSnapshot() || [];
+        const crew = this.meta?.crewSnapshot() || [];
+        const freeShips = fleet.filter((s) => s.status === 'Standby');
+        const freeCrew = crew.filter((c) => c.status === 'Available');
+        if (!freeShips.find((s) => s.id === this._selectedShipId)) this._selectedShipId = freeShips[0]?.id ?? null;
+        if (!freeCrew.find((c) => c.id === this._selectedCrewId)) this._selectedCrewId = freeCrew[0]?.id ?? null;
+        if (!MISSION_TYPES.includes(this._selectedMissionType)) this._selectedMissionType = MISSION_TYPES[0];
+
+        planner.modeIdle.label.style.fill = this._selectedMissionDispatch === 'idle' ? 0xffffff : 0x93c5fd;
+        planner.modeManual.label.style.fill = this._selectedMissionDispatch === 'manual' ? 0xffffff : 0x93c5fd;
+
+        planner.shipRows.forEach((r) => r.container.destroy({ children: true }));
+        planner.shipRows = [];
+        freeShips.forEach((ship, i) => {
+            const row = this._buildSelectableRow(`${ship.name} · ${ship.className}`, 170, () => {
+                this._selectedShipId = ship.id;
+                this._refreshMissionPlanner();
+            });
+            if (ship.id === this._selectedShipId) redrawTechPanel(row.frame, 170, 30, { accent: 'green' });
+            row.container.position.set(12, 86 + i * 34);
+            planner.frame.addChild(row.container);
+            planner.shipRows.push(row);
+        });
+
+        planner.crewRows.forEach((r) => r.container.destroy({ children: true }));
+        planner.crewRows = [];
+        freeCrew.forEach((member, i) => {
+            const row = this._buildSelectableRow(`${member.name} · Lv${member.level}`, 170, () => {
+                this._selectedCrewId = member.id;
+                this._refreshMissionPlanner();
+            });
+            if (member.id === this._selectedCrewId) redrawTechPanel(row.frame, 170, 30, { accent: 'green' });
+            row.container.position.set(200, 86 + i * 34);
+            planner.frame.addChild(row.container);
+            planner.crewRows.push(row);
+        });
+
+        planner.missionRows.forEach((r) => r.container.destroy({ children: true }));
+        planner.missionRows = [];
+        HUB_MISSION_OFFERS.forEach((mission, i) => {
+            const row = this._buildSelectableRow(mission.type.toUpperCase(), 160, () => {
+                this._selectedMissionType = mission.type;
+                this._refreshMissionPlanner();
+            });
+            if (mission.type === this._selectedMissionType) redrawTechPanel(row.frame, 160, 30, { accent: 'green' });
+            row.container.position.set(388, 86 + i * 34);
+            planner.frame.addChild(row.container);
+            planner.missionRows.push(row);
+        });
+
+        const mission = HUB_MISSION_OFFERS.find((m) => m.type === this._selectedMissionType) || HUB_MISSION_OFFERS[0];
+        const maxIdle = this._maxIdleAssignments();
+        const manualSupported = mission.manualReady;
+        const risk = HUB_RISK_PRESETS[mission.risk] || HUB_RISK_PRESETS[3];
+        planner.outcomeBody.text = `${mission.title} · Risk ${mission.risk} (${risk.label}) · ETA ${formatDuration(mission.etaSec)}\n` +
+            `Reward ~${Math.round(mission.rewardCredits * 0.7)}-${Math.round(mission.rewardCredits * 1.2)} credits. ` +
+            `${this._selectedMissionDispatch === 'manual'
+                ? (manualSupported ? 'Launches playable minigame.' : 'Manual mode for this type is simulated (not implemented).')
+                : 'Autonomous idle run, can be aborted anytime for partial return.'}`;
+        planner.capacityText.text = `IDLE CAPACITY ${this._idleMissions.length}/${maxIdle} · FREE SHIPS ${freeShips.length} · FREE CREW ${freeCrew.length}`;
+
+        const canDispatch = !!(this._selectedShipId && this._selectedCrewId && mission);
+        planner.dispatch.container.eventMode = canDispatch ? 'static' : 'none';
+        planner.dispatch.container.cursor = canDispatch ? 'pointer' : 'not-allowed';
+        planner.dispatch.label.style.fill = canDispatch ? 0xffffff : 0x94a3b8;
+    }
+
+    _dispatchSelectedMission() {
+        const ship = this.meta?.fleetSnapshot().find((s) => s.id === this._selectedShipId && s.status === 'Standby');
+        const crew = this.meta?.crewSnapshot().find((c) => c.id === this._selectedCrewId && c.status === 'Available');
+        const mission = HUB_MISSION_OFFERS.find((m) => m.type === this._selectedMissionType);
+        if (!ship || !crew || !mission) return;
+        if (this._selectedMissionDispatch === 'idle' && this._idleMissions.length >= this._maxIdleAssignments()) return;
+
         const now = Date.now();
-        const jobId = `idle-run-${this._idleMissionSeq++}`;
+        const missionResult = this._resolveMissionForDispatch(mission, ship, crew);
+        const jobId = `dispatch-${this._idleMissionSeq++}`;
         this._idleMissions.push({
             id: jobId,
-            offerId: offer.id,
-            title: offer.title,
-            risk: offer.risk,
-            rewardCredits: offer.rewardCredits,
-            rewardOres: offer.rewardOres,
+            offerId: mission.id,
+            title: mission.title,
+            type: mission.type,
+            dispatchMode: this._selectedMissionDispatch,
+            risk: mission.risk,
+            rewardCredits: missionResult.rewardCredits,
+            rewardOres: missionResult.rewardOres,
             shipId: ship.id,
             shipName: ship.name,
             crewId: crew.id,
             crewName: crew.name,
             startedAt: now,
-            endsAt: now + offer.etaSec * 1000,
+            etaSec: missionResult.etaSec,
+            endsAt: now + missionResult.etaSec * 1000,
             claimed: false,
         });
         this.meta?.setShipStatus(ship.id, 'On Mission');
         this.meta?.setCrewStatus(crew.id, 'On Mission');
+        if (this._selectedMissionDispatch === 'manual' && mission.manualReady) {
+            const playable = this._pickPlayableMissionForHubType(mission.type);
+            this._onMissionCardTapped(playable);
+        }
         this._refreshActiveIdleMissions();
-        this._refreshIdleMissionOffers();
+        this._refreshMissionPlanner();
+        this._refreshFleetCrewPanel();
+    }
+
+    _resolveMissionForDispatch(mission, ship, crew) {
+        const shipTypeMatch = ship.className.toLowerCase().includes(mission.type);
+        const skillFactor = 1 + ((crew.level - 1) * 0.04);
+        const typeFactor = shipTypeMatch ? 1.12 : 0.94;
+        const rewardCredits = Math.max(60, Math.round(mission.rewardCredits * skillFactor * typeFactor));
+        const etaSec = Math.max(90, Math.round(mission.etaSec * (shipTypeMatch ? 0.92 : 1.05)));
+        return {
+            rewardCredits,
+            etaSec,
+            rewardOres: { common: [], rare: [] },
+        };
+    }
+
+    _maxIdleAssignments() {
+        const ships = this.meta?.fleetSnapshot()?.length || 0;
+        const crews = this.meta?.crewSnapshot()?.length || 0;
+        return Math.max(0, Math.min(ships, crews));
+    }
+
+    _pickPlayableMissionForHubType(hubType) {
+        const preferred = HUB_TO_PLAYABLE_TYPES[hubType] || [];
+        for (const playableType of preferred) {
+            const found = this._missions.find((m) => m.type === playableType);
+            if (found) return found;
+        }
+        return this._missions[0];
+    }
+
+    _refreshFleetCrewPanel() {
+        const col = this._nodes?.rightCol;
+        if (!col || !this.meta) return;
+        const fleet = this.meta.fleetSnapshot();
+        const crew = this.meta.crewSnapshot();
+        col.fleetRows.forEach((row, i) => {
+            const ship = fleet[i];
+            if (!ship) return;
+            row.status.text = ship.status.toUpperCase();
+            row.status.style.fill = ship.status === 'Standby' ? 0x86efac : 0xfde047;
+            row.hull = ship.hull;
+        });
+        col.crewRows.forEach((row, i) => {
+            const member = crew[i];
+            if (!member) return;
+            row.status.text = member.status.toUpperCase();
+            row.status.style.fill = member.status === 'Available' ? 0x86efac : 0xfde047;
+        });
     }
 
     _refreshActiveIdleMissions() {
         const left = this._nodes?.leftCol;
         if (!left) return;
-        left.counter.text = `${this._idleMissions.length} / ${HUB_IDLE_MAX_ACTIVE}`;
+        left.counter.text = `${this._idleMissions.length} / ${this._maxIdleAssignments()}`;
         if (left.empty?.parent === left.list) {
             left.list.removeChild(left.empty);
         }
@@ -1233,7 +1350,7 @@ export class HubScene {
         }
         const rowW = HUB_COL_W - 24;
         const now = Date.now();
-        this._idleMissions.slice(0, HUB_IDLE_MAX_ACTIVE).forEach((job, i) => {
+        this._idleMissions.forEach((job, i) => {
             const remainingSec = Math.max(0, Math.ceil((job.endsAt - now) / 1000));
             const done = remainingSec <= 0;
             const row = this._buildActiveIdleRow(job, rowW, remainingSec, done);
@@ -1276,8 +1393,35 @@ export class HubScene {
             });
             claim.container.position.set(w - 96, 70);
             frame.addChild(claim.container);
+        } else {
+            const abort = buildStartButton({
+                text: 'RETURN',
+                width: 86,
+                height: 28,
+                fill: 0x7c2d12,
+                hoverFill: 0x9a3412,
+                onTap: () => this._abortIdleMission(job.id),
+            });
+            abort.container.position.set(w - 96, 70);
+            frame.addChild(abort.container);
         }
         return { container, frame };
+    }
+
+    _abortIdleMission(jobId) {
+        const job = this._idleMissions.find((m) => m.id === jobId);
+        if (!job) return;
+        const elapsed = Math.max(0, Date.now() - job.startedAt);
+        const duration = Math.max(1, job.etaSec * 1000);
+        const pct = Math.min(1, elapsed / duration);
+        const partialCredits = Math.max(0, Math.floor(job.rewardCredits * pct));
+        this.meta?.addCredits(partialCredits);
+        this.meta?.setShipStatus(job.shipId, 'Standby');
+        this.meta?.setCrewStatus(job.crewId, 'Available');
+        this._idleMissions = this._idleMissions.filter((m) => m.id !== jobId);
+        this._refreshActiveIdleMissions();
+        this._refreshMissionPlanner();
+        this._refreshFleetCrewPanel();
     }
 
     _claimIdleMission(jobId) {
@@ -1301,7 +1445,8 @@ export class HubScene {
         this.meta?.setCrewStatus(job.crewId, 'Available');
         this._idleMissions.splice(idx, 1);
         this._refreshActiveIdleMissions();
-        this._refreshIdleMissionOffers();
+        this._refreshMissionPlanner();
+        this._refreshFleetCrewPanel();
     }
 
     _rollCallsign() {
@@ -1481,25 +1626,16 @@ export class HubScene {
         center._w = w;
         center._h = h;
         redrawTechPanel(center.panel, w, h, { accent: 'magenta' });
-        center.map.clear();
-        // Faint dotted grid to evoke a star map.
-        const gridStep = 40;
-        for (let gx = gridStep; gx < w - 10; gx += gridStep) {
-            for (let gy = 56; gy < h - 20; gy += gridStep) {
-                center.map.circle(gx, gy, 1).fill({ color: 0x67e8f9, alpha: 0.25 });
-            }
-        }
-        center.stub.position.set(w / 2, h / 2 + 10);
-        center.stub.style.wordWrapWidth = w - 60;
-        center.modeTabs.container.position.set(16, 36);
-        center.modeTabs.manual.container.position.set(0, 0);
-        center.modeTabs.idle.container.position.set(178, 0);
-        // Open-board button centered near the bottom of the center panel.
-        const btnW = center.openBoardButton.width;
-        center.openBoardButton.container.position.set((w - btnW) / 2, h - 64);
-        center.idlePanel.container.position.set(12, 74);
-        redrawTechPanel(center.idlePanel.frame, Math.max(260, w - 24), Math.max(180, h - 86), { accent: 'cyan' });
-        if (center.idlePanel.container.visible) this._refreshIdleMissionOffers();
+        center.planner.container.position.set(12, 38);
+        redrawTechPanel(center.planner.frame, Math.max(260, w - 24), Math.max(220, h - 50), { accent: 'cyan' });
+        center.planner.modeIdle.container.position.set(12, 46);
+        center.planner.modeManual.container.position.set(114, 46);
+        center.planner.outcomeCard.position.set(10, Math.max(262, h - 154));
+        redrawTechPanel(center.planner.outcomeCard, Math.max(220, w - 44), 96, { accent: 'green' });
+        center.planner.outcomeBody.style.wordWrapWidth = Math.max(170, w - 64);
+        center.planner.capacityText.position.set(12, h - 48);
+        center.planner.dispatch.container.position.set(Math.max(10, w - center.planner.dispatch.width - 28), h - 54);
+        this._refreshMissionPlanner();
 
         // Fan out to any extracted tab scenes hosted in the center
         // panel. They lay out against the panel's inner surface (same
