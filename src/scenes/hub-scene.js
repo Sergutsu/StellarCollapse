@@ -1131,7 +1131,11 @@ export class HubScene {
     _refreshIdleMissionOffers() {
         const idlePanel = this._nodes?.centerPanel?.idlePanel;
         if (!idlePanel) return;
-        idlePanel.list.removeChildren();
+        if (Array.isArray(idlePanel.offers)) {
+            idlePanel.offers.forEach((row) => {
+                row?.container?.destroy({ children: true });
+            });
+        }
         idlePanel.offers = [];
         const cardW = Math.max(240, (this._nodes.centerPanel._w || 560) - 64);
         const offers = this._idleCatalog.slice(0, 4);
@@ -1200,7 +1204,14 @@ export class HubScene {
         const left = this._nodes?.leftCol;
         if (!left) return;
         left.counter.text = `${this._idleMissions.length} / 2`;
-        left.list.removeChildren();
+        if (left.empty?.parent === left.list) {
+            left.list.removeChild(left.empty);
+        }
+        if (Array.isArray(left.rows)) {
+            left.rows.forEach((row) => {
+                row?.container?.destroy({ children: true });
+            });
+        }
         left.rows = [];
         if (this._idleMissions.length === 0) {
             left.list.addChild(left.empty);
