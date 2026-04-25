@@ -15,6 +15,8 @@
 import { Emitter } from './emitter.js';
 
 export const META_SAVE_VERSION = 1;
+const SHIP_STATUSES = Object.freeze(new Set(['Standby', 'On Mission']));
+const CREW_STATUSES = Object.freeze(new Set(['Available', 'On Mission']));
 
 // 6-ore palette. Matches the actual tile colors used by the gameplay
 // board -- 4 normal colors (`NORMAL_COLORS` in constants.js) plus the
@@ -213,8 +215,10 @@ export class MetaState {
 
     setShipStatus(id, status) {
         const ship = this._data.fleet.find((s) => s.id === id);
-        if (!ship || ship.status === status) return;
-        ship.status = String(status);
+        if (!ship) return;
+        const normalized = SHIP_STATUSES.has(status) ? status : 'Standby';
+        if (ship.status === normalized) return;
+        ship.status = normalized;
         this._changed('ship-status', { id, status: ship.status });
     }
 
@@ -229,8 +233,13 @@ export class MetaState {
 
     setCrewStatus(id, status) {
         const c = this._data.crew.find((m) => m.id === id);
-        if (!c || c.status === status) return;
-        c.status = String(status);
+        if (!c) return;
+        // Legacy saves may include "Resting". Crew currently only has
+        // two gameplay statuses, so any unknown value gets normalized
+        // back to Available on load and on write.
+        const normalized = CREW_STATUSES.has(status) ? status : 'Available';
+        if (c.status === normalized) return;
+        c.status = normalized;
         this._changed('crew-status', { id, status: c.status });
     }
 
@@ -274,7 +283,9 @@ export class MetaState {
                 const found = incoming.fleet.find((s) => s && s.id === ship.id);
                 if (!found) continue;
                 if (typeof found.hull === 'number')  ship.hull   = Math.max(0, Math.min(100, Math.floor(found.hull)));
-                if (typeof found.status === 'string') ship.status = found.status;
+                if (typeof found.status === 'string') {
+                    ship.status = SHIP_STATUSES.has(found.status) ? found.status : 'Standby';
+                }
             }
         }
         if (Array.isArray(incoming.crew)) {
@@ -282,7 +293,9 @@ export class MetaState {
                 const found = incoming.crew.find((c) => c && c.id === crew.id);
                 if (!found) continue;
                 if (typeof found.level === 'number')  crew.level  = Math.max(1, Math.floor(found.level));
-                if (typeof found.status === 'string') crew.status = found.status;
+                if (typeof found.status === 'string') {
+                    crew.status = CREW_STATUSES.has(found.status) ? found.status : 'Available';
+                }
             }
         }
         if (typeof incoming.reputationTier === 'number') {

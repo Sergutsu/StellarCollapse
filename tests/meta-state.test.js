@@ -128,10 +128,12 @@ test('fleet / crew mutations clamp and emit', () => {
     assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-2').hull, 50);
     meta.setShipHull('ship-2', 200);
     assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-2').hull, 100);
+    // Unknown status is normalized to Standby; ship-2 already starts in
+    // Standby, so this write is a no-op.
     meta.setShipStatus('ship-2', 'Repairing');
     meta.setCrewLevel('crew-1', 5);
     meta.setCrewStatus('crew-3', 'On Mission');
-    assert.deepEqual(events, ['ship-hull', 'ship-hull', 'ship-status', 'crew-level', 'crew-status']);
+    assert.deepEqual(events, ['ship-hull', 'ship-hull', 'crew-level', 'crew-status']);
     assert.equal(meta.crewSnapshot().find((c) => c.id === 'crew-1').level, 5);
 });
 
@@ -151,6 +153,8 @@ test('constructor merges saved data onto starter defaults', () => {
     assert.equal(meta.getHubResource('warp'), 3);
     assert.equal(meta.getOre('red'), 7);
     assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-1').hull, 55);
+    // Legacy status values (e.g. Repairing/Resting) are normalized.
+    assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-1').status, 'Standby');
     assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-1').className, 'Scout');
     assert.equal(meta.crewSnapshot().find((c) => c.id === 'crew-2').level, 9);
     assert.equal(meta.reputationTier, 3);
