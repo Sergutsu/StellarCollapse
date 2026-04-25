@@ -68,6 +68,7 @@ const HUB_NEWS_H = 28;
 const HUB_NAV_H = 56;
 const HUB_COL_W = 276;
 const HUB_GUTTER = 14;
+const HUB_SURFACE_INSET = HUB_GUTTER;
 const HUB_MIN_CENTER_W = 460;
 const HUB_MIN_LAYOUT_W = HUB_COL_W * 2 + HUB_MIN_CENTER_W + HUB_GUTTER * 4;
 const HUB_MIN_LAYOUT_H = 760;
@@ -163,6 +164,11 @@ const HUB_TO_PLAYABLE_TYPES = Object.freeze({
     terraform: ['Research', 'Exploration'],
     trade: ['Salvage', 'Combat'],
 });
+
+const PLANNER_ROW_H = 30;
+const PLANNER_ROW_GAP = 8;
+const PLANNER_SECTION_GAP = 18;
+const PLANNER_DISPATCH_BUTTON = Object.freeze({ width: 220, height: 46 });
 
 // CELL_PALETTE (ore preview dots on mission cards) is shared across
 // scenes via src/scenes/cell-palette.js.
@@ -638,8 +644,8 @@ export class HubScene {
 
         const dispatch = buildStartButton({
             text: 'DISPATCH',
-            width: 160,
-            height: 34,
+            width: PLANNER_DISPATCH_BUTTON.width,
+            height: PLANNER_DISPATCH_BUTTON.height,
             onTap: () => this._dispatchSelectedMission(),
         });
         frame.addChild(dispatch.container);
@@ -650,6 +656,9 @@ export class HubScene {
             modeIdle,
             modeManual,
             hint,
+            shipHeader,
+            crewHeader,
+            missionHeader,
             shipList,
             crewList,
             missionList,
@@ -1185,18 +1194,30 @@ export class HubScene {
         if (!freeCrew.find((c) => c.id === this._selectedCrewId)) this._selectedCrewId = freeCrew[0]?.id ?? null;
         if (!MISSION_TYPES.includes(this._selectedMissionType)) this._selectedMissionType = MISSION_TYPES[0];
 
-        planner.modeIdle.label.style.fill = this._selectedMissionDispatch === 'idle' ? 0xffffff : 0x93c5fd;
-        planner.modeManual.label.style.fill = this._selectedMissionDispatch === 'manual' ? 0xffffff : 0x93c5fd;
+        const modeIdleActive = this._selectedMissionDispatch === 'idle';
+        const modeManualActive = this._selectedMissionDispatch === 'manual';
+        redrawTechChip(planner.modeIdle.bg, 96, 28, { accent: modeIdleActive ? 'cyan' : 'green' });
+        redrawTechChip(planner.modeManual.bg, 110, 28, { accent: modeManualActive ? 'magenta' : 'amber' });
+        planner.modeIdle.label.style.fill = modeIdleActive ? 0xffffff : 0x94a3b8;
+        planner.modeManual.label.style.fill = modeManualActive ? 0xffffff : 0x94a3b8;
+
+        const shipRowW = planner.shipRowW || 160;
+        const crewRowW = planner.crewRowW || 160;
+        const missionRowW = planner.missionRowW || 160;
+        const shipX = planner.shipListX ?? 12;
+        const crewX = planner.crewListX ?? (shipX + shipRowW + PLANNER_SECTION_GAP);
+        const missionX = planner.missionListX ?? (crewX + crewRowW + PLANNER_SECTION_GAP);
+        const listY = planner.listBaseY ?? 86;
 
         planner.shipRows.forEach((r) => r.container.destroy({ children: true }));
         planner.shipRows = [];
         freeShips.forEach((ship, i) => {
-            const row = this._buildSelectableRow(`${ship.name} · ${ship.className}`, 170, () => {
+            const row = this._buildSelectableRow(`${ship.name} · ${ship.className}`, shipRowW, () => {
                 this._selectedShipId = ship.id;
                 this._refreshMissionPlanner();
             });
-            if (ship.id === this._selectedShipId) redrawTechPanel(row.frame, 170, 30, { accent: 'green' });
-            row.container.position.set(12, 86 + i * 34);
+            if (ship.id === this._selectedShipId) redrawTechPanel(row.frame, shipRowW, PLANNER_ROW_H, { accent: 'magenta' });
+            row.container.position.set(shipX, listY + i * (PLANNER_ROW_H + PLANNER_ROW_GAP));
             planner.frame.addChild(row.container);
             planner.shipRows.push(row);
         });
@@ -1204,12 +1225,12 @@ export class HubScene {
         planner.crewRows.forEach((r) => r.container.destroy({ children: true }));
         planner.crewRows = [];
         freeCrew.forEach((member, i) => {
-            const row = this._buildSelectableRow(`${member.name} · Lv${member.level}`, 170, () => {
+            const row = this._buildSelectableRow(`${member.name} · Lv${member.level}`, crewRowW, () => {
                 this._selectedCrewId = member.id;
                 this._refreshMissionPlanner();
             });
-            if (member.id === this._selectedCrewId) redrawTechPanel(row.frame, 170, 30, { accent: 'green' });
-            row.container.position.set(200, 86 + i * 34);
+            if (member.id === this._selectedCrewId) redrawTechPanel(row.frame, crewRowW, PLANNER_ROW_H, { accent: 'magenta' });
+            row.container.position.set(crewX, listY + i * (PLANNER_ROW_H + PLANNER_ROW_GAP));
             planner.frame.addChild(row.container);
             planner.crewRows.push(row);
         });
@@ -1217,12 +1238,12 @@ export class HubScene {
         planner.missionRows.forEach((r) => r.container.destroy({ children: true }));
         planner.missionRows = [];
         HUB_MISSION_OFFERS.forEach((mission, i) => {
-            const row = this._buildSelectableRow(mission.type.toUpperCase(), 160, () => {
+            const row = this._buildSelectableRow(mission.type.toUpperCase(), missionRowW, () => {
                 this._selectedMissionType = mission.type;
                 this._refreshMissionPlanner();
             });
-            if (mission.type === this._selectedMissionType) redrawTechPanel(row.frame, 160, 30, { accent: 'green' });
-            row.container.position.set(388, 86 + i * 34);
+            if (mission.type === this._selectedMissionType) redrawTechPanel(row.frame, missionRowW, PLANNER_ROW_H, { accent: 'magenta' });
+            row.container.position.set(missionX, listY + i * (PLANNER_ROW_H + PLANNER_ROW_GAP));
             planner.frame.addChild(row.container);
             planner.missionRows.push(row);
         });
@@ -1503,17 +1524,20 @@ export class HubScene {
             Math.round((h - (vh * scale)) / 2),
         );
 
-        // --- Top bar: full viewport width, fixed height.
-        this._layoutTopBar(n.topBar, vw);
+        const shellX = HUB_SURFACE_INSET;
+        const shellW = Math.max(HUB_MIN_LAYOUT_W - HUB_SURFACE_INSET * 2, vw - HUB_SURFACE_INSET * 2);
 
-        // --- News ticker: full viewport width, under top bar.
-        this._layoutNewsTicker(n.news, vw, HUB_TOPBAR_H);
+        // --- Top bar: aligned to the same outer edges as middle panels.
+        this._layoutTopBar(n.topBar, shellX, shellW);
+
+        // --- News ticker: aligned to shell width under top bar.
+        this._layoutNewsTicker(n.news, shellX, shellW, HUB_TOPBAR_H);
 
         // --- Columns + center live in the middle band.
         const columnsY = HUB_TOPBAR_H + HUB_NEWS_H + HUB_GUTTER;
         const columnsH = Math.max(360, vh - columnsY - HUB_NAV_H - HUB_GUTTER);
-        const leftX = HUB_GUTTER;
-        const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, vw - HUB_COL_W - HUB_GUTTER);
+        const leftX = shellX;
+        const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, shellX + shellW - HUB_COL_W);
         // Center gets whatever is left; clamp to a minimum so cards
         // don't overlap at narrow viewports.
         const centerX = leftX + HUB_COL_W + HUB_GUTTER;
@@ -1523,16 +1547,16 @@ export class HubScene {
         this._layoutColumnPanel(n.rightCol, rightX, columnsY, HUB_COL_W, columnsH);
         this._layoutCenterPanel(n.centerPanel, centerX, columnsY, centerW, columnsH);
 
-        // --- Bottom nav: full viewport width, pinned to bottom.
-        this._layoutBottomNav(n.bottomNav, vw, vh - HUB_NAV_H, HUB_NAV_H);
+        // --- Bottom nav: aligned to shell width, pinned to bottom.
+        this._layoutBottomNav(n.bottomNav, shellX, shellW, vh - HUB_NAV_H, HUB_NAV_H);
 
         // --- Modal is centered on the viewport. Panel clamps to viewport.
         this._layoutModal(n.modal, vw, vh);
     }
 
-    _layoutTopBar(topBar, w) {
+    _layoutTopBar(topBar, x, w) {
         const h = HUB_TOPBAR_H;
-        topBar.container.position.set(0, 0);
+        topBar.container.position.set(x, 0);
         redrawTechPanel(topBar.frame, w, h, { accent: 'cyan' });
 
         const starX = 20;
@@ -1561,9 +1585,9 @@ export class HubScene {
         });
     }
 
-    _layoutNewsTicker(news, w, y) {
+    _layoutNewsTicker(news, x, w, y) {
         const h = HUB_NEWS_H;
-        news.container.position.set(0, y);
+        news.container.position.set(x, y);
         news.bg.clear();
         news.bg.rect(0, 0, w, h).fill({ color: 0x0b1b3a, alpha: 0.7 });
         news.bg.rect(0, h - 1, w, 1).fill({ color: 0x38bdf8, alpha: 0.2 });
@@ -1627,14 +1651,34 @@ export class HubScene {
         center._h = h;
         redrawTechPanel(center.panel, w, h, { accent: 'magenta' });
         center.planner.container.position.set(12, 38);
-        redrawTechPanel(center.planner.frame, Math.max(260, w - 24), Math.max(220, h - 50), { accent: 'cyan' });
+        const plannerW = Math.max(260, w - 24);
+        const plannerH = Math.max(220, h - 50);
+        redrawTechPanel(center.planner.frame, plannerW, plannerH, { accent: 'cyan' });
         center.planner.modeIdle.container.position.set(12, 46);
         center.planner.modeManual.container.position.set(114, 46);
-        center.planner.outcomeCard.position.set(10, Math.max(262, h - 154));
-        redrawTechPanel(center.planner.outcomeCard, Math.max(220, w - 44), 96, { accent: 'green' });
-        center.planner.outcomeBody.style.wordWrapWidth = Math.max(170, w - 64);
-        center.planner.capacityText.position.set(12, h - 48);
-        center.planner.dispatch.container.position.set(Math.max(10, w - center.planner.dispatch.width - 28), h - 54);
+        const rowW = Math.max(130, Math.floor((plannerW - 24 - (PLANNER_SECTION_GAP * 2)) / 3));
+        const usedW = rowW * 3 + PLANNER_SECTION_GAP * 2;
+        const listStartX = Math.round((plannerW - usedW) / 2);
+        center.planner.shipRowW = rowW;
+        center.planner.crewRowW = rowW;
+        center.planner.missionRowW = rowW;
+        center.planner.shipListX = listStartX;
+        center.planner.crewListX = listStartX + rowW + PLANNER_SECTION_GAP;
+        center.planner.missionListX = listStartX + (rowW + PLANNER_SECTION_GAP) * 2;
+        center.planner.listBaseY = 86;
+        center.planner.shipHeader.position.set(center.planner.shipListX, 66);
+        center.planner.crewHeader.position.set(center.planner.crewListX, 66);
+        center.planner.missionHeader.position.set(center.planner.missionListX, 66);
+
+        const outcomeY = Math.max(262, plannerH - 182);
+        center.planner.outcomeCard.position.set(10, outcomeY);
+        redrawTechPanel(center.planner.outcomeCard, Math.max(220, plannerW - 20), 96, { accent: 'green' });
+        center.planner.outcomeBody.style.wordWrapWidth = Math.max(170, plannerW - 40);
+        center.planner.capacityText.position.set(12, plannerH - 62);
+        center.planner.dispatch.container.position.set(
+            Math.round((plannerW - center.planner.dispatch.width) / 2),
+            plannerH - center.planner.dispatch.height - 10,
+        );
         this._refreshMissionPlanner();
 
         // Fan out to any extracted tab scenes hosted in the center
@@ -1651,8 +1695,8 @@ export class HubScene {
         }
     }
 
-    _layoutBottomNav(nav, w, y, h) {
-        nav.container.position.set(0, y);
+    _layoutBottomNav(nav, x, w, y, h) {
+        nav.container.position.set(x, y);
         redrawTechPanel(nav.frame, w, h, { accent: 'cyan' });
 
         const tabCount = nav.tabs.length;
