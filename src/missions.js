@@ -182,6 +182,18 @@ const NARRATIVE_BY_TIER_ID = {
 // appearance order.
 export const MISSION_TYPES = Object.freeze(['Mining', 'Exploration', 'Research', 'Salvage', 'Combat']);
 
+// Idle-fleet contracts are auto-resolved dispatch jobs that consume one
+// ship + one crew member for a fixed duration and then grant rewards.
+// Duration is intentionally short in this phase so QA can validate the
+// full loop in one session.
+const IDLE_DURATION_SEC_BY_RISK = Object.freeze({
+    1: 120,
+    2: 180,
+    3: 240,
+    4: 300,
+    5: 360,
+});
+
 // A short flavor brief shown on the card. One line each so the layout
 // stays predictable.
 const TIER_BRIEF_BY_ID = {
@@ -300,6 +312,33 @@ export function pickMissionBoard(missions, { count = 4, seed } = {}) {
         safety++;
     }
     return out;
+}
+
+// Build a catalog of idle-fleet contracts derived from the manual
+// mission tiers. Keeps progression and flavor in sync across both
+// gameplay surfaces while giving each idle contract explicit dispatch
+// timing + payout metadata.
+export function buildIdleMissions(manualMissions = null) {
+    const source = Array.isArray(manualMissions) ? manualMissions : buildMissions();
+    return source.map((m) => {
+        const durationSec = IDLE_DURATION_SEC_BY_RISK[m.risk] || 180;
+        const rewardCredits = Math.max(120, Math.round(m.baseCredits * (1 + (m.risk * 0.1))));
+        const commonOres = m.expectedOres.filter((id) => id !== 'volatiles' && id !== 'biomass');
+        const rareOres = m.expectedOres.filter((id) => id === 'volatiles' || id === 'biomass');
+        return Object.freeze({
+            id: `idle-${m.id}`,
+            sourceMissionId: m.id,
+            title: `${m.type}: ${m.sector}`,
+            sector: m.sector,
+            risk: m.risk,
+            etaSec: durationSec,
+            rewardCredits,
+            rewardOres: Object.freeze({
+                common: Object.freeze(commonOres.slice(0, 2)),
+                rare: Object.freeze(rareOres.slice(0, 1)),
+            }),
+        });
+    });
 }
 
 // Look up a mission by id from a built list. Returns null if missing.
