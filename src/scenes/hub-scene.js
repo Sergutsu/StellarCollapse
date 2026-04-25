@@ -220,6 +220,7 @@ export class HubScene {
 
     show() {
         if (!this._nodes) this._build();
+        this._reconcileIdleMissionState();
         this._nodes.root.visible = true;
     }
 
@@ -1184,6 +1185,7 @@ export class HubScene {
     }
 
     _refreshMissionPlanner() {
+        this._reconcileIdleMissionState();
         const planner = this._nodes?.centerPanel?.planner;
         if (!planner) return;
         const fleet = this.meta?.fleetSnapshot() || [];
@@ -1353,6 +1355,7 @@ export class HubScene {
     }
 
     _refreshActiveIdleMissions() {
+        this._reconcileIdleMissionState();
         const left = this._nodes?.leftCol;
         if (!left) return;
         left.counter.text = `${this._idleMissions.length} / ${this._maxIdleAssignments()}`;
@@ -1379,6 +1382,70 @@ export class HubScene {
             left.list.addChild(row.container);
             left.rows.push(row);
         });
+    }
+
+    _reconcileIdleMissionState() {
+        if (!this.meta) return;
+        const fleet = this.meta.fleetSnapshot();
+        const crew = this.meta.crewSnapshot();
+        const fleetById = new Map(fleet.map((ship) => [ship.id, ship]));
+        const crewById = new Map(crew.map((member) => [member.id, member]));
+        const validJobs = [];
+        const usedShips = new Set();
+        const usedCrew = new Set();
+
+        for (const job of this._idleMissions) {
+            if (!fleetById.has(job.shipId) || !crewById.has(job.crewId)) {
+                continue;
+            }
+            if (usedShips.has(job.shipId) || usedCrew.has(job.crewId)) {
+                continue;
+            }
+            validJobs.push(job);
+            usedShips.add(job.shipId);
+            usedCrew.add(job.crewId);
+        }
+        this._idleMissions = validJobs;
+
+        const orphanShips = fleet.filter((ship) => ship.status === 'On Mission' && !usedShips.has(ship.id));
+        const orphanCrew = crew.filter((member) => member.status === 'On Mission' && !usedCrew.has(member.id));
+        const pairCount = Math.min(orphanShips.length, orphanCrew.length);
+        for (let i = 0; i < pairCount; i += 1) {
+            const ship = orphanShips[i];
+            const member = orphanCrew[i];
+            const now = Date.now();
+            this._idleMissions.push({
+                id: `dispatch-${this._idleMissionSeq++}`,
+                offerId: 'recovered-assignment',
+                title: 'Recovered Idle Assignment',
+                type: 'recovery',
+                dispatchMode: 'idle',
+                risk: 1,
+                rewardCredits: 0,
+                rewardOres: { common: [], rare: [] },
+                shipId: ship.id,
+                shipName: ship.name,
+                crewId: member.id,
+                crewName: member.name,
+                startedAt: now,
+                etaSec: 0,
+                endsAt: now,
+                claimed: false,
+            });
+            usedShips.add(ship.id);
+            usedCrew.add(member.id);
+        }
+
+        for (const ship of fleet) {
+            const onMission = usedShips.has(ship.id);
+            const next = onMission ? 'On Mission' : 'Standby';
+            if (ship.status !== next) this.meta.setShipStatus(ship.id, next);
+        }
+        for (const member of crew) {
+            const onMission = usedCrew.has(member.id);
+            const next = onMission ? 'On Mission' : 'Available';
+            if (member.status !== next) this.meta.setCrewStatus(member.id, next);
+        }
     }
 
     _buildActiveIdleRow(job, w, remainingSec, done) {
