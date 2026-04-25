@@ -152,6 +152,18 @@ const HUB_MISSION_OFFERS = Object.freeze([
     { id: 'mission-trade-convoy', type: 'trade', title: 'Frontier Trade Convoy Escort', risk: 2, etaSec: 200, rewardCredits: 190, manualReady: false },
 ]);
 
+// Hub mission taxonomy is player-facing and intentionally different
+// from the ranked gameplay mission catalog in missions.js. Manual
+// dispatch needs this mapping so we can launch a sensible playable
+// mission instead of always falling back to the first catalog entry.
+const HUB_TO_PLAYABLE_TYPES = Object.freeze({
+    scout: ['Exploration', 'Research'],
+    defense: ['Combat'],
+    resource: ['Mining'],
+    terraform: ['Research', 'Exploration'],
+    trade: ['Salvage', 'Combat'],
+});
+
 // CELL_PALETTE (ore preview dots on mission cards) is shared across
 // scenes via src/scenes/cell-palette.js.
 
@@ -1263,7 +1275,7 @@ export class HubScene {
         this.meta?.setShipStatus(ship.id, 'On Mission');
         this.meta?.setCrewStatus(crew.id, 'On Mission');
         if (this._selectedMissionDispatch === 'manual' && mission.manualReady) {
-            const playable = this._missions.find((m) => m.type === 'resource') || this._missions[0];
+            const playable = this._pickPlayableMissionForHubType(mission.type);
             this._onMissionCardTapped(playable);
         }
         this._refreshActiveIdleMissions();
@@ -1288,6 +1300,15 @@ export class HubScene {
         const ships = this.meta?.fleetSnapshot()?.length || 0;
         const crews = this.meta?.crewSnapshot()?.length || 0;
         return Math.max(0, Math.min(ships, crews));
+    }
+
+    _pickPlayableMissionForHubType(hubType) {
+        const preferred = HUB_TO_PLAYABLE_TYPES[hubType] || [];
+        for (const playableType of preferred) {
+            const found = this._missions.find((m) => m.type === playableType);
+            if (found) return found;
+        }
+        return this._missions[0];
     }
 
     _refreshFleetCrewPanel() {
