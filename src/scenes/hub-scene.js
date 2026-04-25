@@ -33,7 +33,7 @@ import {
     PIECE_COMPLEXITY,
 } from '../constants.js';
 
-import { buildMissions, pickMissionBoard, ORES } from '../missions.js';
+import { buildMissions, buildIdleMissions, pickMissionBoard, ORES } from '../missions.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
 import {
@@ -71,6 +71,7 @@ const HUB_GUTTER = 14;
 const HUB_MIN_CENTER_W = 460;
 const HUB_MIN_LAYOUT_W = HUB_COL_W * 2 + HUB_MIN_CENTER_W + HUB_GUTTER * 4;
 const HUB_MIN_LAYOUT_H = 760;
+const HUB_IDLE_MAX_ACTIVE = 2;
 
 // Galactic News ticker pool. Static flavor strings for now; runtime
 // mission-complete / ship-damaged / anomaly events wire in from P4.
@@ -119,6 +120,15 @@ function formatHubResourceValue(value, format) {
     }
 }
 
+function formatDuration(totalSec) {
+    const s = Math.max(0, Math.floor(totalSec || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+    return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
 // Risk -> label/color mapping on mission-board cards.
 const HUB_RISK_PRESETS = Object.freeze({
     1: { label: 'LOW',      color: 0x86efac },
@@ -147,6 +157,11 @@ export class HubScene {
         // Deterministic per-boot mission catalog so asteroid names on
         // cards don't shuffle every time the player re-opens the menu.
         this._missions = buildMissions({ seed: Math.floor(Math.random() * 0xffffffff) });
+        this._idleCatalog = buildIdleMissions(this._missions);
+        this._idleMissions = [];
+        this._idleMissionSeq = 1;
+        this._activeMissionScreen = 'manual';
+        this._lastIdleUiRefreshAt = 0;
 
         // Mirrors whichever mission is currently selected. HUD tier
         // color + size multiplier readouts read this via getStartState.
@@ -196,6 +211,12 @@ export class HubScene {
             news.offset = bandW;
         }
         news.body.x = Math.round(news.offset);
+
+        const now = Date.now();
+        if (now - this._lastIdleUiRefreshAt >= 250) {
+            this._lastIdleUiRefreshAt = now;
+            this._refreshActiveIdleMissions();
+        }
     }
 
     destroy() {
@@ -279,6 +300,7 @@ export class HubScene {
 
         if (this.app) this._layoutShell(this.app.screen.width, this.app.screen.height);
         this._setActiveTab('missions');
+        this._refreshActiveIdleMissions();
     }
 
     _buildTopBar() {
@@ -442,7 +464,7 @@ export class HubScene {
         const panel = drawTechPanel(HUB_COL_W, 420, { accent: 'amber' });
         container.addChild(panel);
 
-        const header = panelLabel('ACTIVE MISSIONS', COLOR_CYAN_300, { size: 14 });
+        const header = panelLabel('IDLE FLEET MISSIONS', COLOR_CYAN_300, { size: 14 });
         header.position.set(14, 12);
         panel.addChild(header);
 
@@ -454,28 +476,29 @@ export class HubScene {
         counter.position.set(HUB_COL_W - 14, 12);
         panel.addChild(counter);
 
-        // Empty-state card. Renders in place of any running missions
-        // until P4 wires idle ticking + real mission state.
+        const list = new Container();
+        list.position.set(12, 40);
+        panel.addChild(list);
+
         const empty = drawTechPanel(HUB_COL_W - 24, 108, { accent: 'cyan' });
-        empty.position.set(12, 40);
-        panel.addChild(empty);
+        list.addChild(empty);
 
         const emptyTitle = new Text({
-            text: 'No active missions',
+            text: 'No fleet dispatches',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: 0xe2e8f0 }),
         });
         emptyTitle.position.set(14, 14);
         empty.addChild(emptyTitle);
 
         const emptyHint = new Text({
-            text: 'Deploy from the MISSIONS tab to\nput a ship to work.',
+            text: 'Open MISSIONS > IDLE FLEET and\ndispatch a ship + crew.',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0x94a3b8, wordWrap: true, wordWrapWidth: HUB_COL_W - 52 }),
         });
         emptyHint.position.set(14, 38);
         empty.addChild(emptyHint);
 
         return {
-            container, panel, panelAccent: 'amber', header, counter, empty, emptyTitle, emptyHint,
+            container, panel, panelAccent: 'amber', header, counter, list, empty, emptyTitle, emptyHint, rows: [],
         };
     }
 
@@ -491,6 +514,9 @@ export class HubScene {
         });
         tabTitle.position.set(16, 12);
         panel.addChild(tabTitle);
+
+        const modeTabs = this._buildMissionModeTabs();
+        panel.addChild(modeTabs.container);
 
         // Galactic-map backdrop stub: a dim star-grid hint so the
         // center panel reads as "looking at a region of space" even
@@ -521,7 +547,57 @@ export class HubScene {
         });
         panel.addChild(openBoardButton.container);
 
-        return { container, panel, tabTitle, map, stub, openBoardButton };
+        const idlePanel = this._buildIdleMissionPanel();
+        panel.addChild(idlePanel.container);
+
+        return {
+            container,
+            panel,
+            tabTitle,
+            map,
+            stub,
+            openBoardButton,
+            modeTabs,
+            idlePanel,
+        };
+    }
+
+    _buildMissionModeTabs() {
+        const container = new Container();
+        const manual = buildStartButton({
+            text: 'MANUAL MISSIONS',
+            width: 170,
+            height: 30,
+            onTap: () => this._setMissionScreen('manual'),
+        });
+        const idle = buildStartButton({
+            text: 'IDLE FLEET',
+            width: 130,
+            height: 30,
+            fill: 0x1f2937,
+            hoverFill: 0x334155,
+            onTap: () => this._setMissionScreen('idle'),
+        });
+        container.addChild(manual.container);
+        container.addChild(idle.container);
+        return { container, manual, idle };
+    }
+
+    _buildIdleMissionPanel() {
+        const container = new Container();
+        container.visible = false;
+        const frame = drawTechPanel(560, 300, { accent: 'cyan' });
+        container.addChild(frame);
+        const header = new Text({
+            text: 'Dispatch ships to autonomous contracts.',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x94a3b8 }),
+        });
+        header.position.set(12, 12);
+        frame.addChild(header);
+        const list = new Container();
+        list.position.set(12, 40);
+        frame.addChild(list);
+        return { container, frame, header, list, offers: [] };
     }
 
     _buildFleetCrew() {
@@ -985,12 +1061,8 @@ export class HubScene {
 
         if (tabId === 'missions') {
             c.tabTitle.visible = true;
-            c.tabTitle.text = 'MISSIONS \u2014 MISSION BOARD';
-            c.stub.visible = true;
-            c.stub.text = '';
-            c.map.visible = true;
-            c.openBoardButton.container.visible = true;
-            this._openMissionBoard();
+            c.modeTabs.container.visible = true;
+            this._setMissionScreen(this._activeMissionScreen);
         } else if (tabId === 'star-map' || tabId === 'build' || tabId === 'research') {
             // Extracted tab scenes own their own title + surface; hide
             // the default chrome so they don't overlap.
@@ -998,6 +1070,8 @@ export class HubScene {
             c.stub.visible = false;
             c.map.visible = false;
             c.openBoardButton.container.visible = false;
+            c.modeTabs.container.visible = false;
+            c.idlePanel.container.visible = false;
             this._closeMissionBoard();
             const scene = n.tabs[tabId];
             scene.show();
@@ -1018,8 +1092,216 @@ export class HubScene {
             c.stub.text = `${activeTab.label} \u2014 Unlocks at Rep Tier ${activeTab.lockRep ?? 2}.\nComing in a later phase.`;
             c.map.visible = true;
             c.openBoardButton.container.visible = false;
+            c.modeTabs.container.visible = false;
+            c.idlePanel.container.visible = false;
             this._closeMissionBoard();
         }
+    }
+
+    _setMissionScreen(screenId) {
+        const n = this._nodes;
+        if (!n) return;
+        this._activeMissionScreen = screenId === 'idle' ? 'idle' : 'manual';
+        const c = n.centerPanel;
+        c.tabTitle.text = this._activeMissionScreen === 'manual'
+            ? 'MISSIONS \u2014 MANUAL'
+            : 'MISSIONS \u2014 IDLE FLEET';
+        c.stub.visible = this._activeMissionScreen === 'manual';
+        c.stub.text = '';
+        c.map.visible = this._activeMissionScreen === 'manual';
+        c.openBoardButton.container.visible = this._activeMissionScreen === 'manual';
+        c.idlePanel.container.visible = this._activeMissionScreen === 'idle';
+        if (this._activeMissionScreen === 'manual') {
+            this._openMissionBoard();
+        } else {
+            this._closeMissionBoard();
+            this._refreshIdleMissionOffers();
+        }
+        this._refreshMissionModeTabs();
+    }
+
+    _refreshMissionModeTabs() {
+        const c = this._nodes?.centerPanel?.modeTabs;
+        if (!c) return;
+        const manualActive = this._activeMissionScreen === 'manual';
+        const idleActive = !manualActive;
+        c.manual.label.style.fill = manualActive ? 0xffffff : 0x93c5fd;
+        c.idle.label.style.fill = idleActive ? 0xffffff : 0x93c5fd;
+    }
+
+    _refreshIdleMissionOffers() {
+        const idlePanel = this._nodes?.centerPanel?.idlePanel;
+        if (!idlePanel) return;
+        if (Array.isArray(idlePanel.offers)) {
+            idlePanel.offers.forEach((row) => {
+                row?.container?.destroy({ children: true });
+            });
+        }
+        idlePanel.offers = [];
+        const cardW = Math.max(240, (this._nodes.centerPanel._w || 560) - 64);
+        const offers = this._idleCatalog.slice(0, 4);
+        const atCapacity = this._idleMissions.length >= HUB_IDLE_MAX_ACTIVE;
+        const hasShip = !!this.meta?.fleetSnapshot().find((s) => s.status === 'Standby');
+        const hasCrew = !!this.meta?.crewSnapshot().find((c) => c.status === 'Available');
+        const canDispatch = !atCapacity && hasShip && hasCrew;
+        offers.forEach((offer, i) => {
+            const row = this._buildIdleOfferRow(offer, cardW, {
+                canDispatch,
+                dispatchLabel: atCapacity ? 'FULL' : (hasShip && hasCrew ? 'DISPATCH' : 'NO TEAM'),
+            });
+            row.container.y = i * 74;
+            idlePanel.list.addChild(row.container);
+            idlePanel.offers.push(row);
+        });
+    }
+
+    _buildIdleOfferRow(offer, w, { canDispatch = true, dispatchLabel = 'DISPATCH' } = {}) {
+        const container = new Container();
+        const frame = drawTechPanel(w, 66, { accent: 'cyan' });
+        container.addChild(frame);
+        const title = new Text({
+            text: offer.title,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xf8fafc }),
+        });
+        title.position.set(10, 10);
+        frame.addChild(title);
+        const details = new Text({
+            text: `Risk ${offer.risk} · ETA ${formatDuration(offer.etaSec)} · +${offer.rewardCredits} CR`,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0x93c5fd }),
+        });
+        details.position.set(10, 32);
+        frame.addChild(details);
+        const dispatch = buildStartButton({
+            text: dispatchLabel,
+            width: 108,
+            height: 28,
+            fill: canDispatch ? 0x172554 : 0x334155,
+            hoverFill: canDispatch ? 0x1d4ed8 : 0x475569,
+            onTap: () => this._dispatchIdleMission(offer),
+        });
+        dispatch.container.cursor = canDispatch ? 'pointer' : 'not-allowed';
+        if (!canDispatch) dispatch.container.eventMode = 'none';
+        dispatch.container.position.set(w - 118, 18);
+        frame.addChild(dispatch.container);
+        return { container, frame, dispatch };
+    }
+
+    _dispatchIdleMission(offer) {
+        if (this._idleMissions.length >= HUB_IDLE_MAX_ACTIVE) return;
+        const ship = this.meta?.fleetSnapshot().find((s) => s.status === 'Standby');
+        const crew = this.meta?.crewSnapshot().find((c) => c.status === 'Available');
+        if (!ship || !crew) return;
+        const now = Date.now();
+        const jobId = `idle-run-${this._idleMissionSeq++}`;
+        this._idleMissions.push({
+            id: jobId,
+            offerId: offer.id,
+            title: offer.title,
+            risk: offer.risk,
+            rewardCredits: offer.rewardCredits,
+            rewardOres: offer.rewardOres,
+            shipId: ship.id,
+            shipName: ship.name,
+            crewId: crew.id,
+            crewName: crew.name,
+            startedAt: now,
+            endsAt: now + offer.etaSec * 1000,
+            claimed: false,
+        });
+        this.meta?.setShipStatus(ship.id, 'On Mission');
+        this.meta?.setCrewStatus(crew.id, 'On Mission');
+        this._refreshActiveIdleMissions();
+        this._refreshIdleMissionOffers();
+    }
+
+    _refreshActiveIdleMissions() {
+        const left = this._nodes?.leftCol;
+        if (!left) return;
+        left.counter.text = `${this._idleMissions.length} / ${HUB_IDLE_MAX_ACTIVE}`;
+        if (left.empty?.parent === left.list) {
+            left.list.removeChild(left.empty);
+        }
+        if (Array.isArray(left.rows)) {
+            left.rows.forEach((row) => {
+                row?.container?.destroy({ children: true });
+            });
+        }
+        left.rows = [];
+        if (this._idleMissions.length === 0) {
+            left.list.addChild(left.empty);
+            return;
+        }
+        const rowW = HUB_COL_W - 24;
+        const now = Date.now();
+        this._idleMissions.slice(0, HUB_IDLE_MAX_ACTIVE).forEach((job, i) => {
+            const remainingSec = Math.max(0, Math.ceil((job.endsAt - now) / 1000));
+            const done = remainingSec <= 0;
+            const row = this._buildActiveIdleRow(job, rowW, remainingSec, done);
+            row.container.y = i * 118;
+            left.list.addChild(row.container);
+            left.rows.push(row);
+        });
+    }
+
+    _buildActiveIdleRow(job, w, remainingSec, done) {
+        const container = new Container();
+        const frame = drawTechPanel(w, 108, { accent: done ? 'green' : 'cyan' });
+        container.addChild(frame);
+        const title = new Text({
+            text: job.title,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xf8fafc, wordWrap: true, wordWrapWidth: w - 20 }),
+        });
+        title.position.set(10, 10);
+        frame.addChild(title);
+        const crewShip = new Text({
+            text: `${job.shipName} · ${job.crewName}`,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+        });
+        crewShip.position.set(10, 46);
+        frame.addChild(crewShip);
+        const status = new Text({
+            text: done ? `READY · +${job.rewardCredits} CR` : `ETA ${formatDuration(remainingSec)}`,
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: done ? 0x86efac : 0x93c5fd }),
+        });
+        status.position.set(10, 66);
+        frame.addChild(status);
+        if (done) {
+            const claim = buildStartButton({
+                text: 'CLAIM',
+                width: 86,
+                height: 28,
+                fill: 0x14532d,
+                hoverFill: 0x166534,
+                onTap: () => this._claimIdleMission(job.id),
+            });
+            claim.container.position.set(w - 96, 70);
+            frame.addChild(claim.container);
+        }
+        return { container, frame };
+    }
+
+    _claimIdleMission(jobId) {
+        const idx = this._idleMissions.findIndex((m) => m.id === jobId);
+        if (idx < 0) return;
+        const job = this._idleMissions[idx];
+        this.meta?.addCredits(job.rewardCredits);
+        if (Array.isArray(job.rewardOres.common)) {
+            job.rewardOres.common.forEach((oreId) => {
+                const ore = ORES.find((o) => o.id === oreId);
+                if (ore?.color) this.meta?.addOre(ore.color, 1);
+            });
+        }
+        if (Array.isArray(job.rewardOres.rare)) {
+            job.rewardOres.rare.forEach((oreId) => {
+                const ore = ORES.find((o) => o.id === oreId);
+                if (ore?.color) this.meta?.addOre(ore.color, 1);
+            });
+        }
+        this.meta?.setShipStatus(job.shipId, 'Standby');
+        this.meta?.setCrewStatus(job.crewId, 'Available');
+        this._idleMissions.splice(idx, 1);
+        this._refreshActiveIdleMissions();
+        this._refreshIdleMissionOffers();
     }
 
     _rollCallsign() {
@@ -1160,12 +1442,13 @@ export class HubScene {
         col.container.position.set(x, y);
         redrawTechPanel(col.panel, w, h, { accent: col.panelAccent ?? 'cyan' });
         if (col.counter) col.counter.position.set(w - 14, 12);
+        if (col.list) col.list.position.set(12, 40);
         if (col.empty) {
             // Keep the sky-400 accent set by _buildActiveMissions;
             // re-using the default cyan here would mute the empty card
             // against the panel border.
             redrawTechPanel(col.empty, w - 24, 108, { accent: 'cyan' });
-            col.empty.position.set(12, 40);
+            col.empty.position.set(0, 0);
         }
         if (col.fleetRows) {
             const rowW = w - 28;
@@ -1208,9 +1491,15 @@ export class HubScene {
         }
         center.stub.position.set(w / 2, h / 2 + 10);
         center.stub.style.wordWrapWidth = w - 60;
+        center.modeTabs.container.position.set(16, 36);
+        center.modeTabs.manual.container.position.set(0, 0);
+        center.modeTabs.idle.container.position.set(178, 0);
         // Open-board button centered near the bottom of the center panel.
         const btnW = center.openBoardButton.width;
         center.openBoardButton.container.position.set((w - btnW) / 2, h - 64);
+        center.idlePanel.container.position.set(12, 74);
+        redrawTechPanel(center.idlePanel.frame, Math.max(260, w - 24), Math.max(180, h - 86), { accent: 'cyan' });
+        if (center.idlePanel.container.visible) this._refreshIdleMissionOffers();
 
         // Fan out to any extracted tab scenes hosted in the center
         // panel. They lay out against the panel's inner surface (same
