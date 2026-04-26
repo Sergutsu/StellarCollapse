@@ -40,7 +40,9 @@ One screen per stage. No pauses inserted between them.
   `HIGHSCORE_TIERS` archetype (`gameConfig`) so the puzzle run stays the same
   9-tier matrix. Today's transitional screen still shows the raw tier
   archetype grid (3×3); the narrative re-skin lands with the P2 hub.
-- **Mission run** — the puzzle. Same game as before: match-4 / auto-match / block-drop, three complexities, three field sizes per complexity.
+- **Mission run** — one of two modes depending on the mission's type:
+  - *Puzzle run* (Mining / Exploration / Research / Salvage) — match-4 / auto-match / block-drop, three complexities, three field sizes per complexity.
+  - *Defense run* (Combat) — Space-Invaders / Breakout hybrid. Player controls a paddle; a bouncing ball destroys pixel-art invaders and a boss. Power-ups (MULTI, WIDE, LASER, LIFE, TOWER) drop every 10 pixel kills. Towers auto-shoot the nearest enemy. Win by destroying all invaders + boss; lose when health reaches 0 or invaders reach the bottom.
 - **Results** — asteroid name, final score, credits earned, ore breakdown, CONTINUE back to the board.
 
 ## Meta loop (across missions)

@@ -97,6 +97,22 @@ Piece shape pool per complexity. Read-only.
 
 `buildMissions({ seed })`, `findMission(list, id)`, `pickMissionBoard(missions, { count, seed })`, `baseCreditsFor(tierIndex)`, `ORES`, `ORE_BY_COLOR`, `MISSION_TYPES`. Seeded Mulberry32 for deterministic asteroid-name rolling and for the risk-stratified MISSION BOARD subset roll. Every mission also carries narrative metadata (`narrativeName`, `type`, `sector`, `risk` 1–5, `etaLabel`) that the hub MISSION BOARD cards render on top of the underlying tier archetype. No side effects.
 
+### `src/defense-state.js` — pure
+
+Pure game logic for the defense (Space-Invaders / Breakout hybrid) mission mode. Same contract as `GameState`: construct with `{ rng, schedule }`, attach listeners via `.on()`, call `.start()`, drive with `.tick(deltaMs)`. Owns paddle, balls, invaders, boss, towers, bullets, power-ups, score, player health. Emits: `game-started`, `tick`, `ball-lost`, `invader-hit`, `invader-destroyed`, `boss-hit`, `boss-destroyed`, `powerup-collected`, `player-hit`, `tower-placed`, `laser-fired`, `game-over`. `snapshot()` returns a deep-copy snapshot for the renderer.
+
+### `src/defense-constants.js` — pure
+
+Shared tuning constants for the defense mode: grid size, arena dimensions, entity speeds, timing intervals, scoring values, collision radii, power-up types, invader pixel patterns. No DOM, no Pixi.
+
+### `src/defense-input.js`
+
+Input wiring for the defense mode. `bindDefenseInput({ state, canvas, getScale })` → teardown function. Translates keyboard (arrows/WASD, spacebar), mouse (pointermove for paddle, click for tower placement), and the held-spacebar laser loop into `DefenseState` verbs.
+
+### `src/scenes/defense-scene.js`
+
+Pixi scene for the defense mode. Reads from `DefenseState.snapshot()` on every tick and paints paddle, balls, invaders (pixel-art patterns), boss, towers, bullets, power-ups, health bars, score, buff strip, and bonus-progress bar. Implements the standard scene contract (`show(defenseState)`, `hide`, `layout`, `tick`, `destroy`, `visible`). Uses `pixi-ui-kit.js` panel helpers.
+
 ### `src/audio.js`
 
 WebAudio tone generators. Wired to state events from `main.js`.
@@ -123,13 +139,13 @@ The Pixi bootstrap + scene host. After the 4-stage scene-graph split (ADR-0009),
 
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
 - Viewport-filling starfield + cinematic hub backdrop
-- `SceneManager` + registered `HubScene` + `GameScene` + `ResultsScene`
+- `SceneManager` + registered `HubScene` + `GameScene` + `DefenseScene` + `ResultsScene`
 - Single `app.ticker` that drives `starfield.update(deltaMs)` and fans out `tick(deltaMs)` to every scene that exposes one
 - Window `resize` listener that rebuilds the starfield + calls `SceneManager.layout(screen)`
 
 Shared Pixi render helpers (panel chrome, label text, star icon, CTA button) live in [`src/pixi-ui-kit.js`](../src/pixi-ui-kit.js). Scenes import them directly; PixiView no longer hand-wires them through scene constructors.
 
-Public API (unchanged across the entire scene-split series so `main.js` never needed updating): `init`, `createBoard`, `createPreviews`, `setTopControlsHandlers`, `setSoundEnabled`, `setTip`, `showStartScreen`, `showGameScreen`, `showResultsScreen`, `hideResultsScreen`, `onStartGame`, `_levelInfoFor` setter. Every entry point is a thin delegate onto the appropriate scene; there is no game logic, no hub logic, and no Pixi event handling left in `PixiView`.
+Public API: `init`, `createBoard`, `createPreviews`, `setTopControlsHandlers`, `setSoundEnabled`, `setTip`, `showStartScreen`, `showGameScreen`, `showDefenseScreen`, `hideDefenseScreen`, `showResultsScreen`, `hideResultsScreen`, `onStartGame`, `_levelInfoFor` setter. Every entry point is a thin delegate onto the appropriate scene; there is no game logic, no hub logic, and no Pixi event handling left in `PixiView`.
 
 ### `src/pixi-ui-kit.js`
 

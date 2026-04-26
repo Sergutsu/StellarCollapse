@@ -147,7 +147,7 @@ const HUB_RISK_PRESETS = Object.freeze({
 
 const HUB_MISSION_OFFERS = Object.freeze([
     { id: 'mission-scout-lanes', type: 'scout', title: 'Outer Lane Recon Sweep', risk: 2, etaSec: 180, rewardCredits: 160, manualReady: false },
-    { id: 'mission-defense-sat', type: 'defense', title: 'Orbital Relay Defense Drill', risk: 3, etaSec: 240, rewardCredits: 220, manualReady: false },
+    { id: 'mission-defense-sat', type: 'defense', title: 'Orbital Relay Defense Drill', risk: 3, etaSec: 240, rewardCredits: 220, manualReady: true },
     { id: 'mission-resource-rift', type: 'resource', title: 'Seismic Rift Resource Pull', risk: 2, etaSec: 210, rewardCredits: 240, manualReady: true },
     { id: 'mission-terraform-soil', type: 'terraform', title: 'Astra-9 Soil Stabilization', risk: 1, etaSec: 260, rewardCredits: 210, manualReady: false },
     { id: 'mission-trade-convoy', type: 'trade', title: 'Frontier Trade Convoy Escort', risk: 2, etaSec: 200, rewardCredits: 190, manualReady: false },
