@@ -19,7 +19,6 @@ The repo is moving toward a hybrid casual / idle space-exploration game. Deep de
 - [`docs/GAMEPLAY.md`](docs/GAMEPLAY.md) — mechanics spec + canonical tunable numbers.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module graph, rendering rules, house rules.
 - [`docs/adr/`](docs/adr/) — architecture decision records (Pixi-only, seeded mission RNG, tier↔mission 1:1).
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — PR workflow + non-negotiables.
 - [`CHANGELOG.md`](CHANGELOG.md) — human-readable release notes.
 
 <p align="center">
@@ -41,6 +40,7 @@ The repo is moving toward a hybrid casual / idle space-exploration game. Deep de
 - **Specials in the top tier only** — snakes (4-match) and bombs (5+ match) only fire in Totally Collapsed. Easier tiers stay clean.
 - **Gravity-freeze in Totally Collapsed** — color matches and bomb blasts don't drop survivors; cells hang suspended (visibly outlined) until a snake run recolors the board and unlocks gravity.
 - **No build step** — pure ES modules in the browser. Clone and run.
+- **Mobile-responsive** — hub and gameplay surfaces scale to fit narrow viewports; touch gestures (swipe to move/rotate/drop) make runs fully playable on phones.
 - **Unit-tested core** — `GameState` is fully decoupled from DOM/audio; `npm test` runs a `node --test` suite with zero dependencies.
 
 ---
@@ -127,13 +127,13 @@ The game-state logic is covered by [`node --test`](https://nodejs.org/api/test.h
 npm test
 ```
 
-Covers movement, rotation, gravity, line clears, color matches, the special-block mechanics (bomb, snake), and the mission catalogue. More cases are added as modes/complexity/mission features land (see PR history).
+Covers movement, rotation, gravity, line clears, color matches, the special-block mechanics (bomb, snake), the mission catalogue, and scene-manager registration/lifecycle. 108 tests as of the latest merge.
 
 ---
 
 ## Architecture
 
-Short version — pure `GameState` + `missions.js` (Node-testable, no DOM, no timers), Pixi-only view, event-emitter bus, static `index.html` shell. For the full module graph, scene-graph, persistence plan, and house rules see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Short version — pure `GameState` + `missions.js` (Node-testable, no DOM, no timers), Pixi-only view with extracted scene classes (`HubScene`, `GameScene`, `ResultsScene`, three hub-tab scenes), event-emitter bus, static `index.html` shell. For the full module graph, scene-graph, persistence plan, and house rules see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 **Design rule:** `GameState` never reaches into the DOM and never talks to `setTimeout`/`Date.now` directly. The host injects `rng` and `schedule`. That's what lets the whole thing run under `node --test` with a seeded RNG and synchronous scheduler.
 
@@ -160,8 +160,9 @@ Once deployed, the live game is at `https://<owner>.github.io/StellarCollapse/` 
 Bug reports and PRs welcome via the [Issues](../../issues) tab. When adding features:
 
 - Game logic goes in `src/game-state.js` and needs a matching test in `tests/game-state.test.js`.
-- Visuals go in `src/pixi-view.js` (or `src/pixi-starfield.js`). Don't import the DOM into `GameState`.
+- Hub / tab visuals go in `src/scenes/hub-scene.js` or `src/scenes/tabs/*.js`. In-game visuals live in `src/scenes/game-scene.js`. Shared Pixi chrome helpers live in `src/pixi-ui-kit.js`. Don't import the DOM into `GameState`.
 - Run `npm test` locally before opening a PR — CI will also enforce it.
+- Update the relevant doc (`DESIGN`, `GAMEPLAY`, `ARCHITECTURE`, `ROADMAP`, or an ADR) in the same PR as the code change.
 
 ---
 
