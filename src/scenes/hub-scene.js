@@ -45,6 +45,8 @@ import {
     buildSimpleButton,
     panelLabel,
     drawStarShape,
+    BUTTON_DEFAULT_FILL,
+    BUTTON_DEFAULT_HOVER,
 } from '../pixi-ui-kit.js';
 import { StarMapTab } from './tabs/star-map-tab.js';
 import { ResearchTab } from './tabs/research-tab.js';
@@ -807,16 +809,16 @@ export class HubScene {
     }
 
     _buildNavTab(tab) {
-        const container = new Container();
-        container.eventMode = 'static';
-        container.cursor = tab.locked ? 'not-allowed' : 'pointer';
-
-        const bg = drawTechPanel(120, 40, { accent: tab.locked ? 'amber' : 'cyan', cut: 10 });
-        container.addChild(bg);
-
-        const label = panelLabel(tab.label, tab.locked ? 0x64748b : 0xe2e8f0, { size: 11, weight: '800' });
-        label.anchor.set(0.5);
-        container.addChild(label);
+        const btn = buildStartButton({
+            text: tab.label,
+            width: 120,
+            height: 40,
+            fill: tab.locked ? 0x1c1917 : BUTTON_DEFAULT_FILL,
+            hoverFill: tab.locked ? 0x292524 : BUTTON_DEFAULT_HOVER,
+            textColor: tab.locked ? 0x64748b : 0xe2e8f0,
+            trimmed: true,
+            onTap: () => {},
+        });
 
         const sublabel = new Text({
             text: tab.locked ? `REP ${tab.lockRep ?? 2}` : '',
@@ -828,9 +830,9 @@ export class HubScene {
             }),
         });
         sublabel.anchor.set(0.5);
-        container.addChild(sublabel);
+        btn.container.addChild(sublabel);
 
-        return { container, bg, label, sublabel, tab };
+        return { container: btn.container, bg: btn, label: btn.label, sublabel, tab };
     }
 
     _buildMissionBoardModal() {
@@ -1094,10 +1096,7 @@ export class HubScene {
         if (!n) return;
         n.bottomNav.tabs.forEach((t) => {
             const isActive = t.tab.id === tabId;
-            const w = t.container.__width || 0;
-            const h = t.container.__height || 0;
-            const accent = isActive ? 'cyan' : (t.tab.locked ? 'amber' : 'green');
-            redrawTechPanel(t.bg, w, h, { accent, cut: 10 });
+            t.bg.setActive?.(isActive);
             t.label.style.fill = t.tab.locked ? (isActive ? 0xfef3c7 : 0x94a3b8) : (isActive ? 0xf0f9ff : 0xe2e8f0);
         });
     }
@@ -1764,12 +1763,16 @@ export class HubScene {
         const tabH = h - 12;
         nav.tabs.forEach((t, i) => {
             const tx = pad + i * (tabW + gap);
+            const btnW = t.bg.width || 120;
+            const btnH = t.bg.height || 40;
+            const sx = tabW / btnW;
+            const sy = tabH / btnH;
+            t.container.scale.set(sx, sy);
             t.container.position.set(tx, 6);
             t.container.__width = tabW;
             t.container.__height = tabH;
-            t.container.hitArea = new Rectangle(0, 0, tabW, tabH);
-            t.label.position.set(tabW / 2, tabH / 2 - 8);
-            t.sublabel.position.set(tabW / 2, tabH / 2 + 10);
+            t.container.hitArea = new Rectangle(0, 0, btnW, btnH);
+            t.sublabel.position.set(btnW / 2, btnH / 2 + 12);
         });
         // Re-apply the active-tab visual (depends on __width / __height).
         // Uses the highlight-only variant so a user-dismissed modal is
