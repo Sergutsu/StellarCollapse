@@ -29,6 +29,20 @@
 - Same piece pool and controls as Stellar.
 - Scoring per line, with a bonus multiplier for simultaneous 2/3/4-line clears (Tetris-style).
 
+### Defense (Combat missions)
+
+A Space-Invaders / Breakout hybrid. Game state lives in `src/defense-state.js`; constants in `src/defense-constants.js`.
+
+- **Arena:** 800 × 600 logical pixels, grid-snapped to G = 10.
+- **Paddle:** bottom of arena, mouse/keyboard controlled. Normal width 100 px; WIDE power-up doubles it for 12 s.
+- **Ball:** 10 × 10, bounces off walls/paddle/entities. Paddle deflection angle depends on hit position. Losing the last ball costs 25 HP and respawns one.
+- **Invaders:** 4 rows × 8 columns; three pixel-art types (Squid, Crab, Octopus). Each pixel has 1 HP. Move sideways every 1100 ms, drop 3 cells when hitting an edge. Random invaders shoot downward bullets (0.6% chance/tick).
+- **Boss:** 2-pixel magenta entity with 3 HP per pixel (6 total). Bounces sideways, shoots every 1800 ms. Drops 5 random power-ups on death.
+- **Towers:** placed by clicking above the paddle (max 8). Auto-shoot the nearest enemy every 900 ms.
+- **Power-ups:** MULTI (extra ball, max 5), WIDE (doubles paddle, 12 s), LASER (spacebar shoots spread + targeted bullets, 10 s), LIFE (+25 HP, capped at 100), TOWER (+1 placeable turret). Drop every 10 pixel kills.
+- **Scoring:** 10 pts per pixel hit by bullet, 5 pts per pixel hit by ball. Credits = floor(score / 10).
+- **Win:** boss + all invaders destroyed. **Lose:** player HP reaches 0 or invaders reach the bottom row.
+
 ### Mode × Complexity × Size matrix
 
 Every tier in `HIGHSCORE_TIERS` is a `(mode, complexity)` pair. Field size is a third axis:

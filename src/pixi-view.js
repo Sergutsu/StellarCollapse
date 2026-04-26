@@ -36,6 +36,7 @@ import { SceneManager } from './scenes/scene-manager.js';
 import { ResultsScene } from './scenes/results-scene.js';
 import { HubScene } from './scenes/hub-scene.js';
 import { GameScene } from './scenes/game-scene.js';
+import { DefenseScene } from './scenes/defense-scene.js';
 
 // Shared palette consumed by ResultsScene's ore chips + the game
 // scenes' tile tints. Lives in its own module so all three scenes can
@@ -62,6 +63,7 @@ export class PixiView {
         this._sceneMgr = new SceneManager();
         this._hub = null;
         this._game = null;
+        this._defense = null;
         this._results = null;
 
         this._starfield = null;
@@ -138,6 +140,12 @@ export class PixiView {
         });
         this._sceneMgr.register('game', this._game);
 
+        this._defense = new DefenseScene({
+            app,
+            uiRoot: this.uiRoot,
+        });
+        this._sceneMgr.register('defense', this._defense);
+
         this._layoutViewport();
 
         // Hub is the default boot screen; lazy-build happens on first
@@ -148,7 +156,7 @@ export class PixiView {
         // tick(deltaMs). Scenes own their own animation state.
         app.ticker.add((ticker) => {
             this._starfield?.update(ticker.deltaMS);
-            for (const name of ['hub', 'game', 'results']) {
+            for (const name of ['hub', 'game', 'defense', 'results']) {
                 const scene = this._sceneMgr.get(name);
                 if (scene && typeof scene.tick === 'function') {
                     scene.tick(ticker.deltaMS);
@@ -203,12 +211,24 @@ export class PixiView {
 
     showStartScreen() {
         this._game?.hide();
+        this._sceneMgr.hide('defense');
         this._sceneMgr.show('hub');
     }
 
     showGameScreen() {
         this._sceneMgr.hide('hub');
+        this._sceneMgr.hide('defense');
         this._game?.show();
+    }
+
+    showDefenseScreen(defenseState) {
+        this._sceneMgr.hide('hub');
+        this._game?.hide();
+        this._defense?.show(defenseState);
+    }
+
+    hideDefenseScreen() {
+        this._sceneMgr.hide('defense');
     }
 
     showResultsScreen(summary, opts = {}) {
