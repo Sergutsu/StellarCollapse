@@ -27,6 +27,7 @@ import {
     INVADER_CELL,
     INVADER_MOVE_MS,
     INVADER_DROP_CELLS,
+    INVADER_SHOOT_MS,
     INVADER_SHOOT_CHANCE,
     INVADER_PATTERNS,
     INVADER_PATTERN_ROWS,
@@ -104,7 +105,7 @@ export class DefenseState extends Emitter {
         this._tickBalls(now);
         this._tickInvaders(now);
         this._tickPowerUps(now);
-        this._tickInvaderShooting();
+        this._tickInvaderShooting(now);
         this._tickTowerShooting(now);
         this._tickLaser(now);
         this._tickBullets(now);
@@ -203,6 +204,7 @@ export class DefenseState extends Emitter {
 
         this._gridDirection = G;
         this._lastInvaderMove = 0;
+        this._lastInvaderShot = 0;
         this._lastBossStep = 0;
         this._lastBallStep = 0;
         this._lastBulletStep = 0;
@@ -407,7 +409,9 @@ export class DefenseState extends Emitter {
         this.emit('powerup-collected', { type });
     }
 
-    _tickInvaderShooting() {
+    _tickInvaderShooting(now) {
+        if (now - this._lastInvaderShot < INVADER_SHOOT_MS) return;
+        this._lastInvaderShot = now;
         if (this._rng() >= INVADER_SHOOT_CHANCE) return;
         if (this._invaders.length === 0) return;
         const shooter = this._invaders[Math.floor(this._rng() * this._invaders.length)];

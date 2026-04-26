@@ -207,7 +207,11 @@ async function boot() {
             defenseInputTeardown = bindDefenseInput({
                 state: defenseState,
                 canvas: view.app.canvas,
-                getScale: () => view.gameScale,
+                getScale: () => view._defense?.scale ?? 1,
+                getOffset: () => ({
+                    x: view._defense?._root?.x ?? 0,
+                    y: view._defense?._root?.y ?? 0,
+                }),
             });
         }
 

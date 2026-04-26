@@ -28,7 +28,8 @@ export const INVADER_COLS = 8;
 export const INVADER_CELL = GRID;
 export const INVADER_MOVE_MS = 1100;
 export const INVADER_DROP_CELLS = 3;
-export const INVADER_SHOOT_CHANCE = 0.006;
+export const INVADER_SHOOT_MS = 200;
+export const INVADER_SHOOT_CHANCE = 0.072;
 
 // Pixel-art patterns per invader type (3 rows × 4 cols).
 // 1 = filled pixel, 0 = empty.

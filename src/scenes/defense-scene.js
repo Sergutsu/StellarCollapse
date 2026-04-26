@@ -68,6 +68,7 @@ export class DefenseScene {
         this._root = null;
         this._built = false;
         this.visible = false;
+        this._scale = 1;
 
         // Node pools.
         this._gridGfx = null;
@@ -105,9 +106,17 @@ export class DefenseScene {
         this._state = null;
     }
 
-    layout(_screen) {
-        // Arena is a fixed 800×600 logical canvas; PixiView's sceneRoot
-        // scaling already handles viewport fit.
+    get scale() { return this._scale; }
+
+    layout(screen) {
+        if (!this._root) return;
+        const w = screen?.width || ARENA_W;
+        const h = screen?.height || ARENA_H;
+        const s = Math.min(w / ARENA_W, h / ARENA_H, 1);
+        this._scale = s;
+        this._root.scale.set(s);
+        this._root.x = Math.round((w - ARENA_W * s) / 2);
+        this._root.y = Math.round((h - ARENA_H * s) / 2);
     }
 
     tick(_deltaMs) {

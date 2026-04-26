@@ -6,9 +6,10 @@
 
 import { GRID } from './defense-constants.js';
 
-export function bindDefenseInput({ state, canvas, getScale }) {
+export function bindDefenseInput({ state, canvas, getScale, getOffset }) {
     const keys = {};
     const scale = () => (typeof getScale === 'function' ? getScale() : 1);
+    const offset = () => (typeof getOffset === 'function' ? getOffset() : { x: 0, y: 0 });
 
     function onKeyDown(e) {
         if (state.gameOver) return;
@@ -44,7 +45,8 @@ export function bindDefenseInput({ state, canvas, getScale }) {
         if (state.gameOver) return;
         const rect = canvas.getBoundingClientRect();
         const s = scale();
-        const x = Math.max(0, Math.min(800, (e.clientX - rect.left) / s));
+        const o = offset();
+        const x = Math.max(0, Math.min(800, (e.clientX - rect.left - o.x) / s));
         state.setPaddleTarget(x);
     }
 
@@ -52,8 +54,9 @@ export function bindDefenseInput({ state, canvas, getScale }) {
         if (state.gameOver) return;
         const rect = canvas.getBoundingClientRect();
         const s = scale();
-        const x = (e.clientX - rect.left) / s;
-        const y = (e.clientY - rect.top) / s;
+        const o = offset();
+        const x = (e.clientX - rect.left - o.x) / s;
+        const y = (e.clientY - rect.top - o.y) / s;
         state.placeTower(x, y);
     }
 
