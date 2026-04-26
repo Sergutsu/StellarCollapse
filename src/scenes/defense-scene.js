@@ -380,8 +380,8 @@ export class DefenseScene {
         if (snap.laserActive) buffs.push('LASER');
         if (snap.balls.length > 1) buffs.push('MULTI');
         if (snap.availableTurrets > 0) buffs.push('TURRET ×' + snap.availableTurrets);
-        buffs.push(`DROP: ${snap.pixelKills}/${BONUS_DROP_INTERVAL}`);
-        this._buffText.text = buffs.length ? buffs.join(' · ') : 'NO BUFFS';
+        const dropInfo = `DROP: ${snap.pixelKills}/${BONUS_DROP_INTERVAL}`;
+        this._buffText.text = buffs.length ? [...buffs, dropInfo].join(' · ') : 'NO BUFFS';
 
         // Turret tip visibility.
         this._turretTip.visible = snap.availableTurrets > 0;
