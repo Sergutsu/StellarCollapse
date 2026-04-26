@@ -1,14 +1,16 @@
 # UI — Hub Screen
 
-> **Status:** The P2 hub shell has shipped (#41). The 5-zone layout
-> described in §1–§6 is the **live implementation** of the start screen —
-> viewport-filling top bar / news ticker / 3 columns / bottom nav / MISSION
-> BOARD modal all render in Pixi. What is still target-only is the data
-> behind the hub: the top-bar resource strip is static placeholders, the
-> ACTIVE MISSIONS column shows an empty-state card (idle ticking lands in
-> P4), FLEET & CREW values are static, and 5 of the 6 bottom-nav tabs are
-> locked stubs waiting on their respective phases (P3+ for persistence /
-> upgrades / research / crew / market / star map).
+> **Status:** The hub shell has shipped and evolved through P2–P4
+> scaffolding. The 5-zone layout described in §1–§6 is the **live
+> implementation** of the start screen. The top-bar resource strip is
+> backed by persistent `MetaState` (P3). The ACTIVE MISSIONS left column
+> now shows dispatched idle missions with progress, ETA, and
+> ABORT/COMPLETE actions (idle dispatch UI shipped in P4 scaffolding;
+> real `IdleClock` ticking pending). Three bottom-nav tabs are now
+> shipped as extracted scene classes: **STAR MAP** (§5a), **BUILD/UPGRADE**
+> (§5c, new), and **RESEARCH** (§5b). CREW and MARKET remain locked stubs.
+> The MISSIONS tab now includes a **mission planner** with ship + crew
+> assignment and IDLE/MANUAL dispatch toggle.
 >
 > Ground-truth reference: [`images/hub-mission-board-mock.png`](images/hub-mission-board-mock.png)
 > (a reference mock — not a pixel-perfect target, just the shape of the screen).
@@ -177,13 +179,14 @@ to ship a playable hub. The other five render a `Unlocks at Rep Tier N`
 stub panel until their phase lands.
 
 **Currently shipped as scene classes:** STAR MAP (see §5a) via
-`src/scenes/tabs/star-map-tab.js`. The other four locked tabs are
-still the shared inline stub path in `HubScene._buildCenter`; each
-will move to its own `src/scenes/tabs/*.js` in a subsequent PR
-(see [ADR-0010](adr/0010-hub-tab-scenes.md)). MISSIONS (§5) remains
-inline for now -- its modal is built into `HubScene`; extracting it
-is a post-PR 5 cleanup that deletes the last inline center-panel
-content from `HubScene`.
+`src/scenes/tabs/star-map-tab.js`, RESEARCH (§5b) via
+`src/scenes/tabs/research-tab.js`, and BUILD/UPGRADE (§5c) via
+`src/scenes/tabs/build-upgrade-tab.js`. CREW and MARKET are still
+the shared inline stub path in `HubScene._buildCenter`; each will
+move to its own `src/scenes/tabs/*.js` in a subsequent PR (see
+[ADR-0010](adr/0010-hub-tab-scenes.md)). MISSIONS (§5) remains
+inline for now — its modal + mission planner are built into
+`HubScene`.
 
 ### 5a. STAR MAP tab — galactic cartography
 
@@ -312,6 +315,42 @@ Not yet wired (tracked under P8):
   Habitat Extension node).
 - Completing a node does not apply the upgrade effect anywhere
   (`ion-thrusters` does not actually reduce ETA yet, etc.).
+
+### 5c. BUILD/UPGRADE tab — station diorama
+
+Reference mock: *none yet — built from the spec below.* Renders inside
+the hub's center panel when the **BUILD/UPGRADE** bottom-nav tab is
+active. The palette is cyan (matching the hub's overall accent). Owns
+these elements:
+
+- **Station silhouette.** An isometric outline of the player's station,
+  drawn with `Graphics` strokes. Non-interactive backdrop.
+- **4 callout pins.** Interactive markers placed on the station:
+  - `Docking Arms` (nx=0.36, ny=0.34) — "Queue throughput +10%"
+  - `Reactor Spine` (nx=0.50, ny=0.50) — "Power cap +1 module"
+  - `Sensor Crown` (nx=0.64, ny=0.30) — "Survey precision +8%"
+  - `Fabrication Yard` (nx=0.62, ny=0.66) — "Build time -12%"
+  Each pin shows a label + note on hover/click with a leader line
+  connecting pin position to label position.
+- **Build queue (right side).** 3 slots: one active build with an ETA
+  countdown (`Building` state, amber), two queued items (cyan). Static
+  data for now — real `BuildQueue` MetaState integration lands in P5.
+- **Available upgrades (below queue).** 2 upgrade cards, each showing
+  title, current level, effect blurb, and mineral cost. Static data;
+  real cost deduction + level-up lands in P5.
+
+Interactions:
+
+- **Click a callout pin →** highlights the pin and shows the note text.
+- **Upgrade card CTA →** stub for now. Real mineral deduction + build-
+  queue insertion lands under ROADMAP P5.
+
+Not yet wired (tracked under P5):
+
+- Build queue is static; no `BuildQueue` MetaState slice exists yet.
+- Upgrade costs are not deducted.
+- Build timers are not implemented.
+- Station silhouette does not reflect actual building levels.
 
 ### 5. MISSION BOARD modal (MISSIONS tab default overlay)
 
@@ -546,15 +585,15 @@ same rule as `GameState`.
 Not a single PR. Rough phase mapping (see `ROADMAP.md` for the committed
 version):
 
-| Phase | Hub scope |
-|---|---|
-| P1 | Results screen after a run; session-only ore tally. No hub yet. |
-| P2 | Hub scaffolding: viewport-filling scene, top bar (static resource strip), Galactic News ticker (static pool), left ACTIVE MISSIONS empty-state, right FLEET & CREW STATUS with starter fleet/crew readouts, bottom nav with 6 tab buttons, MISSIONS tab + MISSION BOARD modal hosting the narrative mission catalog. All read-only. Fixes the current centering defect as a side effect. |
-| P3 | Persistent `MetaState` + `FleetRegistry` + `persistence.js`; rep-tier gates on narrative mission cards; session-carried fleet/crew state. |
-| P4 | Active-missions idle tick (`IdleClock`, `MissionRegistry`): left column ticks ETAs; completion → results → hub with rewards; FLEET & CREW status updates on return (hull damage, crew injured). |
-| P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue, upgrade list (was previously persistent right column). `BuildQueue`. |
-| P6 | RESEARCH, CREW, MARKET tabs. Rep-tier gating. |
-| P7 | STAR MAP tab: sector exploration, mission discovery tied to map. |
+| Phase | Hub scope | Status |
+|---|---|---|
+| P1 | Results screen after a run; session-only ore tally. No hub yet. | **Shipped** |
+| P2 | Hub scaffolding: viewport-filling scene, top bar, Galactic News ticker, left ACTIVE MISSIONS, right FLEET & CREW STATUS, bottom nav with 6 tab buttons, MISSIONS tab + MISSION BOARD modal. | **Shipped** |
+| P3 | Persistent `MetaState` + `Persistence`; rep-tier gates on narrative mission cards; session-carried fleet/crew state. | **Shipped** |
+| P4 | Active-missions idle tick: left column ticks ETAs; completion → results → hub with rewards; FLEET & CREW status updates on return. | **In progress** (idle dispatch UI shipped; real `IdleClock` tick pending) |
+| P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue, upgrade list. `BuildQueue`. | **Scaffolding shipped** (tab scene + static diorama; MetaState integration pending) |
+| P6 | RESEARCH, CREW, MARKET tabs. Rep-tier gating. | **RESEARCH scaffolding shipped**; CREW + MARKET later |
+| P7 | STAR MAP tab: sector exploration, mission discovery tied to map. | **Scaffolding shipped** (sector pins + SYSTEM DATA; warp dispatch pending) |
 
 Each phase is still a handful of small PRs, not one giant PR.
 
@@ -589,6 +628,9 @@ Each phase is still a handful of small PRs, not one giant PR.
   FLEET & CREW STATUS?~~ Answered: **FLEET & CREW STATUS**. Build queue
   and upgrade list move inside the BUILD/UPGRADE tab. See
   [ADR-0007](adr/0007-hub-wireframe-pivot.md).
+- ~~What's the max concurrent active missions?~~ Answered: capped at
+  fleet size (currently 3 starter ships). The idle dispatch UI enforces
+  this; upgrading via Hangar level is a future phase.
 - Should the results screen (P1) show a "best run on this asteroid" line
   sourced from session `MetaState`? (Leaning: yes, session-only until P3.)
 - Are O₂ and Fuel actual mechanics or flavor? If mechanics, what consumes
@@ -597,8 +639,6 @@ Each phase is still a handful of small PRs, not one giant PR.
 - Does the hub auto-pause when the player is in a puzzle run, or do idle
   missions tick during the run? (Leaning: tick during run, cap the tick
   so offline catch-up doesn't trivialize the loop.)
-- What's the max concurrent active missions? (Leaning: 3, upgradeable
-  via Hangar level + fleet size.)
 - Does the narrative catalog rotate between sessions, or only on daily
   reroll? (Leaning: per-session-roll picks one narrative per tier; daily
   reroll swaps the sector + ETA, not the narrative name.)
