@@ -258,6 +258,62 @@ export function drawStarShape(r, color) {
  * mission-board ACCEPT card) can toggle the pressed-highlight state
  * without re-reading the Container internals.
  */
+/**
+ * Lightweight trimmed-edge action button for tight spaces. No glow,
+ * no screw-heads -- just a cut-corner frame with accent border, label,
+ * and hover state. Perfect for CLAIM, RETURN, ABORT, and similar
+ * inline actions where the full neon dispatch button would be too heavy.
+ */
+export function buildSimpleButton({
+    text,
+    width,
+    height = 28,
+    accent = 'cyan',
+    textColor = BUTTON_DEFAULT_TEXT,
+    onTap,
+}) {
+    const container = new Container();
+    container.eventMode = 'static';
+    container.cursor = 'pointer';
+
+    const accentColor = _resolveAccentColor(accent);
+    const bg = new Graphics();
+    const draw = (hover = false) => {
+        bg.clear();
+        const cut = Math.max(4, Math.floor(Math.min(width, height) * 0.22));
+        const pts = _angledPoints(0, 0, width, height, cut);
+        bg.poly(pts).fill({ color: hover ? 0x1e293b : 0x0f172a, alpha: 0.85 });
+        bg.poly(pts).stroke({ color: accentColor, width: 1.2, alpha: hover ? 0.8 : 0.5 });
+    };
+    draw(false);
+    container.addChild(bg);
+
+    const label = new Text({
+        text,
+        style: new TextStyle({
+            fontFamily: 'Inter, "Segoe UI", sans-serif',
+            fontSize: Math.max(9, Math.floor(height * 0.36)),
+            fontWeight: '700',
+            letterSpacing: 1.5,
+            fill: textColor,
+        }),
+    });
+    label.anchor.set(0.5);
+    label.x = width / 2;
+    label.y = height / 2;
+    container.addChild(label);
+
+    container.on('pointerover', () => draw(true));
+    container.on('pointerout', () => draw(false));
+    container.on('pointertap', () => onTap?.());
+    const self = { container, bg, label, width, height };
+    self.setAccent = (newAccent) => {
+        accent = newAccent;
+        draw(false);
+    };
+    return self;
+}
+
 export function buildStartButton({
     text,
     width,

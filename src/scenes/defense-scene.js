@@ -14,8 +14,12 @@
 import {
     Container,
     Graphics,
-    Text,
 } from 'pixi.js';
+
+import {
+    drawTechPanel,
+    panelLabel,
+} from '../pixi-ui-kit.js';
 
 import {
     GRID as G,
@@ -112,7 +116,7 @@ export class DefenseScene {
         if (!this._root) return;
         const w = screen?.width || ARENA_W;
         const h = screen?.height || ARENA_H;
-        const s = Math.min(w / ARENA_W, h / ARENA_H, 1);
+        const s = Math.min(w / ARENA_W, h / ARENA_H);
         this._scale = s;
         this._root.scale.set(s);
         this._root.x = Math.round((w - ARENA_W * s) / 2);
@@ -154,9 +158,9 @@ export class DefenseScene {
         this._root = new Container();
         this._uiRoot.addChild(this._root);
 
-        // Background fill.
+        // Semi-transparent background so starfield shows through.
         const bg = new Graphics();
-        bg.rect(0, 0, ARENA_W, ARENA_H).fill(C_BG);
+        bg.rect(0, 0, ARENA_W, ARENA_H).fill({ color: C_BG, alpha: 0.55 });
         this._root.addChild(bg);
 
         // Grid overlay.
@@ -172,30 +176,40 @@ export class DefenseScene {
         this._gridGfx.stroke({ width: 1, color: C_GRID, alpha: 0.08 });
         this._root.addChild(this._gridGfx);
 
-        // HUD.
-        this._scoreText = new Text({ text: 'Score: 0', style: { fontSize: 28, fill: C_SCORE, fontWeight: 'bold' } });
+        // HUD — using pixi-ui-kit styled labels.
+        this._scoreText = panelLabel('SCORE: 0', C_SCORE, { size: 22, weight: '800' });
         this._scoreText.anchor.set(0.5, 0);
         this._scoreText.x = ARENA_W / 2;
-        this._scoreText.y = 4;
+        this._scoreText.y = 6;
         this._root.addChild(this._scoreText);
 
-        this._buffText = new Text({ text: 'Buffs: None', style: { fontSize: 16, fill: C_BUFF } });
+        this._buffText = panelLabel('BUFFS: NONE', C_BUFF, { size: 11 });
         this._buffText.x = 10;
         this._buffText.y = 50;
         this._root.addChild(this._buffText);
 
         this._bonusBar = new Graphics();
         this._bonusBar.x = 10;
-        this._bonusBar.y = 70;
+        this._bonusBar.y = 66;
         this._root.addChild(this._bonusBar);
 
-        this._turretTip = new Text({ text: 'Click above paddle to place turret', style: { fontSize: 14, fill: 0x888888 } });
+        this._turretTip = panelLabel('CLICK ABOVE PADDLE TO PLACE TURRET', 0x667788, { size: 10 });
         this._turretTip.x = 10;
-        this._turretTip.y = 88;
+        this._turretTip.y = 80;
         this._root.addChild(this._turretTip);
+
+        // Health bars with labels.
+        this._playerHealthLabel = panelLabel('HULL', C_HEALTH_PLAYER, { size: 9 });
+        this._playerHealthLabel.position.set(20, 8);
+        this._root.addChild(this._playerHealthLabel);
 
         this._playerHealthBar = new Graphics();
         this._root.addChild(this._playerHealthBar);
+
+        this._bossHealthLabel = panelLabel('BOSS', C_HEALTH_BOSS, { size: 9 });
+        this._bossHealthLabel.anchor.set(1, 0);
+        this._bossHealthLabel.position.set(ARENA_W - 20, 8);
+        this._root.addChild(this._bossHealthLabel);
 
         this._bossHealthBar = new Graphics();
         this._root.addChild(this._bossHealthBar);
@@ -358,16 +372,16 @@ export class DefenseScene {
 
     _drawHUD(snap) {
         // Score.
-        this._scoreText.text = `Score: ${snap.score}`;
+        this._scoreText.text = `SCORE: ${snap.score}`;
 
         // Buffs.
         const buffs = [];
         if (snap.wideActive) buffs.push('WIDE');
         if (snap.laserActive) buffs.push('LASER');
         if (snap.balls.length > 1) buffs.push('MULTI');
-        if (snap.availableTurrets > 0) buffs.push('TOWERx' + snap.availableTurrets);
-        buffs.push(`Bonus: ${snap.pixelKills}/${BONUS_DROP_INTERVAL}`);
-        this._buffText.text = 'Buffs: ' + buffs.join(', ');
+        if (snap.availableTurrets > 0) buffs.push('TURRET ×' + snap.availableTurrets);
+        buffs.push(`DROP: ${snap.pixelKills}/${BONUS_DROP_INTERVAL}`);
+        this._buffText.text = buffs.length ? buffs.join(' · ') : 'NO BUFFS';
 
         // Turret tip visibility.
         this._turretTip.visible = snap.availableTurrets > 0;
@@ -383,47 +397,65 @@ export class DefenseScene {
 
         // Player health bar.
         this._playerHealthBar.clear();
-        this._playerHealthBar.rect(20, 20, 200, 12).fill(C_HEALTH_BG);
-        this._playerHealthBar.rect(20, 20, 200 * (snap.playerHealth / PLAYER_MAX_HEALTH), 12).fill(C_HEALTH_PLAYER);
+        const hpW = 180;
+        this._playerHealthBar.roundRect(20, 20, hpW, 10, 3).fill({ color: C_HEALTH_BG, alpha: 0.7 });
+        const hpFill = Math.max(2, hpW * (snap.playerHealth / PLAYER_MAX_HEALTH));
+        this._playerHealthBar.roundRect(20, 20, hpFill, 10, 3).fill(C_HEALTH_PLAYER);
+        this._playerHealthBar.roundRect(20, 20, hpW, 10, 3).stroke({ width: 1, color: C_HEALTH_PLAYER, alpha: 0.4 });
 
         // Boss health bar.
         this._bossHealthBar.clear();
+        this._bossHealthLabel.visible = !!snap.boss;
         if (snap.boss) {
-            this._bossHealthBar.rect(ARENA_W - 220, 20, 200, 12).fill(C_HEALTH_BG);
-            this._bossHealthBar.rect(
-                ARENA_W - 220, 20,
-                200 * (snap.boss.totalHP / snap.boss.maxHP), 12,
-            ).fill(C_HEALTH_BOSS);
+            const bx = ARENA_W - 20 - hpW;
+            this._bossHealthBar.roundRect(bx, 20, hpW, 10, 3).fill({ color: C_HEALTH_BG, alpha: 0.7 });
+            const bossFill = Math.max(2, hpW * (snap.boss.totalHP / snap.boss.maxHP));
+            this._bossHealthBar.roundRect(bx, 20, bossFill, 10, 3).fill(C_HEALTH_BOSS);
+            this._bossHealthBar.roundRect(bx, 20, hpW, 10, 3).stroke({ width: 1, color: C_HEALTH_BOSS, alpha: 0.4 });
         }
     }
 
     _drawEndScreen(snap) {
         if (snap.won && !this._winOverlay) {
             this._winOverlay = new Container();
-            const title = new Text({ text: 'MISSION COMPLETE', style: { fontSize: 64, fill: C_WIN, fontWeight: 'bold' } });
+            const dimBg = new Graphics();
+            dimBg.rect(0, 0, ARENA_W, ARENA_H).fill({ color: 0x000000, alpha: 0.5 });
+            this._winOverlay.addChild(dimBg);
+            const panel = drawTechPanel(420, 160, { accent: 'green' });
+            panel.x = Math.round((ARENA_W - 420) / 2);
+            panel.y = Math.round((ARENA_H - 160) / 2);
+            this._winOverlay.addChild(panel);
+            const title = panelLabel('MISSION COMPLETE', C_WIN, { size: 32, weight: '800' });
             title.anchor.set(0.5);
-            title.x = ARENA_W / 2;
-            title.y = ARENA_H / 2 - 60;
-            this._winOverlay.addChild(title);
-            const sc = new Text({ text: `Final Score: ${snap.score}`, style: { fontSize: 36, fill: C_SCORE } });
+            title.x = 210;
+            title.y = 50;
+            panel.addChild(title);
+            const sc = panelLabel(`FINAL SCORE: ${snap.score}`, C_SCORE, { size: 18 });
             sc.anchor.set(0.5);
-            sc.x = ARENA_W / 2;
-            sc.y = ARENA_H / 2 + 30;
-            this._winOverlay.addChild(sc);
+            sc.x = 210;
+            sc.y = 110;
+            panel.addChild(sc);
             this._root.addChild(this._winOverlay);
         }
         if (!snap.won && !this._gameOverOverlay) {
             this._gameOverOverlay = new Container();
-            const title = new Text({ text: 'MISSION FAILED', style: { fontSize: 64, fill: 0xff4444, fontWeight: 'bold' } });
+            const dimBg = new Graphics();
+            dimBg.rect(0, 0, ARENA_W, ARENA_H).fill({ color: 0x000000, alpha: 0.5 });
+            this._gameOverOverlay.addChild(dimBg);
+            const panel = drawTechPanel(420, 160, { accent: 'magenta' });
+            panel.x = Math.round((ARENA_W - 420) / 2);
+            panel.y = Math.round((ARENA_H - 160) / 2);
+            this._gameOverOverlay.addChild(panel);
+            const title = panelLabel('MISSION FAILED', 0xff4444, { size: 32, weight: '800' });
             title.anchor.set(0.5);
-            title.x = ARENA_W / 2;
-            title.y = ARENA_H / 2 - 60;
-            this._gameOverOverlay.addChild(title);
-            const sc = new Text({ text: `Final Score: ${snap.score}`, style: { fontSize: 36, fill: C_SCORE } });
+            title.x = 210;
+            title.y = 50;
+            panel.addChild(title);
+            const sc = panelLabel(`FINAL SCORE: ${snap.score}`, C_SCORE, { size: 18 });
             sc.anchor.set(0.5);
-            sc.x = ARENA_W / 2;
-            sc.y = ARENA_H / 2 + 30;
-            this._gameOverOverlay.addChild(sc);
+            sc.x = 210;
+            sc.y = 110;
+            panel.addChild(sc);
             this._root.addChild(this._gameOverOverlay);
         }
     }

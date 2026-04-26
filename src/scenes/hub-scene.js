@@ -42,6 +42,7 @@ import {
     drawTechChip,
     redrawTechChip,
     buildStartButton,
+    buildSimpleButton,
     panelLabel,
     drawStarShape,
 } from '../pixi-ui-kit.js';
@@ -580,19 +581,19 @@ export class HubScene {
         modeLabel.position.set(12, 34);
         frame.addChild(modeLabel);
 
-        const modeIdle = buildStartButton({
+        const modeIdle = buildSimpleButton({
             text: 'IDLE',
             width: 96,
             height: 28,
+            accent: 'cyan',
             onTap: () => this._setDispatchMode('idle'),
         });
         frame.addChild(modeIdle.container);
-        const modeManual = buildStartButton({
+        const modeManual = buildSimpleButton({
             text: 'MANUAL',
             width: 110,
             height: 28,
-            fill: 0x1f2937,
-            hoverFill: 0x334155,
+            accent: 'magenta',
             onTap: () => this._setDispatchMode('manual'),
         });
         frame.addChild(modeManual.container);
@@ -693,7 +694,7 @@ export class HubScene {
         const crew  = this.meta ? this.meta.crewSnapshot()  : [];
         const fleetRows = fleet.map((ship, i) => {
             const row = this._buildFleetRow(ship, HUB_COL_W - 28);
-            row.container.position.set(14, 56 + i * 46);
+            row.container.position.set(14, 56 + i * 48);
             panel.addChild(row.container);
             return row;
         });
@@ -702,12 +703,12 @@ export class HubScene {
             text: 'CREW',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
         });
-        crewLabel.position.set(14, 56 + fleet.length * 46 + 10);
+        crewLabel.position.set(14, 56 + fleet.length * 48 + 10);
         panel.addChild(crewLabel);
 
         const crewRows = crew.map((crewMember, i) => {
             const row = this._buildCrewRow(crewMember, HUB_COL_W - 28);
-            row.container.position.set(14, 56 + fleet.length * 46 + 28 + i * 38);
+            row.container.position.set(14, 56 + fleet.length * 48 + 28 + i * 38);
             panel.addChild(row.container);
             return row;
         });
@@ -810,28 +811,19 @@ export class HubScene {
         container.eventMode = 'static';
         container.cursor = tab.locked ? 'not-allowed' : 'pointer';
 
-        const chipFrame = drawTechChip(120, 40, { accent: tab.locked ? 'amber' : 'cyan' });
-        const bg = chipFrame.frame;
-        container.addChild(chipFrame.container);
+        const bg = drawTechPanel(120, 40, { accent: tab.locked ? 'amber' : 'cyan', cut: 10 });
+        container.addChild(bg);
 
-        const label = new Text({
-            text: tab.label,
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 12,
-                fontWeight: '800',
-                letterSpacing: 2,
-                fill: tab.locked ? 0x64748b : 0xe2e8f0,
-            }),
-        });
+        const label = panelLabel(tab.label, tab.locked ? 0x64748b : 0xe2e8f0, { size: 11, weight: '800' });
         label.anchor.set(0.5);
         container.addChild(label);
 
         const sublabel = new Text({
-            text: tab.locked ? `Unlocks at Rep Tier ${tab.lockRep ?? 2}` : '',
+            text: tab.locked ? `REP ${tab.lockRep ?? 2}` : '',
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
-                fontSize: 9,
+                fontSize: 8,
+                letterSpacing: 1,
                 fill: 0x64748b,
             }),
         });
@@ -908,10 +900,11 @@ export class HubScene {
         });
         panel.addChild(rerollButton.container);
 
-        const closeButton = buildStartButton({
+        const closeButton = buildSimpleButton({
             text: 'CLOSE',
             width: 100,
             height: 34,
+            accent: 'amber',
             onTap: () => this._closeMissionBoard(),
         });
         panel.addChild(closeButton.container);
@@ -1037,12 +1030,11 @@ export class HubScene {
         container.addChild(reward);
 
         // ACCEPT button spans the card's bottom edge.
-        const accept = buildStartButton({
+        const accept = buildSimpleButton({
             text: 'ACCEPT',
             width: w - 24,
-            height: 30,
-            fill: 0x14532d,
-            hoverFill: 0x166534,
+            height: 28,
+            accent: 'green',
         });
         accept.container.position.set(12, h - 40);
         container.addChild(accept.container);
@@ -1105,7 +1097,7 @@ export class HubScene {
             const w = t.container.__width || 0;
             const h = t.container.__height || 0;
             const accent = isActive ? 'cyan' : (t.tab.locked ? 'amber' : 'green');
-            redrawTechChip(t.bg, w, h, { accent });
+            redrawTechPanel(t.bg, w, h, { accent, cut: 10 });
             t.label.style.fill = t.tab.locked ? (isActive ? 0xfef3c7 : 0x94a3b8) : (isActive ? 0xf0f9ff : 0xe2e8f0);
         });
     }
@@ -1198,8 +1190,8 @@ export class HubScene {
 
         const modeIdleActive = this._selectedMissionDispatch === 'idle';
         const modeManualActive = this._selectedMissionDispatch === 'manual';
-        redrawTechChip(planner.modeIdle.bg, 96, 28, { accent: modeIdleActive ? 'cyan' : 'green' });
-        redrawTechChip(planner.modeManual.bg, 110, 28, { accent: modeManualActive ? 'magenta' : 'amber' });
+        planner.modeIdle.setAccent?.(modeIdleActive ? 'cyan' : 'green');
+        planner.modeManual.setAccent?.(modeManualActive ? 'magenta' : 'amber');
         planner.modeIdle.label.style.fill = modeIdleActive ? 0xffffff : 0x94a3b8;
         planner.modeManual.label.style.fill = modeManualActive ? 0xffffff : 0x94a3b8;
 
@@ -1471,26 +1463,24 @@ export class HubScene {
         status.position.set(10, 66);
         frame.addChild(status);
         if (done) {
-            const claim = buildStartButton({
+            const claim = buildSimpleButton({
                 text: 'CLAIM',
-                width: 86,
-                height: 28,
-                fill: 0x14532d,
-                hoverFill: 0x166534,
+                width: 80,
+                height: 26,
+                accent: 'green',
                 onTap: () => this._claimIdleMission(job.id),
             });
-            claim.container.position.set(w - 96, 70);
+            claim.container.position.set(w - 90, 72);
             frame.addChild(claim.container);
         } else {
-            const abort = buildStartButton({
+            const abort = buildSimpleButton({
                 text: 'RETURN',
-                width: 86,
-                height: 28,
-                fill: 0x7c2d12,
-                hoverFill: 0x9a3412,
+                width: 80,
+                height: 26,
+                accent: 'amber',
                 onTap: () => this._abortIdleMission(job.id),
             });
-            abort.container.position.set(w - 96, 70);
+            abort.container.position.set(w - 90, 72);
             frame.addChild(abort.container);
         }
         return { container, frame };
@@ -1689,7 +1679,7 @@ export class HubScene {
         if (col.fleetRows) {
             const rowW = w - 28;
             col.fleetRows.forEach((row, i) => {
-                row.container.position.set(14, 56 + i * 54);
+                row.container.position.set(14, 56 + i * 48);
                 row.klass.position.set(rowW, 2);
                 row.barBg.clear();
                 row.barBg.roundRect(0, 22, rowW, 8, 4).fill({ color: 0x0f172a, alpha: 0.85 });
@@ -1699,10 +1689,10 @@ export class HubScene {
                 row.bar.roundRect(0, 22, Math.max(2, rowW * (hull / 100)), 8, 4).fill({ color: hullColor, alpha: 0.9 });
                 row.status.position.set(rowW, 34);
             });
-            if (col.crewLabel) col.crewLabel.position.set(14, 56 + col.fleetRows.length * 54 + 10);
+            if (col.crewLabel) col.crewLabel.position.set(14, 56 + col.fleetRows.length * 48 + 10);
             if (col.crewRows) {
                 col.crewRows.forEach((row, i) => {
-                    row.container.position.set(14, 56 + col.fleetRows.length * 54 + 28 + i * 38);
+                    row.container.position.set(14, 56 + col.fleetRows.length * 48 + 28 + i * 38);
                     row.status.position.set(rowW, 4);
                 });
             }

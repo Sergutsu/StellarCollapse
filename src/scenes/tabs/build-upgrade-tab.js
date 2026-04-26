@@ -3,7 +3,7 @@ import {
     drawHologramPanel,
     redrawHologramPanel,
     panelLabel,
-    buildStartButton,
+    buildSimpleButton,
 } from '../../pixi-ui-kit.js';
 
 const COLOR_CYAN_300 = 0x67e8f9;
@@ -205,7 +205,7 @@ export class BuildUpgradeTab {
             cost.position.set(12, 90);
             cardShell.addChild(cost);
 
-            const apply = buildStartButton({ text: 'APPLY', width: 66, height: 28, onTap: () => {} });
+            const apply = buildSimpleButton({ text: 'APPLY', width: 66, height: 28, accent: 'cyan', onTap: () => {} });
             cardShell.addChild(apply.container);
 
             return { card, shell: cardShell, title, effect, cost, apply };
