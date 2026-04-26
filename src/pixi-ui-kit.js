@@ -276,7 +276,7 @@ export function buildSimpleButton({
     container.eventMode = 'static';
     container.cursor = 'pointer';
 
-    const accentColor = _resolveAccentColor(accent);
+    let accentColor = _resolveAccentColor(accent);
     const bg = new Graphics();
     const draw = (hover = false) => {
         bg.clear();
@@ -309,6 +309,7 @@ export function buildSimpleButton({
     const self = { container, bg, label, width, height };
     self.setAccent = (newAccent) => {
         accent = newAccent;
+        accentColor = _resolveAccentColor(accent);
         draw(false);
     };
     return self;
