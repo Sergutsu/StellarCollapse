@@ -211,6 +211,7 @@ export class PixiView {
 
     showStartScreen() {
         this._game?.hide();
+        this._sceneMgr.hide('defense');
         this._sceneMgr.show('hub');
     }
 

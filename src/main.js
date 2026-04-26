@@ -211,15 +211,15 @@ async function boot() {
             });
         }
 
-        let lastDefenseFrame = 0;
+        let lastDefenseFrame = -1;
         function defenseLoop(time = 0) {
             if (defenseState?.gameOver) return;
             defenseRaf = requestAnimationFrame(defenseLoop);
+            if (lastDefenseFrame < 0) { lastDefenseFrame = time; return; }
             const delta = time - lastDefenseFrame;
             lastDefenseFrame = time;
             defenseState?.tick(delta);
         }
-        lastDefenseFrame = 0;
         defenseRaf = requestAnimationFrame(defenseLoop);
     }
 
