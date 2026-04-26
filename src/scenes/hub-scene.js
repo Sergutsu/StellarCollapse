@@ -99,12 +99,12 @@ const HUB_NEWS_POOL = Object.freeze([
 // Hub bottom-nav tabs. Only MISSIONS is active; the rest render a
 // locked stub panel. `lockRep` is a placeholder gate until rep lands.
 const HUB_TABS = Object.freeze([
-    { id: 'star-map',   label: 'STAR MAP',      locked: false },
-    { id: 'missions',   label: 'MISSIONS',      locked: false },
-    { id: 'build',      label: 'BUILD/UPGRADE', locked: false },
-    { id: 'research',   label: 'RESEARCH',      locked: false },
-    { id: 'crew',       label: 'CREW',          locked: true,  lockRep: 3 },
-    { id: 'market',     label: 'MARKET',        locked: true,  lockRep: 2 },
+    { id: 'star-map',   label: 'STAR MAP',      locked: false, fill: 0x0c2461, hover: 0x1e3a8a },
+    { id: 'missions',   label: 'MISSIONS',      locked: false, fill: 0x14532d, hover: 0x166534 },
+    { id: 'build',      label: 'BUILD/UPGRADE', locked: false, fill: 0x4a1d96, hover: 0x6b21a8 },
+    { id: 'research',   label: 'RESEARCH',      locked: false, fill: 0x78350f, hover: 0x92400e },
+    { id: 'crew',       label: 'CREW',          locked: true,  lockRep: 3, fill: 0x1c1917, hover: 0x292524 },
+    { id: 'market',     label: 'MARKET',        locked: true,  lockRep: 2, fill: 0x1c1917, hover: 0x292524 },
 ]);
 
 // Resource strip metadata. Numeric values come from MetaState at
@@ -813,8 +813,8 @@ export class HubScene {
             text: tab.label,
             width: 120,
             height: 40,
-            fill: tab.locked ? 0x1c1917 : BUTTON_DEFAULT_FILL,
-            hoverFill: tab.locked ? 0x292524 : BUTTON_DEFAULT_HOVER,
+            fill: tab.fill ?? BUTTON_DEFAULT_FILL,
+            hoverFill: tab.hover ?? BUTTON_DEFAULT_HOVER,
             textColor: tab.locked ? 0x64748b : 0xe2e8f0,
             trimmed: true,
             onTap: () => {},
@@ -1765,10 +1765,11 @@ export class HubScene {
             const tx = pad + i * (tabW + gap);
             const btnW = t.bg.width || 120;
             const btnH = t.bg.height || 40;
-            const sx = tabW / btnW;
-            const sy = tabH / btnH;
-            t.container.scale.set(sx, sy);
-            t.container.position.set(tx, 6);
+            const s = Math.min(tabW / btnW, tabH / btnH);
+            t.container.scale.set(s);
+            const scaledW = btnW * s;
+            const scaledH = btnH * s;
+            t.container.position.set(tx + Math.round((tabW - scaledW) / 2), 6 + Math.round((tabH - scaledH) / 2));
             t.container.__width = tabW;
             t.container.__height = tabH;
             t.container.hitArea = new Rectangle(0, 0, btnW, btnH);
