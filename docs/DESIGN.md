@@ -83,7 +83,7 @@ The hub shell is live and has evolved through P2–P4 scaffolding. The start
 screen is the viewport-filling 5-zone hub from [`UI-HUB.md`](UI-HUB.md):
 
 - **Top bar** — STELLAR VENTURE brand, Chief Dispatcher callsign badge,
-  resource strip (O₂ / Fuel / Minerals / Credits / Warp Cells — backed
+  resource strip (Minerals / Credits / Warp Cells — backed
   by persistent `MetaState` since P3), settings gear.
 - **Galactic News ticker** under the top bar, right→left scrolling flavor.
 - **Left column — ACTIVE MISSIONS** with idle fleet dispatch panel.

@@ -11,11 +11,11 @@ import {
 test('starterProfile is a deep copy (caller mutations do not leak)', () => {
     const a = starterProfile();
     a.credits = 0;
-    a.hubResources.o2 = 0;
+    a.hubResources.minerals = 0;
     a.fleet[0].hull = 0;
     const b = starterProfile();
     assert.equal(b.credits, 4800);
-    assert.equal(b.hubResources.o2, 82);
+    assert.equal(b.hubResources.minerals, 1200);
     assert.equal(b.fleet[0].hull, 100);
 });
 
@@ -23,8 +23,6 @@ test('fresh MetaState exposes the starter profile values', () => {
     const meta = new MetaState();
     assert.equal(meta.credits, 4800);
     assert.equal(meta.reputationTier, 1);
-    assert.equal(meta.getHubResource('o2'), 82);
-    assert.equal(meta.getHubResource('fuel'), 640);
     assert.equal(meta.getHubResource('minerals'), 1200);
     assert.equal(meta.getHubResource('credits'), 4800);
     assert.equal(meta.getHubResource('warp'), 3);
@@ -140,7 +138,7 @@ test('fleet / crew mutations clamp and emit', () => {
 test('constructor merges saved data onto starter defaults', () => {
     const meta = new MetaState({
         credits: 9000,
-        hubResources: { fuel: 100, bogusKey: 'ignored' },
+        hubResources: { minerals: 2000, bogusKey: 'ignored' },
         ores: { red: 7 },
         fleet: [{ id: 'ship-1', hull: 55, status: 'Repairing' }],
         crew: [{ id: 'crew-2', level: 9 }],
@@ -148,7 +146,7 @@ test('constructor merges saved data onto starter defaults', () => {
         completedMissionIds: ['m-1'],
     });
     assert.equal(meta.credits, 9000);
-    assert.equal(meta.getHubResource('fuel'), 100);
+    assert.equal(meta.getHubResource('minerals'), 2000);
     // Untouched keys fall back to starter defaults.
     assert.equal(meta.getHubResource('warp'), 3);
     assert.equal(meta.getOre('red'), 7);
@@ -173,11 +171,11 @@ test('snapshot() returns defensive copies (mutating does not affect meta)', () =
     const meta = new MetaState();
     const snap = meta.snapshot();
     snap.credits = 0;
-    snap.hubResources.fuel = 0;
+    snap.hubResources.minerals = 0;
     snap.fleet[0].hull = 0;
     snap.ores.red = 99;
     assert.equal(meta.credits, 4800);
-    assert.equal(meta.getHubResource('fuel'), 640);
+    assert.equal(meta.getHubResource('minerals'), 1200);
     assert.equal(meta.fleetSnapshot()[0].hull, 100);
     assert.equal(meta.getOre('red'), 0);
 });

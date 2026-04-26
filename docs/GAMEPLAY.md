@@ -305,9 +305,7 @@ are now backed by a persistent player profile saved to
 |---|---|---|---|
 | `version` | int | `1` | Schema version. Mismatches are refused on load. |
 | `credits` | int | `4800` | Soft currency. Awarded by mission rewards (P1+). |
-| `hubResources.o2` | int (0–100) | `82` | Life-support percent. |
-| `hubResources.fuel` | int | `640` | Consumed per mission dispatch (P4). |
-| `hubResources.minerals` | int | `1200` | Aggregate ore count for display. |
+| `hubResources.minerals` | int | `1200` | Aggregate ore count. Used for building ships and trading. |
 | `hubResources.warp` | int | `3` | Warp-cell charges. |
 | `ores.{red, blue, green, yellow, bomb, snake}` | int | `0` each | Per-tile-colour ore counts, matching the actual gameplay palette (four normal colours + the two hazard tiles). Granular; used for crafting / upgrades (P5+). |
 | `fleet[]` | `{id, name, className, hull (0–100), status}` | 3 starter ships | Ids are stable; only `hull` and `status` persist — cosmetic fields fall back to the starter roster. |

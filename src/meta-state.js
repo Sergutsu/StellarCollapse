@@ -37,8 +37,6 @@ export const ORE_IDS = Object.freeze([
 // counts the player sees at the top of the hub. Per-color ore counts
 // live on meta.ores instead.
 export const HUB_RESOURCE_IDS = Object.freeze([
-    'o2',
-    'fuel',
     'minerals',
     'credits',
     'warp',
@@ -51,8 +49,6 @@ export const HUB_RESOURCE_IDS = Object.freeze([
 const STARTER_PROFILE = Object.freeze({
     credits: 4800,
     hubResources: Object.freeze({
-        o2: 82,        // percent, 0-100
-        fuel: 640,
         minerals: 1200,
         warp: 3,
     }),
@@ -243,6 +239,50 @@ export class MetaState {
         this._changed('crew-status', { id, status: c.status });
     }
 
+    // ---- crew management ----------------------------------------------
+
+    addCrew(member) {
+        if (!member || !member.id || !member.name || !member.role) return;
+        if (this._data.crew.find((c) => c.id === member.id)) return;
+        this._data.crew.push({
+            id: member.id,
+            name: member.name,
+            role: member.role,
+            level: member.level ?? 1,
+            status: 'Available',
+        });
+        this._changed('crew-add', { id: member.id });
+    }
+
+    removeCrew(id) {
+        const idx = this._data.crew.findIndex((c) => c.id === id);
+        if (idx < 0) return;
+        this._data.crew.splice(idx, 1);
+        this._changed('crew-remove', { id });
+    }
+
+    // ---- fleet management ---------------------------------------------
+
+    addShip(ship) {
+        if (!ship || !ship.id || !ship.name || !ship.className) return;
+        if (this._data.fleet.find((s) => s.id === ship.id)) return;
+        this._data.fleet.push({
+            id: ship.id,
+            name: ship.name,
+            className: ship.className,
+            hull: ship.hull ?? 100,
+            status: 'Standby',
+        });
+        this._changed('ship-add', { id: ship.id });
+    }
+
+    removeShip(id) {
+        const idx = this._data.fleet.findIndex((s) => s.id === id);
+        if (idx < 0) return;
+        this._data.fleet.splice(idx, 1);
+        this._changed('ship-remove', { id });
+    }
+
     setReputationTier(n) {
         const v = Math.max(1, Math.floor(n));
         if (v === this._data.reputationTier) return;
@@ -277,8 +317,7 @@ export class MetaState {
             }
         }
         if (Array.isArray(incoming.fleet)) {
-            // Only keep known ship ids; merge hull/status onto starter
-            // defaults so cosmetic fields (name, class) stay canonical.
+            // Merge hull/status onto starter defaults for known ships.
             for (const ship of base.fleet) {
                 const found = incoming.fleet.find((s) => s && s.id === ship.id);
                 if (!found) continue;
@@ -286,6 +325,16 @@ export class MetaState {
                 if (typeof found.status === 'string') {
                     ship.status = SHIP_STATUSES.has(found.status) ? found.status : 'Standby';
                 }
+            }
+            // Restore player-built ships that aren't part of the starter.
+            for (const s of incoming.fleet) {
+                if (!s || !s.id || !s.name || !s.className) continue;
+                if (base.fleet.find((b) => b.id === s.id)) continue;
+                base.fleet.push({
+                    id: s.id, name: s.name, className: s.className,
+                    hull: typeof s.hull === 'number' ? Math.max(0, Math.min(100, Math.floor(s.hull))) : 100,
+                    status: SHIP_STATUSES.has(s.status) ? s.status : 'Standby',
+                });
             }
         }
         if (Array.isArray(incoming.crew)) {
@@ -296,6 +345,16 @@ export class MetaState {
                 if (typeof found.status === 'string') {
                     crew.status = CREW_STATUSES.has(found.status) ? found.status : 'Available';
                 }
+            }
+            // Restore hired crew not in the starter set.
+            for (const c of incoming.crew) {
+                if (!c || !c.id || !c.name || !c.role) continue;
+                if (base.crew.find((b) => b.id === c.id)) continue;
+                base.crew.push({
+                    id: c.id, name: c.name, role: c.role,
+                    level: typeof c.level === 'number' ? Math.max(1, Math.floor(c.level)) : 1,
+                    status: CREW_STATUSES.has(c.status) ? c.status : 'Available',
+                });
             }
         }
         if (typeof incoming.reputationTier === 'number') {

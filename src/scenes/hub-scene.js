@@ -51,6 +51,8 @@ import {
 import { StarMapTab } from './tabs/star-map-tab.js';
 import { ResearchTab } from './tabs/research-tab.js';
 import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
+import { CrewTab } from './tabs/crew-tab.js';
+import { MarketTab } from './tabs/market-tab.js';
 
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
@@ -103,16 +105,14 @@ const HUB_TABS = Object.freeze([
     { id: 'missions',   label: 'MISSIONS',      locked: false, fill: 0x14532d, hover: 0x166534 },
     { id: 'build',      label: 'BUILD/UPGRADE', locked: false, fill: 0x4a1d96, hover: 0x6b21a8 },
     { id: 'research',   label: 'RESEARCH',      locked: false, fill: 0x78350f, hover: 0x92400e },
-    { id: 'crew',       label: 'CREW',          locked: true,  lockRep: 3, fill: 0x1c1917, hover: 0x292524 },
-    { id: 'market',     label: 'MARKET',        locked: true,  lockRep: 2, fill: 0x1c1917, hover: 0x292524 },
+    { id: 'crew',       label: 'CREW',          locked: false, fill: 0x164e63, hover: 0x155e75 },
+    { id: 'market',     label: 'MARKET',        locked: false, fill: 0x713f12, hover: 0x854d0e },
 ]);
 
 // Resource strip metadata. Numeric values come from MetaState at
 // render time. `metaId` is the MetaState key; `format` is the
 // display format.
 const HUB_RESOURCES = Object.freeze([
-    { id: 'o2',   metaId: 'o2',       label: 'O\u2082',   format: 'percent', color: 0x67e8f9 },
-    { id: 'fuel', metaId: 'fuel',     label: 'Fuel',      format: 'int',     color: 0xfcd34d },
     { id: 'mins', metaId: 'minerals', label: 'Minerals',  format: 'kilo',    color: 0xc4b5fd },
     { id: 'cred', metaId: 'credits',  label: 'Credits',   format: 'comma',   color: 0x86efac },
     { id: 'warp', metaId: 'warp',     label: 'Warp',      format: 'int',     color: 0xf9a8d4 },
@@ -311,9 +311,11 @@ export class HubScene {
         // BUILD/UPGRADE, and RESEARCH are extracted scenes; the
         // remaining tabs still render a locked stub.
         const starMapTab = new StarMapTab({ parent: centerPanel.panel });
-        const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel });
+        const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel, meta: this.meta });
         const researchTab = new ResearchTab({ parent: centerPanel.panel });
-        const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab };
+        const crewTab = new CrewTab({ parent: centerPanel.panel, meta: this.meta });
+        const marketTab = new MarketTab({ parent: centerPanel.panel, meta: this.meta });
+        const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab, crew: crewTab, market: marketTab };
 
         root.addChild(topBar.container);
         root.addChild(news.container);
@@ -1128,7 +1130,7 @@ export class HubScene {
             c.tabTitle.text = 'MISSIONS';
             c.planner.container.visible = true;
             this._refreshMissionPlanner();
-        } else if (tabId === 'star-map' || tabId === 'build' || tabId === 'research') {
+        } else if (n.tabs[tabId]) {
             // Extracted tab scenes own their own title + surface; hide
             // the default chrome so they don't overlap.
             c.tabTitle.visible = false;
@@ -1136,13 +1138,6 @@ export class HubScene {
             this._closeMissionBoard();
             const scene = n.tabs[tabId];
             scene.show();
-            // show() lazy-builds the scene's Pixi nodes on first call.
-            // The _layoutCenterPanel fan-out only fires during
-            // _layoutShell, which ran at hub-build time (before the
-            // nodes existed and scene.layout early-returned). Call
-            // layout now with the center panel's last-known inner
-            // dims so the newly-built content positions itself
-            // correctly on first show instead of collapsing to (0, 0).
             if (typeof scene.layout === 'function' && c._w && c._h) {
                 scene.layout({ width: c._w, height: c._h });
             }
