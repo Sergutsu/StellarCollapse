@@ -77,8 +77,6 @@ Resource strip in the reference mock (final list TBD as we tune the economy):
 
 | Icon | Resource | Kind | Example shown |
 |---|---|---|---|
-| droplet | **O₂** | ship stat, % | `98%` |
-| fuel pump | **Fuel** | ship stat, % | `74%` |
 | ore | **Minerals** | bankable, integer | `4,120` |
 | coin | **Credits** | bankable, integer | `12,500` |
 | bolt | **Warp Cells** | bankable, small integer | `3` |
@@ -86,7 +84,7 @@ Resource strip in the reference mock (final list TBD as we tune the economy):
 Chip behavior:
 
 - Value changes pulse briefly (same event-driven repaint pattern the HUD uses).
-- Below-threshold values (e.g. O₂ < 20%) tint red.
+- Below-threshold values tint red.
 - Clicking a chip opens a one-line tooltip explaining what the resource gates.
 
 - **Settings gear** — rightmost. Opens a modal with sound toggle, reset-profile
@@ -99,7 +97,7 @@ One scrolling line directly under the top bar. Always present, ~28 px tall.
 Content comes from a small rotating pool of flavor strings + runtime
 events. Examples:
 
-- `⚡ Fuel prices up 3% in Outer Rim — switch carriers if you can.`
+- `⚡ Mineral prices up 3% in Outer Rim — switch carriers if you can.`
 - `⚠ Solar flare active near Gliese Fringe — missions here risk +5%.`
 - `★ Scout "Magellan" completed exploration of Omega-4 Belt.`
 - `⛏ Refinery upgrade completed: Lv6 online.`
@@ -134,7 +132,7 @@ States:
 - **Complete** — progress bar full, label swaps to `Search Complete` /
   `Haul Ready`, card gets a glowing border; clicking opens the **results
   screen** (same one from P1) and then returns to the hub with rewards applied.
-- **Failed** — analogous with red glow; rewards forfeit, some fuel lost.
+- **Failed** — analogous with red glow; rewards forfeit.
 - **Empty slot** — stub card with `+ Deploy` button that routes to the
   MISSIONS tab and opens the mission board modal.
 
@@ -553,8 +551,8 @@ See `ARCHITECTURE.md` for the scene-graph shape we'll adopt.
 The hub needs more state than the current `GameState`. New pure modules
 needed before the hub can be real:
 
-- **`MetaState`** — bankable resources (credits, ores, minerals, fuel,
-  O₂, warp cells), rep tier, owned buildings + levels, research
+- **`MetaState`** — bankable resources (credits, ores, minerals,
+  warp cells), rep tier, owned buildings + levels, research
   unlocks, hired crew, known sectors, **fleet (ships + hull %)**. The
   legacy `HighScores` module has been deleted; personal bests, if they
   come back, will be an opt-in read-out of `MetaState` (not a separate
@@ -633,9 +631,6 @@ Each phase is still a handful of small PRs, not one giant PR.
   this; upgrading via Hangar level is a future phase.
 - Should the results screen (P1) show a "best run on this asteroid" line
   sourced from session `MetaState`? (Leaning: yes, session-only until P3.)
-- Are O₂ and Fuel actual mechanics or flavor? If mechanics, what consumes
-  them? (Candidate: deploying missions costs fuel; ship repair between
-  missions costs credits + O₂ refill.)
 - Does the hub auto-pause when the player is in a puzzle run, or do idle
   missions tick during the run? (Leaning: tick during run, cap the tick
   so offline catch-up doesn't trivialize the loop.)
