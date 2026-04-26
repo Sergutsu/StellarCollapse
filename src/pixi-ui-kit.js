@@ -322,6 +322,7 @@ export function buildStartButton({
     fill = BUTTON_DEFAULT_FILL,
     hoverFill = BUTTON_DEFAULT_HOVER,
     textColor = BUTTON_DEFAULT_TEXT,
+    trimmed = false,
     onTap,
 }) {
     const container = new Container();
@@ -332,6 +333,7 @@ export function buildStartButton({
     const bezel = new Graphics();
     const innerPlate = new Graphics();
     const shine = new Graphics();
+    const cut = trimmed ? Math.max(6, Math.floor(Math.min(width, height) * 0.18)) : 0;
     const draw = (color, active = false) => {
         const neon = _mixColor(color, hoverFill, active ? 0.62 : 0.38);
         const frameColor = _mixColor(neon, 0x9ca3af, 0.24);
@@ -341,64 +343,97 @@ export function buildStartButton({
         const corner = Math.max(5, Math.floor(height * 0.24));
 
         glow.clear();
-        glow.roundRect(-2, -2, width + 4, height + 4, corner + 2).stroke({
-            color: neon,
-            width: active ? 5 : 4,
-            alpha: active ? 0.7 : 0.52,
-        });
-        glow.roundRect(-4, -4, width + 8, height + 8, corner + 4).stroke({
-            color: neon,
-            width: 9,
-            alpha: active ? 0.26 : 0.18,
-        });
+        if (trimmed) {
+            glow.poly(_angledPoints(-2, -2, width + 4, height + 4, cut + 2)).stroke({
+                color: neon, width: active ? 5 : 4, alpha: active ? 0.7 : 0.52,
+            });
+            glow.poly(_angledPoints(-4, -4, width + 8, height + 8, cut + 4)).stroke({
+                color: neon, width: 9, alpha: active ? 0.26 : 0.18,
+            });
+        } else {
+            glow.roundRect(-2, -2, width + 4, height + 4, corner + 2).stroke({
+                color: neon, width: active ? 5 : 4, alpha: active ? 0.7 : 0.52,
+            });
+            glow.roundRect(-4, -4, width + 8, height + 8, corner + 4).stroke({
+                color: neon, width: 9, alpha: active ? 0.26 : 0.18,
+            });
+        }
 
         outerFrame.clear();
-        outerFrame.roundRect(0, 0, width, height, corner).fill({ color: 0x303749, alpha: 0.84 });
-        outerFrame.roundRect(0, 0, width, height, corner).stroke({
-            color: frameColor,
-            width: 2,
-            alpha: 0.86,
-        });
+        if (trimmed) {
+            outerFrame.poly(_angledPoints(0, 0, width, height, cut)).fill({ color: 0x303749, alpha: 0.84 });
+            outerFrame.poly(_angledPoints(0, 0, width, height, cut)).stroke({
+                color: frameColor, width: 2, alpha: 0.86,
+            });
+        } else {
+            outerFrame.roundRect(0, 0, width, height, corner).fill({ color: 0x303749, alpha: 0.84 });
+            outerFrame.roundRect(0, 0, width, height, corner).stroke({
+                color: frameColor, width: 2, alpha: 0.86,
+            });
+        }
         const screwR = Math.max(1.5, Math.min(3.2, height * 0.09));
         const screwInset = Math.max(4, Math.min(8, height * 0.24));
+        const screwInsetX = trimmed ? screwInset + cut * 0.5 : screwInset;
+        const screwInsetY = trimmed ? screwInset + cut * 0.5 : screwInset;
         [
-            [screwInset, screwInset],
-            [width - screwInset, screwInset],
-            [screwInset, height - screwInset],
-            [width - screwInset, height - screwInset],
+            [screwInsetX, screwInsetY],
+            [width - screwInsetX, screwInsetY],
+            [screwInsetX, height - screwInsetY],
+            [width - screwInsetX, height - screwInsetY],
         ].forEach(([x, y]) => {
             outerFrame.circle(x, y, screwR).fill({ color: 0x6b7280, alpha: 0.88 });
             outerFrame.circle(x, y, screwR).stroke({ color: 0xd1d5db, width: 1, alpha: 0.35 });
         });
 
         bezel.clear();
-        bezel.roundRect(4, 4, width - 8, height - 8, Math.max(4, corner - 2)).fill({ color: 0x121933, alpha: 0.9 });
-        bezel.roundRect(4, 4, width - 8, height - 8, Math.max(4, corner - 2)).stroke({
-            color: _mixColor(frameColor, neon, 0.42),
-            width: 1.2,
-            alpha: 0.7,
-        });
+        if (trimmed) {
+            const bCut = Math.max(4, cut - 2);
+            bezel.poly(_angledPoints(4, 4, width - 8, height - 8, bCut)).fill({ color: 0x121933, alpha: 0.9 });
+            bezel.poly(_angledPoints(4, 4, width - 8, height - 8, bCut)).stroke({
+                color: _mixColor(frameColor, neon, 0.42), width: 1.2, alpha: 0.7,
+            });
+        } else {
+            bezel.roundRect(4, 4, width - 8, height - 8, Math.max(4, corner - 2)).fill({ color: 0x121933, alpha: 0.9 });
+            bezel.roundRect(4, 4, width - 8, height - 8, Math.max(4, corner - 2)).stroke({
+                color: _mixColor(frameColor, neon, 0.42), width: 1.2, alpha: 0.7,
+            });
+        }
 
         innerPlate.clear();
-        innerPlate.roundRect(8, 8, width - 16, height - 16, Math.max(4, corner - 4)).fill({
-            color: deepPlate,
-            alpha: 0.98,
-        });
-        innerPlate.roundRect(8, 8, width - 16, height - 16, Math.max(4, corner - 4)).stroke({
-            color: innerStroke,
-            width: active ? 2 : 1.4,
-            alpha: active ? 0.92 : 0.7,
-        });
-        innerPlate.roundRect(10, 10, width - 20, height - 20, Math.max(3, corner - 6)).fill({
-            color: brightPlate,
-            alpha: active ? 0.28 : 0.2,
-        });
+        if (trimmed) {
+            const iCut = Math.max(3, cut - 4);
+            innerPlate.poly(_angledPoints(8, 8, width - 16, height - 16, iCut)).fill({
+                color: deepPlate, alpha: 0.98,
+            });
+            innerPlate.poly(_angledPoints(8, 8, width - 16, height - 16, iCut)).stroke({
+                color: innerStroke, width: active ? 2 : 1.4, alpha: active ? 0.92 : 0.7,
+            });
+            innerPlate.poly(_angledPoints(10, 10, width - 20, height - 20, Math.max(2, iCut - 2))).fill({
+                color: brightPlate, alpha: active ? 0.28 : 0.2,
+            });
+        } else {
+            innerPlate.roundRect(8, 8, width - 16, height - 16, Math.max(4, corner - 4)).fill({
+                color: deepPlate, alpha: 0.98,
+            });
+            innerPlate.roundRect(8, 8, width - 16, height - 16, Math.max(4, corner - 4)).stroke({
+                color: innerStroke, width: active ? 2 : 1.4, alpha: active ? 0.92 : 0.7,
+            });
+            innerPlate.roundRect(10, 10, width - 20, height - 20, Math.max(3, corner - 6)).fill({
+                color: brightPlate, alpha: active ? 0.28 : 0.2,
+            });
+        }
 
         shine.clear();
-        shine.roundRect(12, 10, width - 24, Math.max(4, Math.floor((height - 20) * 0.32)), Math.max(3, corner - 6)).fill({
-            color: 0xffffff,
-            alpha: active ? 0.2 : 0.13,
-        });
+        if (trimmed) {
+            const sCut = Math.max(2, cut - 6);
+            shine.poly(_angledPoints(12, 10, width - 24, Math.max(4, Math.floor((height - 20) * 0.32)), sCut)).fill({
+                color: 0xffffff, alpha: active ? 0.2 : 0.13,
+            });
+        } else {
+            shine.roundRect(12, 10, width - 24, Math.max(4, Math.floor((height - 20) * 0.32)), Math.max(3, corner - 6)).fill({
+                color: 0xffffff, alpha: active ? 0.2 : 0.13,
+            });
+        }
     };
     draw(fill, false);
     container.addChild(glow);

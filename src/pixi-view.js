@@ -225,6 +225,7 @@ export class PixiView {
         this._sceneMgr.hide('hub');
         this._game?.hide();
         this._defense?.show(defenseState);
+        this._defense?.layout(this.app?.screen);
     }
 
     hideDefenseScreen() {
