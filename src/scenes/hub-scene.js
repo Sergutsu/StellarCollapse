@@ -36,6 +36,7 @@ import {
 import { buildMissions, pickMissionBoard, ORES } from '../missions.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
+import { colors } from '../theme/tokens.js';
 import {
     drawTechPanel,
     redrawTechPanel,
@@ -58,11 +59,11 @@ import { MarketTab } from './tabs/market-tab.js';
 // Duplicated here so the hub scene stays self-contained; a later PR
 // will promote them to a shared ui-kit module once 2+ scenes want
 // them.
-const PANEL_BG_TOP = 0x0b1b3a;
-const PANEL_BG_BOT = 0x050a1c;
+const PANEL_BG_TOP = colors.bg.panel;
+const PANEL_BG_BOT = colors.bg.panelAlt;
 
-const COLOR_CYAN_300 = 0x67e8f9;
-const COLOR_WHITE = 0xffffff;
+const COLOR_CYAN_300 = colors.text.accent;
+const COLOR_WHITE = colors.text.white;
 
 // Hub shell layout constants. The hub fills the viewport: top bar +
 // news ticker + 3 columns + bottom nav + a mission-board modal
@@ -94,21 +95,21 @@ const HUB_NEWS_POOL = Object.freeze([
 // Hub bottom-nav tabs. Only MISSIONS is active; the rest render a
 // locked stub panel. `lockRep` is a placeholder gate until rep lands.
 const HUB_TABS = Object.freeze([
-    { id: 'star-map',   label: 'STAR MAP',      locked: false, fill: 0x0c2461, hover: 0x1e3a8a },
-    { id: 'missions',   label: 'MISSIONS',      locked: false, fill: 0x14532d, hover: 0x166534 },
-    { id: 'build',      label: 'BUILD/UPGRADE', locked: false, fill: 0x4a1d96, hover: 0x6b21a8 },
-    { id: 'research',   label: 'RESEARCH',      locked: false, fill: 0x78350f, hover: 0x92400e },
-    { id: 'crew',       label: 'CREW',          locked: false, fill: 0x164e63, hover: 0x155e75 },
-    { id: 'market',     label: 'MARKET',        locked: false, fill: 0x713f12, hover: 0x854d0e },
+    { id: 'star-map',   label: 'STAR MAP',      locked: false, fill: colors.tabs.starMap.fill, hover: colors.tabs.starMap.hover },
+    { id: 'missions',   label: 'MISSIONS',      locked: false, fill: colors.tabs.missions.fill, hover: colors.tabs.missions.hover },
+    { id: 'build',      label: 'BUILD/UPGRADE', locked: false, fill: colors.tabs.build.fill, hover: colors.tabs.build.hover },
+    { id: 'research',   label: 'RESEARCH',      locked: false, fill: colors.tabs.research.fill, hover: colors.tabs.research.hover },
+    { id: 'crew',       label: 'CREW',          locked: false, fill: colors.tabs.crew.fill, hover: colors.tabs.crew.hover },
+    { id: 'market',     label: 'MARKET',        locked: false, fill: colors.tabs.market.fill, hover: colors.tabs.market.hover },
 ]);
 
 // Resource strip metadata. Numeric values come from MetaState at
 // render time. `metaId` is the MetaState key; `format` is the
 // display format.
 const HUB_RESOURCES = Object.freeze([
-    { id: 'mins', metaId: 'minerals', label: 'Minerals',  format: 'kilo',    color: 0xc4b5fd },
-    { id: 'cred', metaId: 'credits',  label: 'Credits',   format: 'comma',   color: 0x86efac },
-    { id: 'warp', metaId: 'warp',     label: 'Warp',      format: 'int',     color: 0xf9a8d4 },
+    { id: 'mins', metaId: 'minerals', label: 'Minerals',  format: 'kilo',    color: colors.misc.mineral },
+    { id: 'cred', metaId: 'credits',  label: 'Credits',   format: 'comma',   color: colors.status.success },
+    { id: 'warp', metaId: 'warp',     label: 'Warp',      format: 'int',     color: colors.misc.warp },
 ]);
 
 // Format a numeric MetaState value for the top-bar chip.
@@ -134,11 +135,11 @@ function formatDuration(totalSec) {
 
 // Risk -> label/color mapping on mission-board cards.
 const HUB_RISK_PRESETS = Object.freeze({
-    1: { label: 'LOW',      color: 0x86efac },
-    2: { label: 'MODERATE', color: 0xfde047 },
-    3: { label: 'ELEVATED', color: 0xfbbf24 },
-    4: { label: 'HIGH',     color: 0xfb923c },
-    5: { label: 'CRITICAL', color: 0xf87171 },
+    1: { label: 'LOW',      color: colors.status.success },
+    2: { label: 'MODERATE', color: colors.status.warning },
+    3: { label: 'ELEVATED', color: colors.status.elevated },
+    4: { label: 'HIGH',     color: colors.status.high },
+    5: { label: 'CRITICAL', color: colors.status.error },
 });
 
 const PLANNER_ROW_H = 30;
@@ -323,13 +324,13 @@ export class HubScene {
         const frame = drawTechPanel(960, HUB_TOPBAR_H, { accent: 'cyan' });
         container.addChild(frame);
 
-        const star = drawStarShape(14, 0xfacc15);
+        const star = drawStarShape(14, colors.brand.gold);
         container.addChild(star);
 
         const brandGradient = new FillGradient(0, 0, 320, 0);
-        brandGradient.addColorStop(0, 0x22d3ee);
-        brandGradient.addColorStop(0.5, 0xfacc15);
-        brandGradient.addColorStop(1, 0xf87171);
+        brandGradient.addColorStop(0, colors.brand.cyan);
+        brandGradient.addColorStop(0.5, colors.brand.gold);
+        brandGradient.addColorStop(1, colors.status.error);
         const brand = new Text({
             text: 'STELLAR VENTURE',
             style: new TextStyle({
@@ -338,7 +339,7 @@ export class HubScene {
                 fontWeight: '800',
                 letterSpacing: 3,
                 fill: brandGradient,
-                dropShadow: { color: 0xfacc15, alpha: 0.24, blur: 6, distance: 0, angle: 0 },
+                dropShadow: { color: colors.brand.gold, alpha: 0.24, blur: 6, distance: 0, angle: 0 },
             }),
         });
         container.addChild(brand);
@@ -350,7 +351,7 @@ export class HubScene {
                 fontSize: 11,
                 fontWeight: '700',
                 letterSpacing: 1,
-                fill: 0xfde68a,
+                fill: colors.brand.amber,
             }),
         });
         container.addChild(dispatcherBadge);
@@ -377,7 +378,7 @@ export class HubScene {
 
         const gear = new Text({
             text: '\u2699',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 20, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 20, fill: colors.text.info }),
         });
         gear.anchor.set(0.5);
         gear.eventMode = 'static';
@@ -421,7 +422,7 @@ export class HubScene {
                 fontFamily: '"Courier New", monospace',
                 fontSize: 14,
                 fontWeight: '700',
-                fill: 0xf8fafc,
+                fill: colors.text.primary,
             }),
         });
         valueText.anchor.set(0, 0.5);
@@ -443,7 +444,7 @@ export class HubScene {
                 fontSize: 10,
                 fontWeight: '700',
                 letterSpacing: 2,
-                fill: 0xfde047,
+                fill: colors.status.warning,
             }),
         });
         prefix.anchor.set(0, 0.5);
@@ -464,7 +465,7 @@ export class HubScene {
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 13,
-                fill: 0xcbd5e1,
+                fill: colors.misc.pale,
             }),
         });
         scroller.addChild(body);
@@ -483,7 +484,7 @@ export class HubScene {
 
         const counter = new Text({
             text: '0 / 0',
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.text.info }),
         });
         counter.anchor.set(1, 0);
         counter.position.set(HUB_COL_W - 14, 12);
@@ -498,14 +499,14 @@ export class HubScene {
 
         const emptyTitle = new Text({
             text: 'No fleet dispatches',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: 0xe2e8f0 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: colors.text.secondary }),
         });
         emptyTitle.position.set(14, 14);
         empty.addChild(emptyTitle);
 
         const emptyHint = new Text({
             text: 'Open MISSIONS > IDLE FLEET and\ndispatch a ship + crew.',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0x94a3b8, wordWrap: true, wordWrapWidth: HUB_COL_W - 52 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: colors.text.muted, wordWrap: true, wordWrapWidth: HUB_COL_W - 52 }),
         });
         emptyHint.position.set(14, 38);
         empty.addChild(emptyHint);
@@ -546,14 +547,14 @@ export class HubScene {
 
         const subtitle = new Text({
             text: 'Pick ship, crew, mission, and dispatch mode.',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: colors.text.muted }),
         });
         subtitle.position.set(12, 12);
         frame.addChild(subtitle);
 
         const modeLabel = new Text({
             text: 'DISPATCH MODE',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: colors.text.info }),
         });
         modeLabel.position.set(12, 34);
         frame.addChild(modeLabel);
@@ -577,7 +578,7 @@ export class HubScene {
 
         const hint = new Text({
             text: 'Manual gameplay currently available for RESOURCE missions only.',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
         });
         hint.position.set(232, 40);
         frame.addChild(hint);
@@ -604,20 +605,20 @@ export class HubScene {
         frame.addChild(outcomeCard);
         const outcomeTitle = new Text({
             text: 'POSSIBLE OUTCOME',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: '700', letterSpacing: 1, fill: 0x86efac }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: '700', letterSpacing: 1, fill: colors.status.success }),
         });
         outcomeTitle.position.set(10, 8);
         outcomeCard.addChild(outcomeTitle);
         const outcomeBody = new Text({
             text: '',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0xcbd5e1, wordWrap: true, wordWrapWidth: 518 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: colors.misc.pale, wordWrap: true, wordWrapWidth: 518 }),
         });
         outcomeBody.position.set(10, 28);
         outcomeCard.addChild(outcomeBody);
 
         const capacityText = new Text({
             text: '',
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.text.info }),
         });
         frame.addChild(capacityText);
 
@@ -662,7 +663,7 @@ export class HubScene {
 
         const fleetLabel = new Text({
             text: 'FLEET',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: colors.text.info }),
         });
         fleetLabel.position.set(14, 38);
         panel.addChild(fleetLabel);
@@ -678,7 +679,7 @@ export class HubScene {
 
         const crewLabel = new Text({
             text: 'CREW',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: colors.text.info }),
         });
         crewLabel.position.set(14, 56 + fleet.length * 48 + 10);
         panel.addChild(crewLabel);
@@ -700,14 +701,14 @@ export class HubScene {
 
         const name = new Text({
             text: `${ship.name}`,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: 0xe2e8f0 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: colors.text.secondary }),
         });
         name.position.set(0, 0);
         container.addChild(name);
 
         const klass = new Text({
             text: ship.className,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
         });
         klass.anchor.set(1, 0);
         klass.position.set(w, 2);
@@ -715,24 +716,24 @@ export class HubScene {
 
         // Hull % bar + value.
         const barBg = new Graphics();
-        barBg.roundRect(0, 22, w, 8, 4).fill({ color: 0x0f172a, alpha: 0.85 });
+        barBg.roundRect(0, 22, w, 8, 4).fill({ color: colors.bg.dark, alpha: 0.85 });
         container.addChild(barBg);
 
-        const hullColor = ship.hull >= 75 ? 0x86efac : ship.hull >= 45 ? 0xfde047 : 0xf87171;
+        const hullColor = ship.hull >= 75 ? colors.status.success : ship.hull >= 45 ? colors.status.warning : colors.status.error;
         const bar = new Graphics();
         bar.roundRect(0, 22, Math.max(2, (w) * (ship.hull / 100)), 8, 4).fill({ color: hullColor, alpha: 0.9 });
         container.addChild(bar);
 
         const hullText = new Text({
             text: `HULL ${ship.hull}%`,
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 10, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 10, fill: colors.text.info }),
         });
         hullText.position.set(0, 34);
         container.addChild(hullText);
 
         const status = new Text({
             text: ship.status.toUpperCase(),
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 1, fill: 0x86efac }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 1, fill: colors.status.success }),
         });
         status.anchor.set(1, 0);
         status.position.set(w, 34);
@@ -745,13 +746,13 @@ export class HubScene {
         const container = new Container();
         const name = new Text({
             text: crew.name,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xe2e8f0 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: colors.text.secondary }),
         });
         container.addChild(name);
 
         const role = new Text({
             text: `${crew.role} \u00B7 Lv ${crew.level}`,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
         });
         role.position.set(0, 16);
         container.addChild(role);
@@ -759,7 +760,7 @@ export class HubScene {
         const status = new Text({
             text: crew.status.toUpperCase(),
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 1,
-                fill: crew.status === 'Available' ? 0x86efac : 0xfde047 }),
+                fill: crew.status === 'Available' ? colors.status.success : colors.status.warning }),
         });
         status.anchor.set(1, 0);
         status.position.set(w, 4);
@@ -791,7 +792,7 @@ export class HubScene {
             height: 40,
             fill: tab.fill ?? BUTTON_DEFAULT_FILL,
             hoverFill: tab.hover ?? BUTTON_DEFAULT_HOVER,
-            textColor: tab.locked ? 0x64748b : 0xe2e8f0,
+            textColor: tab.locked ? colors.text.disabled : colors.text.secondary,
             trimmed: true,
             onTap: () => {},
         });
@@ -802,7 +803,7 @@ export class HubScene {
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 8,
                 letterSpacing: 1,
-                fill: 0x64748b,
+                fill: colors.text.disabled,
             }),
         });
         sublabel.anchor.set(0.5);
@@ -832,8 +833,8 @@ export class HubScene {
                 fontSize: 18,
                 fontWeight: '800',
                 letterSpacing: 3,
-                fill: 0x67e8f9,
-                dropShadow: { color: 0x67e8f9, alpha: 0.3, blur: 8, distance: 0, angle: 0 },
+                fill: colors.text.accent,
+                dropShadow: { color: colors.text.accent, alpha: 0.3, blur: 8, distance: 0, angle: 0 },
             }),
         });
         title.position.set(18, 14);
@@ -841,7 +842,7 @@ export class HubScene {
 
         const subtitle = new Text({
             text: 'Select a contract to dispatch',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: colors.text.muted }),
         });
         subtitle.position.set(18, 42);
         panel.addChild(subtitle);
@@ -932,7 +933,7 @@ export class HubScene {
             style: new TextStyle({
                 fontFamily: '"Courier New", monospace',
                 fontSize: 10,
-                fill: 0x93c5fd,
+                fill: colors.text.info,
             }),
         });
         sector.anchor.set(1, 0);
@@ -946,7 +947,7 @@ export class HubScene {
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 15,
                 fontWeight: '800',
-                fill: 0xf8fafc,
+                fill: colors.text.primary,
                 wordWrap: true,
                 wordWrapWidth: w - 24,
             }),
@@ -971,7 +972,7 @@ export class HubScene {
 
         const etaText = new Text({
             text: `ETA ${mission.etaLabel}`,
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0xcbd5e1 }),
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.misc.pale }),
         });
         etaText.anchor.set(1, 0);
         etaText.position.set(w - 12, h - 86);
@@ -1000,7 +1001,7 @@ export class HubScene {
                 fontFamily: '"Courier New", monospace',
                 fontSize: 13,
                 fontWeight: '700',
-                fill: 0xfde047,
+                fill: colors.status.warning,
             }),
         });
         reward.anchor.set(1, 0.5);
@@ -1073,7 +1074,7 @@ export class HubScene {
         n.bottomNav.tabs.forEach((t) => {
             const isActive = t.tab.id === tabId;
             t.bg.setActive?.(isActive);
-            t.label.style.fill = t.tab.locked ? (isActive ? 0xfef3c7 : 0x94a3b8) : (isActive ? 0xf0f9ff : 0xe2e8f0);
+            t.label.style.fill = t.tab.locked ? (isActive ? colors.misc.cream : colors.text.muted) : (isActive ? colors.misc.frost : colors.text.secondary);
         });
     }
 
@@ -1165,7 +1166,7 @@ export class HubScene {
         container.addChild(frame);
         const title = new Text({
             text: label,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xf8fafc }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: colors.text.primary }),
         });
         title.position.set(8, 7);
         frame.addChild(title);
@@ -1193,8 +1194,8 @@ export class HubScene {
         const modeManualActive = this._selectedMissionDispatch === 'manual';
         planner.modeIdle.setAccent?.(modeIdleActive ? 'cyan' : 'green');
         planner.modeManual.setAccent?.(modeManualActive ? 'magenta' : 'amber');
-        planner.modeIdle.label.style.fill = modeIdleActive ? 0xffffff : 0x94a3b8;
-        planner.modeManual.label.style.fill = modeManualActive ? 0xffffff : 0x94a3b8;
+        planner.modeIdle.label.style.fill = modeIdleActive ? colors.text.white : colors.text.muted;
+        planner.modeManual.label.style.fill = modeManualActive ? colors.text.white : colors.text.muted;
 
         const shipRowW = planner.shipRowW || 160;
         const crewRowW = planner.crewRowW || 160;
@@ -1261,7 +1262,7 @@ export class HubScene {
         const canDispatch = !!(this._selectedShipId && this._selectedCrewId && mission);
         planner.dispatch.container.eventMode = canDispatch ? 'static' : 'none';
         planner.dispatch.container.cursor = canDispatch ? 'pointer' : 'not-allowed';
-        planner.dispatch.label.style.fill = canDispatch ? 0xffffff : 0x94a3b8;
+        planner.dispatch.label.style.fill = canDispatch ? colors.text.white : colors.text.muted;
     }
 
     _dispatchSelectedMission() {
@@ -1339,14 +1340,14 @@ export class HubScene {
             const ship = fleet[i];
             if (!ship) return;
             row.status.text = ship.status.toUpperCase();
-            row.status.style.fill = ship.status === 'Standby' ? 0x86efac : 0xfde047;
+            row.status.style.fill = ship.status === 'Standby' ? colors.status.success : colors.status.warning;
             row.hull = ship.hull;
         });
         col.crewRows.forEach((row, i) => {
             const member = crew[i];
             if (!member) return;
             row.status.text = member.status.toUpperCase();
-            row.status.style.fill = member.status === 'Available' ? 0x86efac : 0xfde047;
+            row.status.style.fill = member.status === 'Available' ? colors.status.success : colors.status.warning;
         });
     }
 
@@ -1450,19 +1451,19 @@ export class HubScene {
         container.addChild(frame);
         const title = new Text({
             text: job.title,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xf8fafc, wordWrap: true, wordWrapWidth: w - 20 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: colors.text.primary, wordWrap: true, wordWrapWidth: w - 20 }),
         });
         title.position.set(10, 10);
         frame.addChild(title);
         const crewShip = new Text({
             text: `${job.shipName} · ${job.crewName}`,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
         });
         crewShip.position.set(10, 46);
         frame.addChild(crewShip);
         const status = new Text({
             text: done ? `READY · +${job.rewardCredits} CR` : `ETA ${formatDuration(remainingSec)}`,
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: done ? 0x86efac : 0x93c5fd }),
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: done ? colors.status.success : colors.text.info }),
         });
         status.position.set(10, 66);
         frame.addChild(status);
@@ -1650,15 +1651,15 @@ export class HubScene {
         const h = HUB_NEWS_H;
         news.container.position.set(x, y);
         news.bg.clear();
-        news.bg.rect(0, 0, w, h).fill({ color: 0x0b1b3a, alpha: 0.7 });
-        news.bg.rect(0, h - 1, w, 1).fill({ color: 0x38bdf8, alpha: 0.2 });
+        news.bg.rect(0, 0, w, h).fill({ color: colors.bg.panel, alpha: 0.7 });
+        news.bg.rect(0, h - 1, w, 1).fill({ color: colors.misc.line, alpha: 0.2 });
 
         news.prefix.position.set(14, h / 2);
 
         const prefixRight = 14 + news.prefix.width + 16;
         const bandWidth = Math.max(120, w - prefixRight - 14);
         news.clipMask.clear();
-        news.clipMask.rect(prefixRight, 0, bandWidth, h).fill({ color: 0xffffff });
+        news.clipMask.rect(prefixRight, 0, bandWidth, h).fill({ color: colors.text.white });
 
         news.scroller.position.set(prefixRight, h / 2 - news.body.height / 2);
         news.__bandWidth = bandWidth;
@@ -1686,10 +1687,10 @@ export class HubScene {
                 row.container.position.set(14, 56 + i * 48);
                 row.klass.position.set(rowW, 2);
                 row.barBg.clear();
-                row.barBg.roundRect(0, 22, rowW, 8, 4).fill({ color: 0x0f172a, alpha: 0.85 });
+                row.barBg.roundRect(0, 22, rowW, 8, 4).fill({ color: colors.bg.dark, alpha: 0.85 });
                 row.bar.clear();
                 const hull = typeof row.hull === 'number' ? row.hull : 0;
-                const hullColor = hull >= 75 ? 0x86efac : hull >= 45 ? 0xfde047 : 0xf87171;
+                const hullColor = hull >= 75 ? colors.status.success : hull >= 45 ? colors.status.warning : colors.status.error;
                 row.bar.roundRect(0, 22, Math.max(2, rowW * (hull / 100)), 8, 4).fill({ color: hullColor, alpha: 0.9 });
                 row.status.position.set(rowW, 34);
             });
@@ -1798,7 +1799,7 @@ export class HubScene {
 
     _layoutModal(modal, w, h) {
         modal.dim.clear();
-        modal.dim.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.75 });
+        modal.dim.rect(0, 0, w, h).fill({ color: colors.bg.base, alpha: 0.75 });
         modal.dim.hitArea = new Rectangle(0, 0, w, h);
 
         const panelW = Math.min(700, Math.max(520, w - 80));
