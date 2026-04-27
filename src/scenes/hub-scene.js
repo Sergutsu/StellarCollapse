@@ -33,7 +33,12 @@ import {
     PIECE_COMPLEXITY,
 } from '../constants.js';
 
-import { buildMissions, pickMissionBoard, ORES } from '../missions.js';
+import {
+    buildMissions,
+    pickMissionBoard,
+    ORES,
+    IDLE_DURATION_SEC_BY_RISK,
+} from '../missions.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
 import { colors } from '../theme/tokens.js';

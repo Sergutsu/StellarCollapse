@@ -186,7 +186,7 @@ export const MISSION_TYPES = Object.freeze(['Mining', 'Exploration', 'Research',
 // ship + one crew member for a fixed duration and then grant rewards.
 // Duration is intentionally short in this phase so QA can validate the
 // full loop in one session.
-const IDLE_DURATION_SEC_BY_RISK = Object.freeze({
+export const IDLE_DURATION_SEC_BY_RISK = Object.freeze({
     1: 120,
     2: 180,
     3: 240,
