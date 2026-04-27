@@ -74,17 +74,10 @@ const HUB_NAV_H = 56;
 const HUB_COL_W = 276;
 const HUB_GUTTER = 14;
 const HUB_SURFACE_INSET = HUB_GUTTER;
+const HUB_SURFACE_INSET_Y = HUB_GUTTER;
 const HUB_MIN_CENTER_W = 460;
 const HUB_MIN_LAYOUT_W = HUB_COL_W * 2 + HUB_MIN_CENTER_W + HUB_GUTTER * 4;
 const HUB_MIN_LAYOUT_H = 760;
-const MISSION_TYPES = Object.freeze([
-    'scout',
-    'defense',
-    'resource',
-    'terraform',
-    'trade',
-]);
-
 // Galactic News ticker pool. Static flavor strings for now; runtime
 // mission-complete / ship-damaged / anomaly events wire in from P4.
 const HUB_NEWS_POOL = Object.freeze([
@@ -148,26 +141,6 @@ const HUB_RISK_PRESETS = Object.freeze({
     5: { label: 'CRITICAL', color: 0xf87171 },
 });
 
-const HUB_MISSION_OFFERS = Object.freeze([
-    { id: 'mission-scout-lanes', type: 'scout', title: 'Outer Lane Recon Sweep', risk: 2, etaSec: 180, rewardCredits: 160, manualReady: false },
-    { id: 'mission-defense-sat', type: 'defense', title: 'Orbital Relay Defense Drill', risk: 3, etaSec: 240, rewardCredits: 220, manualReady: true },
-    { id: 'mission-resource-rift', type: 'resource', title: 'Seismic Rift Resource Pull', risk: 2, etaSec: 210, rewardCredits: 240, manualReady: true },
-    { id: 'mission-terraform-soil', type: 'terraform', title: 'Astra-9 Soil Stabilization', risk: 1, etaSec: 260, rewardCredits: 210, manualReady: false },
-    { id: 'mission-trade-convoy', type: 'trade', title: 'Frontier Trade Convoy Escort', risk: 2, etaSec: 200, rewardCredits: 190, manualReady: false },
-]);
-
-// Hub mission taxonomy is player-facing and intentionally different
-// from the ranked gameplay mission catalog in missions.js. Manual
-// dispatch needs this mapping so we can launch a sensible playable
-// mission instead of always falling back to the first catalog entry.
-const HUB_TO_PLAYABLE_TYPES = Object.freeze({
-    scout: ['Exploration', 'Research'],
-    defense: ['Combat'],
-    resource: ['Mining'],
-    terraform: ['Research', 'Exploration'],
-    trade: ['Salvage', 'Combat'],
-});
-
 const PLANNER_ROW_H = 30;
 const PLANNER_ROW_GAP = 8;
 const PLANNER_SECTION_GAP = 18;
@@ -195,7 +168,7 @@ export class HubScene {
         this._idleMissions = [];
         this._idleMissionSeq = 1;
         this._selectedMissionDispatch = 'idle';
-        this._selectedMissionType = MISSION_TYPES[0];
+        this._selectedMissionTierId = this._missions[0]?.tierId || null;
         this._selectedShipId = null;
         this._selectedCrewId = null;
         this._lastIdleUiRefreshAt = 0;
@@ -610,19 +583,19 @@ export class HubScene {
         frame.addChild(hint);
 
         const shipHeader = panelLabel('FREE SHIPS', COLOR_CYAN_300, { size: 11 });
-        shipHeader.position.set(12, 66);
+        shipHeader.position.set(12, 78);
         frame.addChild(shipHeader);
         const shipList = new Container();
         frame.addChild(shipList);
 
         const crewHeader = panelLabel('FREE CREWS', COLOR_CYAN_300, { size: 11 });
-        crewHeader.position.set(200, 66);
+        crewHeader.position.set(200, 78);
         frame.addChild(crewHeader);
         const crewList = new Container();
         frame.addChild(crewList);
 
         const missionHeader = panelLabel('MISSION TYPES', COLOR_CYAN_300, { size: 11 });
-        missionHeader.position.set(388, 66);
+        missionHeader.position.set(388, 78);
         frame.addChild(missionHeader);
         const missionList = new Container();
         frame.addChild(missionList);
@@ -811,9 +784,10 @@ export class HubScene {
     }
 
     _buildNavTab(tab) {
+        const dynamicWidth = Math.max(136, Math.round(56 + (tab.label.length * 9)));
         const btn = buildStartButton({
             text: tab.label,
-            width: 120,
+            width: dynamicWidth,
             height: 40,
             fill: tab.fill ?? BUTTON_DEFAULT_FILL,
             hoverFill: tab.hover ?? BUTTON_DEFAULT_HOVER,
@@ -1154,6 +1128,35 @@ export class HubScene {
         this._refreshMissionPlanner();
     }
 
+    _environmentLevelForMission(mission) {
+        const complexity = mission?.gameConfig?.complexity;
+        if (complexity === PIECE_COMPLEXITY.COLLAPSED) return 3;
+        if (complexity === PIECE_COMPLEXITY.MUTATED) return 2;
+        return 1;
+    }
+
+    _idleEtaSecForMission(mission, shipTypeMatch) {
+        const base = IDLE_DURATION_SEC_BY_RISK[mission?.risk] || 240;
+        const tierBonus = Math.max(0, ((mission?.tierIndex || 1) - 1) * 15);
+        const envBonus = (this._environmentLevelForMission(mission) - 1) * 25;
+        const hullPenalty = shipTypeMatch ? -12 : 16;
+        return Math.max(90, Math.round(base + tierBonus + envBonus + hullPenalty));
+    }
+
+    _truncateSingleLine(textNode, fullText, maxWidth) {
+        if (!textNode) return;
+        let next = String(fullText ?? '');
+        textNode.text = next;
+        if (textNode.width <= maxWidth) return;
+        const ellipsis = '\u2026';
+        while (next.length > 1) {
+            next = next.slice(0, -1);
+            textNode.text = `${next}${ellipsis}`;
+            if (textNode.width <= maxWidth) return;
+        }
+        textNode.text = ellipsis;
+    }
+
     _buildSelectableRow(label, width, onTap) {
         const container = new Container();
         container.eventMode = 'static';
@@ -1166,6 +1169,7 @@ export class HubScene {
         });
         title.position.set(8, 7);
         frame.addChild(title);
+        this._truncateSingleLine(title, label, width - 14);
         container.on('pointertap', onTap);
         return { container, frame, title };
     }
@@ -1180,7 +1184,10 @@ export class HubScene {
         const freeCrew = crew.filter((c) => c.status === 'Available');
         if (!freeShips.find((s) => s.id === this._selectedShipId)) this._selectedShipId = freeShips[0]?.id ?? null;
         if (!freeCrew.find((c) => c.id === this._selectedCrewId)) this._selectedCrewId = freeCrew[0]?.id ?? null;
-        if (!MISSION_TYPES.includes(this._selectedMissionType)) this._selectedMissionType = MISSION_TYPES[0];
+        const missionPool = Array.isArray(this._missions) ? this._missions : [];
+        if (!missionPool.find((m) => m.tierId === this._selectedMissionTierId)) {
+            this._selectedMissionTierId = missionPool[0]?.tierId ?? null;
+        }
 
         const modeIdleActive = this._selectedMissionDispatch === 'idle';
         const modeManualActive = this._selectedMissionDispatch === 'manual';
@@ -1225,25 +1232,29 @@ export class HubScene {
 
         planner.missionRows.forEach((r) => r.container.destroy({ children: true }));
         planner.missionRows = [];
-        HUB_MISSION_OFFERS.forEach((mission, i) => {
-            const row = this._buildSelectableRow(mission.type.toUpperCase(), missionRowW, () => {
-                this._selectedMissionType = mission.type;
+        missionPool.forEach((mission, i) => {
+            const rowLabel = `T${mission.tierIndex} · ${mission.type.toUpperCase()} · ${mission.difficulty}`;
+            const row = this._buildSelectableRow(rowLabel, missionRowW, () => {
+                this._selectedMissionTierId = mission.tierId;
                 this._refreshMissionPlanner();
             });
-            if (mission.type === this._selectedMissionType) redrawTechPanel(row.frame, missionRowW, PLANNER_ROW_H, { accent: 'magenta' });
+            if (mission.tierId === this._selectedMissionTierId) redrawTechPanel(row.frame, missionRowW, PLANNER_ROW_H, { accent: 'magenta' });
             row.container.position.set(missionX, listY + i * (PLANNER_ROW_H + PLANNER_ROW_GAP));
             planner.frame.addChild(row.container);
             planner.missionRows.push(row);
         });
 
-        const mission = HUB_MISSION_OFFERS.find((m) => m.type === this._selectedMissionType) || HUB_MISSION_OFFERS[0];
+        const mission = missionPool.find((m) => m.tierId === this._selectedMissionTierId) || missionPool[0];
         const maxIdle = this._maxIdleAssignments();
-        const manualSupported = mission.manualReady;
         const risk = HUB_RISK_PRESETS[mission.risk] || HUB_RISK_PRESETS[3];
-        planner.outcomeBody.text = `${mission.title} · Risk ${mission.risk} (${risk.label}) · ETA ${formatDuration(mission.etaSec)}\n` +
-            `Reward ~${Math.round(mission.rewardCredits * 0.7)}-${Math.round(mission.rewardCredits * 1.2)} credits. ` +
+        const envLvl = this._environmentLevelForMission(mission);
+        const threatLvl = mission.risk;
+        const etaPreviewSec = this._idleEtaSecForMission(mission, true);
+        planner.outcomeBody.text = `${mission.narrativeName} · ${mission.type} · ${mission.difficulty}\n` +
+            `Threat Lv ${threatLvl} · Environment Lv ${envLvl} · ETA ${formatDuration(etaPreviewSec)}\n` +
+            `Reward ~${Math.round(mission.baseCredits * 0.8)}-${Math.round(mission.baseCredits * 1.25)} credits. ` +
             `${this._selectedMissionDispatch === 'manual'
-                ? (manualSupported ? 'Launches playable minigame.' : 'Manual mode for this type is simulated (not implemented).')
+                ? 'Launches playable minigame.'
                 : 'Autonomous idle run, can be aborted anytime for partial return.'}`;
         planner.capacityText.text = `IDLE CAPACITY ${this._idleMissions.length}/${maxIdle} · FREE SHIPS ${freeShips.length} · FREE CREW ${freeCrew.length}`;
 
@@ -1256,7 +1267,7 @@ export class HubScene {
     _dispatchSelectedMission() {
         const ship = this.meta?.fleetSnapshot().find((s) => s.id === this._selectedShipId && s.status === 'Standby');
         const crew = this.meta?.crewSnapshot().find((c) => c.id === this._selectedCrewId && c.status === 'Available');
-        const mission = HUB_MISSION_OFFERS.find((m) => m.type === this._selectedMissionType);
+        const mission = this._missions.find((m) => m.tierId === this._selectedMissionTierId);
         if (!ship || !crew || !mission) return;
         if (this._selectedMissionDispatch === 'idle' && this._idleMissions.length >= this._maxIdleAssignments()) return;
 
@@ -1265,11 +1276,15 @@ export class HubScene {
         const jobId = `dispatch-${this._idleMissionSeq++}`;
         this._idleMissions.push({
             id: jobId,
-            offerId: mission.id,
-            title: mission.title,
+            offerId: mission.tierId,
+            missionId: mission.id,
+            title: mission.narrativeName,
             type: mission.type,
             dispatchMode: this._selectedMissionDispatch,
             risk: mission.risk,
+            difficulty: mission.difficulty,
+            threatLevel: missionResult.threatLevel,
+            environmentLevel: missionResult.environmentLevel,
             rewardCredits: missionResult.rewardCredits,
             rewardOres: missionResult.rewardOres,
             shipId: ship.id,
@@ -1283,9 +1298,8 @@ export class HubScene {
         });
         this.meta?.setShipStatus(ship.id, 'On Mission');
         this.meta?.setCrewStatus(crew.id, 'On Mission');
-        if (this._selectedMissionDispatch === 'manual' && mission.manualReady) {
-            const playable = this._pickPlayableMissionForHubType(mission.type);
-            this._onMissionCardTapped(playable);
+        if (this._selectedMissionDispatch === 'manual') {
+            this._onMissionCardTapped(mission);
         }
         this._refreshActiveIdleMissions();
         this._refreshMissionPlanner();
@@ -1293,14 +1307,19 @@ export class HubScene {
     }
 
     _resolveMissionForDispatch(mission, ship, crew) {
-        const shipTypeMatch = ship.className.toLowerCase().includes(mission.type);
+        const missionType = String(mission.type || '').toLowerCase();
+        const shipTypeMatch = String(ship.className || '').toLowerCase().includes(missionType);
         const skillFactor = 1 + ((crew.level - 1) * 0.04);
         const typeFactor = shipTypeMatch ? 1.12 : 0.94;
-        const rewardCredits = Math.max(60, Math.round(mission.rewardCredits * skillFactor * typeFactor));
-        const etaSec = Math.max(90, Math.round(mission.etaSec * (shipTypeMatch ? 0.92 : 1.05)));
+        const threatLevel = mission.risk;
+        const environmentLevel = this._environmentLevelForMission(mission);
+        const rewardCredits = Math.max(60, Math.round(mission.baseCredits * skillFactor * typeFactor));
+        const etaSec = this._idleEtaSecForMission(mission, shipTypeMatch);
         return {
             rewardCredits,
             etaSec,
+            threatLevel,
+            environmentLevel,
             rewardOres: { common: [], rare: [] },
         };
     }
@@ -1309,15 +1328,6 @@ export class HubScene {
         const ships = this.meta?.fleetSnapshot()?.length || 0;
         const crews = this.meta?.crewSnapshot()?.length || 0;
         return Math.max(0, Math.min(ships, crews));
-    }
-
-    _pickPlayableMissionForHubType(hubType) {
-        const preferred = HUB_TO_PLAYABLE_TYPES[hubType] || [];
-        for (const playableType of preferred) {
-            const found = this._missions.find((m) => m.type === playableType);
-            if (found) return found;
-        }
-        return this._missions[0];
     }
 
     _refreshFleetCrewPanel() {
@@ -1579,14 +1589,14 @@ export class HubScene {
         const shellW = Math.max(HUB_MIN_LAYOUT_W - HUB_SURFACE_INSET * 2, vw - HUB_SURFACE_INSET * 2);
 
         // --- Top bar: aligned to the same outer edges as middle panels.
-        this._layoutTopBar(n.topBar, shellX, shellW);
+        this._layoutTopBar(n.topBar, shellX, shellW, HUB_SURFACE_INSET_Y);
 
         // --- News ticker: aligned to shell width under top bar.
-        this._layoutNewsTicker(n.news, shellX, shellW, HUB_TOPBAR_H);
+        this._layoutNewsTicker(n.news, shellX, shellW, HUB_SURFACE_INSET_Y + HUB_TOPBAR_H);
 
         // --- Columns + center live in the middle band.
-        const columnsY = HUB_TOPBAR_H + HUB_NEWS_H + HUB_GUTTER;
-        const columnsH = Math.max(360, vh - columnsY - HUB_NAV_H - HUB_GUTTER);
+        const columnsY = HUB_SURFACE_INSET_Y + HUB_TOPBAR_H + HUB_NEWS_H + HUB_GUTTER;
+        const columnsH = Math.max(360, vh - columnsY - HUB_NAV_H - HUB_GUTTER - HUB_SURFACE_INSET_Y);
         const leftX = shellX;
         const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, shellX + shellW - HUB_COL_W);
         // Center gets whatever is left; clamp to a minimum so cards
@@ -1599,15 +1609,15 @@ export class HubScene {
         this._layoutCenterPanel(n.centerPanel, centerX, columnsY, centerW, columnsH);
 
         // --- Bottom nav: aligned to shell width, pinned to bottom.
-        this._layoutBottomNav(n.bottomNav, shellX, shellW, vh - HUB_NAV_H, HUB_NAV_H);
+        this._layoutBottomNav(n.bottomNav, shellX, shellW, vh - HUB_SURFACE_INSET_Y - HUB_NAV_H, HUB_NAV_H);
 
         // --- Modal is centered on the viewport. Panel clamps to viewport.
         this._layoutModal(n.modal, vw, vh);
     }
 
-    _layoutTopBar(topBar, x, w) {
+    _layoutTopBar(topBar, x, w, y = 0) {
         const h = HUB_TOPBAR_H;
-        topBar.container.position.set(x, 0);
+        topBar.container.position.set(x, y);
         redrawTechPanel(topBar.frame, w, h, { accent: 'cyan' });
 
         const starX = 20;
@@ -1716,10 +1726,10 @@ export class HubScene {
         center.planner.shipListX = listStartX;
         center.planner.crewListX = listStartX + rowW + PLANNER_SECTION_GAP;
         center.planner.missionListX = listStartX + (rowW + PLANNER_SECTION_GAP) * 2;
-        center.planner.listBaseY = 86;
-        center.planner.shipHeader.position.set(center.planner.shipListX, 66);
-        center.planner.crewHeader.position.set(center.planner.crewListX, 66);
-        center.planner.missionHeader.position.set(center.planner.missionListX, 66);
+        center.planner.listBaseY = 98;
+        center.planner.shipHeader.position.set(center.planner.shipListX, 78);
+        center.planner.crewHeader.position.set(center.planner.crewListX, 78);
+        center.planner.missionHeader.position.set(center.planner.missionListX, 78);
 
         const outcomeY = Math.max(262, plannerH - 182);
         center.planner.outcomeCard.position.set(10, outcomeY);
@@ -1750,25 +1760,30 @@ export class HubScene {
         nav.container.position.set(x, y);
         redrawTechPanel(nav.frame, w, h, { accent: 'cyan' });
 
-        const tabCount = nav.tabs.length;
         const pad = HUB_GUTTER;
-        const totalInner = w - pad * 2;
-        const gap = 10;
-        const tabW = Math.floor((totalInner - gap * (tabCount - 1)) / tabCount);
+        const totalInner = Math.max(0, w - pad * 2);
+        const gap = 16;
         const tabH = h - 12;
+        const baseWidths = nav.tabs.map((t) => (t.bg.width || 136));
+        const totalBaseW = baseWidths.reduce((sum, bw) => sum + bw, 0) + gap * Math.max(0, nav.tabs.length - 1);
+        const groupScale = totalBaseW > totalInner ? totalInner / totalBaseW : 1;
+        const contentW = totalBaseW * groupScale;
+        let cursorX = pad + Math.round((totalInner - contentW) / 2);
+
         nav.tabs.forEach((t, i) => {
-            const tx = pad + i * (tabW + gap);
-            const btnW = t.bg.width || 120;
+            const btnW = t.bg.width || 136;
             const btnH = t.bg.height || 40;
-            const s = Math.min(tabW / btnW, tabH / btnH);
+            const slotW = btnW * groupScale;
+            const s = Math.min(slotW / btnW, tabH / btnH);
             t.container.scale.set(s);
             const scaledW = btnW * s;
             const scaledH = btnH * s;
-            t.container.position.set(tx + Math.round((tabW - scaledW) / 2), 6 + Math.round((tabH - scaledH) / 2));
-            t.container.__width = tabW;
+            t.container.position.set(cursorX + Math.round((slotW - scaledW) / 2), 6 + Math.round((tabH - scaledH) / 2));
+            t.container.__width = slotW;
             t.container.__height = tabH;
             t.container.hitArea = new Rectangle(0, 0, btnW, btnH);
             t.sublabel.position.set(btnW / 2, btnH / 2 + 12);
+            cursorX += slotW + gap * groupScale;
         });
         // Re-apply the active-tab visual (depends on __width / __height).
         // Uses the highlight-only variant so a user-dismissed modal is
