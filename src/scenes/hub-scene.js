@@ -203,6 +203,12 @@ export class HubScene {
     show() {
         if (!this._nodes) this._build();
         this._reconcileIdleMissionState();
+        // Re-run layout on every show so nodes created while the app
+        // screen was still 0x0 don't stay pinned at their build-time
+        // defaults (notably the bottom-nav tabs at y=0).
+        if (this.app?.screen) {
+            this._layoutShell(this.app.screen.width, this.app.screen.height);
+        }
         this._nodes.root.visible = true;
     }
 
@@ -1578,17 +1584,19 @@ export class HubScene {
     _layoutShell(w, h) {
         const n = this._nodes;
         if (!n) return;
+        const safeW = (typeof w === 'number' && Number.isFinite(w) && w > 0) ? w : HUB_MIN_LAYOUT_W;
+        const safeH = (typeof h === 'number' && Number.isFinite(h) && h > 0) ? h : HUB_MIN_LAYOUT_H;
         // Keep the desktop-first hub shell intact and scale it down as a
         // single surface when the viewport is narrower than the layout's
         // minimum width/height. This avoids panel overlap on phones while
         // preserving one authoritative set of hub coordinates.
-        const scale = Math.min(w / HUB_MIN_LAYOUT_W, h / HUB_MIN_LAYOUT_H, 1);
-        const vw = Math.max(HUB_MIN_LAYOUT_W, w / scale);
-        const vh = Math.max(HUB_MIN_LAYOUT_H, h / scale);
+        const scale = Math.min(safeW / HUB_MIN_LAYOUT_W, safeH / HUB_MIN_LAYOUT_H, 1);
+        const vw = Math.max(HUB_MIN_LAYOUT_W, safeW / scale);
+        const vh = Math.max(HUB_MIN_LAYOUT_H, safeH / scale);
         n.root.scale.set(scale);
         n.root.position.set(
-            Math.round((w - (vw * scale)) / 2),
-            Math.round((h - (vh * scale)) / 2),
+            Math.round((safeW - (vw * scale)) / 2),
+            Math.round((safeH - (vh * scale)) / 2),
         );
 
         const shellX = HUB_SURFACE_INSET;
