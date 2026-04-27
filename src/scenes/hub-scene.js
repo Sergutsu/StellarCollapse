@@ -1764,15 +1764,20 @@ export class HubScene {
         const totalInner = Math.max(0, w - pad * 2);
         const gap = 16;
         const tabH = h - 12;
-        const baseWidths = nav.tabs.map((t) => (t.bg.width || 136));
+        const baseWidths = nav.tabs.map((t) => {
+            const raw = t?.bg?.width;
+            return (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) ? raw : 136;
+        });
         const totalBaseW = baseWidths.reduce((sum, bw) => sum + bw, 0) + gap * Math.max(0, nav.tabs.length - 1);
         const groupScale = totalBaseW > totalInner ? totalInner / totalBaseW : 1;
         const contentW = totalBaseW * groupScale;
         let cursorX = pad + Math.round((totalInner - contentW) / 2);
+        if (!Number.isFinite(cursorX)) cursorX = pad;
 
         nav.tabs.forEach((t, i) => {
-            const btnW = t.bg.width || 136;
-            const btnH = t.bg.height || 40;
+            const btnW = baseWidths[i];
+            const rawH = t?.bg?.height;
+            const btnH = (typeof rawH === 'number' && Number.isFinite(rawH) && rawH > 0) ? rawH : 40;
             const slotW = btnW * groupScale;
             const s = Math.min(slotW / btnW, tabH / btnH);
             t.container.scale.set(s);
