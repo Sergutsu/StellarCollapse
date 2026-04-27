@@ -51,9 +51,8 @@ import {
     buildSimpleButton,
     panelLabel,
     drawStarShape,
-    BUTTON_DEFAULT_FILL,
-    BUTTON_DEFAULT_HOVER,
 } from '../pixi-ui-kit.js';
+import { createTab } from '../ui/Tab.js';
 import { StarMapTab } from './tabs/star-map-tab.js';
 import { ResearchTab } from './tabs/research-tab.js';
 import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
@@ -100,12 +99,12 @@ const HUB_NEWS_POOL = Object.freeze([
 // Hub bottom-nav tabs. Only MISSIONS is active; the rest render a
 // locked stub panel. `lockRep` is a placeholder gate until rep lands.
 const HUB_TABS = Object.freeze([
-    { id: 'star-map',   label: 'STAR MAP',      locked: false, fill: colors.tabs.starMap.fill, hover: colors.tabs.starMap.hover },
-    { id: 'missions',   label: 'MISSIONS',      locked: false, fill: colors.tabs.missions.fill, hover: colors.tabs.missions.hover },
-    { id: 'build',      label: 'BUILD/UPGRADE', locked: false, fill: colors.tabs.build.fill, hover: colors.tabs.build.hover },
-    { id: 'research',   label: 'RESEARCH',      locked: false, fill: colors.tabs.research.fill, hover: colors.tabs.research.hover },
-    { id: 'crew',       label: 'CREW',          locked: false, fill: colors.tabs.crew.fill, hover: colors.tabs.crew.hover },
-    { id: 'market',     label: 'MARKET',        locked: false, fill: colors.tabs.market.fill, hover: colors.tabs.market.hover },
+    { id: 'star-map',   label: 'STAR MAP',      locked: false, colorKey: 'starMap' },
+    { id: 'missions',   label: 'MISSIONS',      locked: false, colorKey: 'missions' },
+    { id: 'build',      label: 'BUILD/UPGRADE', locked: false, colorKey: 'build' },
+    { id: 'research',   label: 'RESEARCH',      locked: false, colorKey: 'research' },
+    { id: 'crew',       label: 'CREW',          locked: false, colorKey: 'crew' },
+    { id: 'market',     label: 'MARKET',        locked: false, colorKey: 'market' },
 ]);
 
 // Resource strip metadata. Numeric values come from MetaState at
@@ -788,7 +787,6 @@ export class HubScene {
         const tabs = HUB_TABS.map((tab) => {
             const button = this._buildNavTab(tab);
             container.addChild(button.container);
-            button.container.on('pointertap', () => this._setActiveTab(tab.id));
             return button;
         });
 
@@ -797,30 +795,18 @@ export class HubScene {
 
     _buildNavTab(tab) {
         const dynamicWidth = Math.max(136, Math.round(56 + (tab.label.length * 9)));
-        const btn = buildStartButton({
-            text: tab.label,
+        const btn = createTab({
+            label: tab.label,
             width: dynamicWidth,
             height: 40,
-            fill: tab.fill ?? BUTTON_DEFAULT_FILL,
-            hoverFill: tab.hover ?? BUTTON_DEFAULT_HOVER,
-            textColor: tab.locked ? colors.text.disabled : colors.text.secondary,
-            trimmed: true,
-            onTap: () => {},
+            colorKey: tab.colorKey,
+            locked: !!tab.locked,
+            lockRep: tab.lockRep,
+            onTap: () => {
+                if (!tab.locked) this._setActiveTab(tab.id);
+            },
         });
-
-        const sublabel = new Text({
-            text: tab.locked ? `REP ${tab.lockRep ?? 2}` : '',
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 8,
-                letterSpacing: 1,
-                fill: colors.text.disabled,
-            }),
-        });
-        sublabel.anchor.set(0.5);
-        btn.container.addChild(sublabel);
-
-        return { container: btn.container, bg: btn, label: btn.label, sublabel, tab };
+        return { container: btn.container, bg: btn, label: btn.label, sublabel: btn.sublabel, tab };
     }
 
     _buildMissionBoardModal() {
