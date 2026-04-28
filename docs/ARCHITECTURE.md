@@ -205,10 +205,6 @@ Shipped today: `src/scenes/tabs/star-map-tab.js` (STAR MAP) + `src/scenes/tabs/r
 
 Galactic-cartography view for the STAR MAP bottom-nav tab. Mounts its root under the hub's center-panel hologram surface (`centerPanel.panel`). Owns: title strip (`STAR MAP · ORION CARTOGRAPHY`), coordinate grid with longitude/latitude tick labels, 8 sector pins colored by `kind` (`star` / `belt` / `station` / `hazard`), bottom-left `MAP LEGEND` sub-panel, top-right `GALACTIC OVERVIEW` thumbnail with a mini spiral + current-position crosshair, and a floating `SYSTEM DATA` panel with a stub `PLOT COURSE` button. Sector catalog is static for now; real warp-cell deduction + mission dispatch lands in P7.
 
-### `src/scenes/tabs/research-tab.js`
-
-Technology-tree view for the RESEARCH bottom-nav tab. Mounts its root under the hub's center-panel hologram surface (`centerPanel.panel`). Owns: amber `RESEARCH · TECHNOLOGY TREE` title strip, four category columns (Propulsion / Resource Extraction / Defense / Economics), 12 pointy-top hex nodes (`HEX_R = 22`) with 2-char glyph + level pill + wrap-capped name, 9 prerequisite edges routed orthogonally between columns, a floating ~260×210 `RESEARCH NODE` detail card (cost row, effect blurb, state-aware CTA), and a ~220×76 bottom-left legend sub-panel mapping the four node states (`available` / `researching` / `completed` / `locked`) to color swatches. The `INITIATE RESEARCH` / `VIEW PROGRESS` CTA is a stub; real cost deduction, tick-based research clock, and upgrade-apply land under ROADMAP P8. `RESEARCH_NODES`, `RESEARCH_EDGES`, and `RESEARCH_CATEGORIES` are re-exported so future work (MetaState research slice, catalog editor) can iterate over them without duplicating the tree shape.
-
 Constructor shape:
 
 ```js
@@ -218,6 +214,20 @@ new StarMapTab({
 ```
 
 Exports the sector catalog + legend entries for testing + documentation: `STAR_MAP_SECTORS`, `STAR_MAP_LEGEND`.
+
+### `src/scenes/tabs/research-tab.js`
+
+Technology-tree view for the RESEARCH bottom-nav tab. Mounts its root under the hub's center-panel hologram surface (`centerPanel.panel`). Owns: amber `RESEARCH · TECHNOLOGY TREE` title strip, four category columns (Propulsion / Resource Extraction / Defense / Economics), 12 pointy-top hex nodes (`HEX_R = 22`) with 2-char glyph + level pill + wrap-capped name, 9 prerequisite edges routed orthogonally between columns, a floating ~260×210 `RESEARCH NODE` detail card (cost row, effect blurb, state-aware CTA), and a ~220×76 bottom-left legend sub-panel mapping the four node states (`available` / `researching` / `completed` / `locked`) to color swatches. The `INITIATE RESEARCH` / `VIEW PROGRESS` CTA is a stub; real cost deduction, tick-based research clock, and upgrade-apply land under ROADMAP P8.
+
+Constructor shape:
+
+```js
+new ResearchTab({
+    parent,   // Pixi Container to mount under (hub's center panel)
+});
+```
+
+Exports the tree catalog for future work (MetaState research slice, catalog editor) so callers can iterate the node + edge + category lists without duplicating the tree shape: `RESEARCH_NODES`, `RESEARCH_EDGES`, `RESEARCH_CATEGORIES`.
 
 ### `src/scenes/game-scene.js`
 
