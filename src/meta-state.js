@@ -78,6 +78,12 @@ const STARTER_PROFILE = Object.freeze({
     // P4: persistent idle dispatches (source of truth for Hub left column)
     activeMissions: Object.freeze([]),
     lastTickAt: 0,
+    // Research system - multiple concurrent projects + upgradable slots
+    research: Object.freeze({
+        completed: Object.freeze([]),
+        activeResearches: Object.freeze([]), // [{ nodeId, startedAt, accumulatedMs }]
+        maxConcurrent: 2,
+    }),
 });
 
 export function starterProfile() {
@@ -92,6 +98,11 @@ export function starterProfile() {
         completedMissionIds: [...STARTER_PROFILE.completedMissionIds],
         activeMissions: [],
         lastTickAt: Date.now(),
+        research: {
+            completed: [],
+            activeResearches: [],
+            maxConcurrent: 2,
+        },
     };
 }
 
@@ -153,6 +164,7 @@ export class MetaState {
                 rewardOres: j && j.rewardOres ? { ...j.rewardOres } : { common: [], rare: [] },
             })),
             lastTickAt: this._data.lastTickAt || Date.now(),
+            research: this.getResearchState(),
         };
     }
 
@@ -379,6 +391,129 @@ export class MetaState {
         this._changed('active-mission-claim', { id, credits, ores });
     }
 
+    // ---- Research (tech tree) - multiple concurrent projects ------------
+
+    getResearchState() {
+        const r = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };
+        return {
+            completed: [...(r.completed || [])],
+            activeResearches: (r.activeResearches || []).map(r => ({ ...r })),
+            maxConcurrent: r.maxConcurrent ?? 2,
+        };
+    }
+
+    /** Start researching a node in a free slot (if available) */
+    startResearch(nodeId) {
+        if (!nodeId) return;
+        const current = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };
+
+        if (current.completed.includes(nodeId)) return;
+        if (current.activeResearches.some(r => r.nodeId === nodeId)) return;
+
+        if (current.activeResearches.length >= (current.maxConcurrent ?? 2)) return;
+
+        const newResearch = {
+            nodeId,
+            startedAt: Date.now(),
+            accumulatedMs: 0,
+        };
+
+        this._data.research = {
+            completed: [...current.completed],
+            activeResearches: [...current.activeResearches, newResearch],
+            maxConcurrent: current.maxConcurrent ?? 2,
+        };
+        this._touchLastTick();
+        this._changed('research-start', { nodeId });
+    }
+
+    /** Cancel (pause) a research project, preserving progress */
+    cancelResearch(nodeId) {
+        if (!nodeId) return;
+        const current = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };
+
+        const idx = current.activeResearches.findIndex(r => r.nodeId === nodeId);
+        if (idx === -1) return;
+
+        const project = current.activeResearches[idx];
+        const elapsed = Math.max(0, Date.now() - project.startedAt);
+        const newAccumulated = (project.accumulatedMs || 0) + elapsed;
+
+        const updated = [...current.activeResearches];
+        updated[idx] = {
+            ...project,
+            startedAt: 0,
+            accumulatedMs: newAccumulated,
+        };
+
+        this._data.research = {
+            completed: [...current.completed],
+            activeResearches: updated,
+            maxConcurrent: current.maxConcurrent ?? 2,
+        };
+        this._touchLastTick();
+        this._changed('research-cancel', { nodeId });
+    }
+
+    /** Resume a previously canceled research */
+    resumeResearch(nodeId) {
+        if (!nodeId) return;
+        const current = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };
+
+        if (current.completed.includes(nodeId)) return;
+
+        const idx = current.activeResearches.findIndex(r => r.nodeId === nodeId);
+        if (idx === -1) return;
+
+        const project = current.activeResearches[idx];
+        if (project.startedAt > 0) return; // already running
+
+        const updated = [...current.activeResearches];
+        updated[idx] = {
+            ...project,
+            startedAt: Date.now(),
+        };
+
+        this._data.research = {
+            completed: [...current.completed],
+            activeResearches: updated,
+            maxConcurrent: current.maxConcurrent ?? 2,
+        };
+        this._touchLastTick();
+        this._changed('research-resume', { nodeId });
+    }
+
+    /** Mark a research as completed (called by UI when timer expires) */
+    completeResearch(nodeId) {
+        if (!nodeId) return;
+        const current = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };
+
+        const filtered = current.activeResearches.filter(r => r.nodeId !== nodeId);
+        const completed = [...current.completed];
+        if (!completed.includes(nodeId)) completed.push(nodeId);
+
+        this._data.research = {
+            completed,
+            activeResearches: filtered,
+            maxConcurrent: current.maxConcurrent ?? 2,
+        };
+        this._touchLastTick();
+        this._changed('research-complete', { nodeId });
+    }
+
+    /** Upgrade the number of concurrent research slots (called from BUILD tab) */
+    upgradeResearchSlots() {
+        const current = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };
+        const newMax = (current.maxConcurrent ?? 2) + 1;
+
+        this._data.research = {
+            ...current,
+            maxConcurrent: newMax,
+        };
+        this._touchLastTick();
+        this._changed('research-slots-upgraded', { newMax });
+    }
+
     setReputationTier(n) {
         const v = Math.max(1, Math.floor(n));
         if (v === this._data.reputationTier) return;
@@ -493,6 +628,30 @@ export class MetaState {
         if (Number.isFinite(incoming.lastTickAt)) {
             base.lastTickAt = incoming.lastTickAt;
         }
+
+        // Research state (multi-slot)
+        if (incoming.research && typeof incoming.research === 'object') {
+            const inc = incoming.research;
+
+            if (Array.isArray(inc.completed)) {
+                base.research.completed = inc.completed.filter((id) => typeof id === 'string');
+            }
+
+            if (Array.isArray(inc.activeResearches)) {
+                base.research.activeResearches = inc.activeResearches
+                    .filter(r => r && typeof r.nodeId === 'string')
+                    .map(r => ({
+                        nodeId: String(r.nodeId),
+                        startedAt: Number.isFinite(r.startedAt) ? r.startedAt : 0,
+                        accumulatedMs: Number.isFinite(r.accumulatedMs) ? r.accumulatedMs : 0,
+                    }));
+            }
+
+            if (Number.isFinite(inc.maxConcurrent)) {
+                base.research.maxConcurrent = Math.max(1, Math.floor(inc.maxConcurrent));
+            }
+        }
+
         return base;
     }
 }

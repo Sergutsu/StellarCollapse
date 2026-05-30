@@ -16,7 +16,7 @@
 | P3 | Persistent meta-state (`MetaState`, `Persistence`) + rep-tier gates on narrative mission cards | **Shipped** (mutation hooks wired in P1) |
 | P4 | Active-missions idle tick (`IdleClock`): persistent wall-time dispatches survive reload + offline; left column shows live ETAs + CLAIM/RETURN; assets free on completion/abort; rewards (credits + ores) granted via MetaState | **Shipped** (full persistent idle loop + pure clock + MetaState integration) |
 | P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue + available-upgrade list (moved from the earlier BASE COMMAND right-column concept per [ADR-0007](adr/0007-hub-wireframe-pivot.md)) | **Scaffolding shipped** (tab scene + static diorama + stub build queue; real `BuildQueue` MetaState integration later) |
-| P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | **RESEARCH scaffolding shipped** (tab scene + static tech tree; real research ticking later). CREW + MARKET still later |
+| P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | **RESEARCH improved** — multi-slot (2 default), cancel/resume with progress save, left-column active projects view, upgradable via BUILD tab. Real ticking + persistence working.
 | P7 | STAR MAP tab: sector exploration, mission discovery tied to the map | **Scaffolding shipped** (tab scene + sector pins + SYSTEM DATA panel; real warp-cell dispatch later) |
 
 Each phase is a handful of small PRs, not one giant PR. The boundary between
