@@ -219,11 +219,7 @@ export class ResearchTab {
         const legend = this._buildLegend();
         root.addChild(legend.container);
 
-        // Research slots panel (left side when in research view)
-        const researchSlots = this._buildResearchSlots();
-        root.addChild(researchSlots.container);
-
-        this._nodes = { title, categoryLabels, edges, nodes: liveNodes, detail, legend, researchSlots };
+        this._nodes = { title, categoryLabels, edges, nodes: liveNodes, detail, legend };
         this._refreshDetail();
     }
 
@@ -362,78 +358,6 @@ export class ResearchTab {
         });
 
         return { container, panel, header, rows, width: 220, height: 76 };
-    }
-
-    // Simple panel showing current research slots (2 by default)
-    _buildResearchSlots() {
-        const container = new Container();
-        const panel = drawHologramPanel(260, 180, { accent: COLOR_AMBER_500 });
-        container.addChild(panel);
-
-        const header = panelLabel('ACTIVE RESEARCH', COLOR_AMBER_300, { size: 11 });
-        header.position.set(12, 8);
-        panel.addChild(header);
-
-        const researchState = this._getCurrentResearchState();
-        const active = researchState.activeResearches || [];
-        const maxSlots = researchState.maxConcurrent || 2;
-
-        const slotY = 32;
-        const slotHeight = 60;
-
-        for (let i = 0; i < maxSlots; i++) {
-            const project = active[i];
-            const y = slotY + i * slotHeight;
-
-            const slotPanel = drawHologramPanel(236, 52, { accent: project ? COLOR_AMBER_300 : COLOR_SLATE_600 });
-            slotPanel.position.set(12, y);
-            panel.addChild(slotPanel);
-
-            if (project) {
-                const node = getAllNodes().find(n => n.id === project.nodeId);
-                const name = new Text({
-                    text: node ? node.name : project.nodeId,
-                    style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: '700', fill: COLOR_SLATE_200 }),
-                });
-                name.position.set(18, y + 6);
-                panel.addChild(name);
-
-                const progress = getResearchProgressForProject(project, node, Date.now());
-                const remaining = getRemainingMsForProject(project, node, Date.now());
-                const totalSec = Math.ceil(remaining / 1000);
-                const min = Math.floor(totalSec / 60);
-                const sec = totalSec % 60;
-                const timeText = `${min}m ${sec}s`;
-
-                const progressText = new Text({
-                    text: `${Math.round(progress * 100)}%  ·  ${timeText}`,
-                    style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 10, fill: COLOR_AMBER_300 }),
-                });
-                progressText.position.set(18, y + 26);
-                panel.addChild(progressText);
-
-                const cancelBtn = buildStartButton({
-                    text: 'CANCEL',
-                    width: 70,
-                    height: 22,
-                    onTap: () => {
-                        this.meta?.cancelResearch(project.nodeId);
-                        this._refreshDetail();
-                    },
-                });
-                cancelBtn.container.position.set(170, y + 18);
-                panel.addChild(cancelBtn.container);
-            } else {
-                const empty = new Text({
-                    text: 'Empty Slot',
-                    style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: COLOR_SLATE_400 }),
-                });
-                empty.position.set(18, y + 18);
-                panel.addChild(empty);
-            }
-        }
-
-        return { container, panel, width: 260, height: 180 };
     }
 
     // ----------------------------------------------------------------
@@ -667,12 +591,6 @@ export class ResearchTab {
         // Legend: bottom-left of the tree area.
         redrawHologramPanel(n.legend.panel, n.legend.width, n.legend.height, COLOR_CYAN_500);
         n.legend.container.position.set(treeX, treeY + treeH - n.legend.height - 4);
-
-        // Position research slots panel on the left
-        if (n.researchSlots) {
-            redrawHologramPanel(n.researchSlots.panel, n.researchSlots.width, n.researchSlots.height, COLOR_AMBER_500);
-            n.researchSlots.container.position.set(12, 80);
-        }
     }
 }
 
