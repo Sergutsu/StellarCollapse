@@ -179,3 +179,93 @@ test('snapshot() returns defensive copies (mutating does not affect meta)', () =
     assert.equal(meta.fleetSnapshot()[0].hull, 100);
     assert.equal(meta.getOre('red'), 0);
 });
+
+// ------------------------------------------------------------------
+// P4: activeMissions persistence + mutations
+// ------------------------------------------------------------------
+
+test('starter profile and fresh MetaState expose empty activeMissions + lastTickAt', () => {
+    const meta = new MetaState();
+    const snap = meta.snapshot();
+    assert.ok(Array.isArray(snap.activeMissions));
+    assert.equal(snap.activeMissions.length, 0);
+    assert.ok(Number.isFinite(snap.lastTickAt));
+    assert.deepEqual(meta.activeMissionsSnapshot(), []);
+});
+
+test('addActiveMission / abortActiveMission / claimActiveMission round-trip and update statuses', () => {
+    const meta = new MetaState();
+    const now = Date.now();
+
+    meta.addActiveMission({
+        id: 'idle-1',
+        title: 'Test Dispatch',
+        shipId: 'ship-1',
+        shipName: 'Nyx-I',
+        crewId: 'crew-1',
+        crewName: 'V. Draeven',
+        startedAt: now,
+        etaSec: 120,
+        endsAt: now + 120000,
+        rewardCredits: 300,
+        rewardOres: { common: ['pyrite'], rare: [] },
+    });
+
+    assert.equal(meta.activeMissionsSnapshot().length, 1);
+    assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-1').status, 'On Mission');
+    assert.equal(meta.crewSnapshot().find((c) => c.id === 'crew-1').status, 'On Mission');
+
+    // Abort with partial (caller computes via clock in real usage)
+    meta.abortActiveMission('idle-1', { partialCredits: 75 });
+    assert.equal(meta.activeMissionsSnapshot().length, 0);
+    assert.equal(meta.credits, 4800 + 75);
+    assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-1').status, 'Standby');
+    assert.equal(meta.crewSnapshot().find((c) => c.id === 'crew-1').status, 'Available');
+});
+
+test('claimActiveMission grants credits + ores and frees assets', () => {
+    const meta = new MetaState();
+    const now = Date.now();
+
+    meta.addActiveMission({
+        id: 'idle-2',
+        shipId: 'ship-2',
+        crewId: 'crew-2',
+        startedAt: now,
+        etaSec: 60,
+        endsAt: now + 60000,
+        rewardCredits: 450,
+        rewardOres: { common: ['cryonite'], rare: ['volatiles'] },
+    });
+
+    meta.claimActiveMission('idle-2', { credits: 450, ores: { blue: 1, bomb: 1 } });
+
+    assert.equal(meta.activeMissionsSnapshot().length, 0);
+    assert.equal(meta.credits, 4800 + 450);
+    assert.equal(meta.getOre('blue'), 1);
+    assert.equal(meta.getOre('bomb'), 1);
+    assert.equal(meta.fleetSnapshot().find((s) => s.id === 'ship-2').status, 'Standby');
+});
+
+test('activeMissions round-trip through snapshot + load (persistence)', () => {
+    const meta1 = new MetaState();
+    const now = Date.now();
+    meta1.addActiveMission({
+        id: 'persist-1',
+        shipId: 'ship-3',
+        crewId: 'crew-3',
+        startedAt: now,
+        etaSec: 90,
+        endsAt: now + 90000,
+        rewardCredits: 180,
+    });
+
+    const snap = meta1.snapshot();
+    const meta2 = new MetaState(snap);
+
+    const restored = meta2.activeMissionsSnapshot();
+    assert.equal(restored.length, 1);
+    assert.equal(restored[0].id, 'persist-1');
+    assert.equal(restored[0].rewardCredits, 180);
+    assert.equal(meta2.fleetSnapshot().find((s) => s.id === 'ship-3').status, 'On Mission');
+});

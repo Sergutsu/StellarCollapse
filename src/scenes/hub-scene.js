@@ -40,6 +40,13 @@ import {
     IDLE_DURATION_SEC_BY_RISK,
 } from '../missions.js';
 
+import {
+    computeJobState,
+    computePartialCredits,
+    partitionJobs,
+    makeRecoveryJob,
+} from '../idle-clock.js';
+
 import { CELL_PALETTE } from './cell-palette.js';
 import { colors } from '../theme/tokens.js';
 import {
@@ -383,6 +390,10 @@ export class HubScene {
                 if (this._nodes && this._nodes.topBar) {
                     this._syncResourceChips(this._nodes.topBar.chips);
                 }
+                // P4: any meta mutation (dispatch claim/abort, rewards, etc.) can affect the idle list
+                this._refreshActiveIdleMissions?.();
+                this._refreshMissionPlanner?.();
+                this._refreshFleetCrewPanel?.();
             });
         }
 
@@ -1271,8 +1282,20 @@ export class HubScene {
 
         const now = Date.now();
         const missionResult = this._resolveMissionForDispatch(mission, ship, crew);
+
+        // P4: for idle dispatches, populate real ore rewards using the same
+        // catalog derivation that buildIdleMissions uses (common + rare split).
+        let rewardOres = missionResult.rewardOres;
+        if (this._selectedMissionDispatch === 'idle') {
+            const idleOffers = buildIdleMissions(this._missions);
+            const offer = idleOffers.find((o) => o.sourceMissionId === mission.id || o.id === `idle-${mission.id}`);
+            if (offer && offer.rewardOres) {
+                rewardOres = offer.rewardOres;
+            }
+        }
+
         const jobId = `dispatch-${this._idleMissionSeq++}`;
-        this._idleMissions.push({
+        const job = {
             id: jobId,
             offerId: mission.tierId,
             missionId: mission.id,
@@ -1284,7 +1307,7 @@ export class HubScene {
             threatLevel: missionResult.threatLevel,
             environmentLevel: missionResult.environmentLevel,
             rewardCredits: missionResult.rewardCredits,
-            rewardOres: missionResult.rewardOres,
+            rewardOres,
             shipId: ship.id,
             shipName: ship.name,
             crewId: crew.id,
@@ -1293,12 +1316,24 @@ export class HubScene {
             etaSec: missionResult.etaSec,
             endsAt: now + missionResult.etaSec * 1000,
             claimed: false,
-        });
+        };
+
+        if (this._selectedMissionDispatch === 'idle') {
+            // P4: persist via MetaState (auto-saves + emits change)
+            this.meta?.addActiveMission(job);
+            // Local cache will be refreshed from meta in the change handler + explicit refresh below
+            this._idleMissions.push(job);
+        } else {
+            this._idleMissions.push(job);
+        }
+
         this.meta?.setShipStatus(ship.id, 'On Mission');
         this.meta?.setCrewStatus(crew.id, 'On Mission');
+
         if (this._selectedMissionDispatch === 'manual') {
             this._onMissionCardTapped(mission);
         }
+
         this._refreshActiveIdleMissions();
         this._refreshMissionPlanner();
         this._refreshFleetCrewPanel();
@@ -1369,9 +1404,8 @@ export class HubScene {
         const rowW = HUB_COL_W - 24;
         const now = Date.now();
         this._idleMissions.forEach((job, i) => {
-            const remainingSec = Math.max(0, Math.ceil((job.endsAt - now) / 1000));
-            const done = remainingSec <= 0;
-            const row = this._buildActiveIdleRow(job, rowW, remainingSec, done);
+            const state = computeJobState(job, now);
+            const row = this._buildActiveIdleRow(job, rowW, state.remainingSec, state.done);
             row.container.y = i * 118;
             left.list.addChild(row.container);
             left.rows.push(row);
@@ -1380,6 +1414,14 @@ export class HubScene {
 
     _reconcileIdleMissionState() {
         if (!this.meta) return;
+
+        // P4: primary source of truth is now the persisted list in MetaState.
+        // Hydrate local working copy from meta (defensive deep-ish copy).
+        const persisted = this.meta.activeMissionsSnapshot ? this.meta.activeMissionsSnapshot() : [];
+        // Merge any local-only jobs that haven't been persisted yet (race on first dispatch)
+        const localOnly = this._idleMissions.filter((j) => !persisted.some((p) => p.id === j.id));
+        this._idleMissions = [...persisted, ...localOnly];
+
         const fleet = this.meta.fleetSnapshot();
         const crew = this.meta.crewSnapshot();
         const fleetById = new Map(fleet.map((ship) => [ship.id, ship]));
@@ -1401,33 +1443,20 @@ export class HubScene {
         }
         this._idleMissions = validJobs;
 
+        // Only fabricate recovery placeholders for truly orphaned "On Mission" assets
+        // (defensive; real jobs should come from persisted activeMissions).
         const orphanShips = fleet.filter((ship) => ship.status === 'On Mission' && !usedShips.has(ship.id));
         const orphanCrew = crew.filter((member) => member.status === 'On Mission' && !usedCrew.has(member.id));
         const pairCount = Math.min(orphanShips.length, orphanCrew.length);
         for (let i = 0; i < pairCount; i += 1) {
             const ship = orphanShips[i];
             const member = orphanCrew[i];
-            const now = Date.now();
-            this._idleMissions.push({
-                id: `dispatch-${this._idleMissionSeq++}`,
-                offerId: 'recovered-assignment',
-                title: 'Recovered Idle Assignment',
-                type: 'recovery',
-                dispatchMode: 'idle',
-                risk: 1,
-                rewardCredits: 0,
-                rewardOres: { common: [], rare: [] },
-                shipId: ship.id,
-                shipName: ship.name,
-                crewId: member.id,
-                crewName: member.name,
-                startedAt: now,
-                etaSec: 0,
-                endsAt: now,
-                claimed: false,
-            });
+            const rec = makeRecoveryJob(ship, member, this._idleMissionSeq++);
+            this._idleMissions.push(rec);
             usedShips.add(ship.id);
             usedCrew.add(member.id);
+            // Also persist the recovery so it survives the next reload
+            this.meta.addActiveMission?.(rec);
         }
 
         for (const ship of fleet) {
@@ -1491,13 +1520,13 @@ export class HubScene {
     _abortIdleMission(jobId) {
         const job = this._idleMissions.find((m) => m.id === jobId);
         if (!job) return;
-        const elapsed = Math.max(0, Date.now() - job.startedAt);
-        const duration = Math.max(1, job.etaSec * 1000);
-        const pct = Math.min(1, elapsed / duration);
-        const partialCredits = Math.max(0, Math.floor(job.rewardCredits * pct));
-        this.meta?.addCredits(partialCredits);
-        this.meta?.setShipStatus(job.shipId, 'Standby');
-        this.meta?.setCrewStatus(job.crewId, 'Available');
+
+        // P4: compute pure partial via clock helper, then delegate to MetaState
+        // (meta handles credits + status flips + removal + persistence)
+        const partialCredits = computePartialCredits(job);
+        this.meta?.abortActiveMission(jobId, { partialCredits });
+
+        // Keep local cache in sync (meta change handler will also refresh)
         this._idleMissions = this._idleMissions.filter((m) => m.id !== jobId);
         this._refreshActiveIdleMissions();
         this._refreshMissionPlanner();
@@ -1508,21 +1537,19 @@ export class HubScene {
         const idx = this._idleMissions.findIndex((m) => m.id === jobId);
         if (idx < 0) return;
         const job = this._idleMissions[idx];
-        this.meta?.addCredits(job.rewardCredits);
-        if (Array.isArray(job.rewardOres.common)) {
-            job.rewardOres.common.forEach((oreId) => {
-                const ore = ORES.find((o) => o.id === oreId);
-                if (ore?.color) this.meta?.addOre(ore.color, 1);
-            });
-        }
-        if (Array.isArray(job.rewardOres.rare)) {
-            job.rewardOres.rare.forEach((oreId) => {
-                const ore = ORES.find((o) => o.id === oreId);
-                if (ore?.color) this.meta?.addOre(ore.color, 1);
-            });
-        }
-        this.meta?.setShipStatus(job.shipId, 'Standby');
-        this.meta?.setCrewStatus(job.crewId, 'Available');
+
+        // P4: build the exact payout envelope (credits + per-color ores) then delegate
+        let credits = job.rewardCredits || 0;
+        const ores = {};
+        const applyOre = (oreId) => {
+            const ore = ORES.find((o) => o.id === oreId);
+            if (ore?.color) ores[ore.color] = (ores[ore.color] || 0) + 1;
+        };
+        if (Array.isArray(job.rewardOres?.common)) job.rewardOres.common.forEach(applyOre);
+        if (Array.isArray(job.rewardOres?.rare)) job.rewardOres.rare.forEach(applyOre);
+
+        this.meta?.claimActiveMission(jobId, { credits, ores });
+
         this._idleMissions.splice(idx, 1);
         this._refreshActiveIdleMissions();
         this._refreshMissionPlanner();
