@@ -44,6 +44,15 @@ const BLUEPRINTS = Object.freeze([
 const REPAIR_COST_PER_POINT = 3; // minerals per hull point
 const DISASSEMBLE_RETURN = 0.4;  // fraction of build cost returned as minerals
 
+// Research lab expansion (increases concurrent research slots)
+const RESEARCH_LAB_UPGRADE = {
+    id: 'research-lab',
+    name: 'Research Lab Expansion',
+    cost: { minerals: 2000, credits: 1500 },
+    effect: '+1 concurrent research slot',
+    max: 5, // soft cap for now
+};
+
 export class BuildUpgradeTab {
     constructor({ parent, meta }) {
         if (!parent) throw new Error('BuildUpgradeTab: parent container is required');
@@ -183,11 +192,38 @@ export class BuildUpgradeTab {
             return { card, bg, name, desc, cost, buildBtn, bp };
         });
 
+        // Research Lab upgrade card (simple for now)
+        const researchLabPanel = drawHologramPanel(260, 90, { accent: COLOR_AMBER_300 });
+        this.root.addChild(researchLabPanel);
+
+        const researchLabHeader = panelLabel('RESEARCH LAB', COLOR_AMBER_300, { size: 10, weight: '700' });
+        researchLabHeader.position.set(12, 6);
+        researchLabPanel.addChild(researchLabHeader);
+
+        const researchLabDesc = panelLabel('+1 research slot', COLOR_SLATE_200, { size: 10 });
+        researchLabDesc.position.set(12, 22);
+        researchLabPanel.addChild(researchLabDesc);
+
+        const researchLabCost = panelLabel('', COLOR_AMBER_300, { size: 9, weight: '700' });
+        researchLabCost.position.set(12, 38);
+        researchLabPanel.addChild(researchLabCost);
+
+        const researchLabBtn = buildSimpleButton({
+            text: 'EXPAND',
+            width: 70,
+            height: 22,
+            accent: 'amber',
+            onTap: () => this._upgradeResearchLab(),
+        });
+        researchLabPanel.addChild(researchLabBtn.container);
+
         this._nodes = {
             title,
             fleetPanel, fleetHeader, fleetList,
             detailPanel, detailName, detailClass, detailHull, detailStatus,
             repairBtn, repairCost, disassembleBtn,
+            researchLabPanel, researchLabHeader, researchLabDesc, researchLabCost, researchLabBtn,
+            blueprintCards, buildPanel,
             buildPanel, buildHeader, blueprintCards,
         };
     }
@@ -278,6 +314,17 @@ export class BuildUpgradeTab {
             entry.buildBtn.container.alpha = canBuild ? 1 : 0.4;
             entry.buildBtn.container.eventMode = canBuild ? 'static' : 'none';
         });
+
+        // Research Lab card
+        const currentMax = this.meta ? (this.meta.getResearchState().maxConcurrent || 2) : 2;
+        const canUpgrade = currentMax < RESEARCH_LAB_UPGRADE.max &&
+            minerals >= RESEARCH_LAB_UPGRADE.cost.minerals &&
+            credits >= RESEARCH_LAB_UPGRADE.cost.credits;
+
+        n.researchLabCost.text = `${RESEARCH_LAB_UPGRADE.cost.minerals} minerals  ·  ${RESEARCH_LAB_UPGRADE.cost.credits} credits`;
+        n.researchLabBtn.container.alpha = canUpgrade ? 1 : 0.4;
+        n.researchLabBtn.container.eventMode = canUpgrade ? 'static' : 'none';
+        n.researchLabDesc.text = `Current: ${currentMax} slots  →  ${RESEARCH_LAB_UPGRADE.effect}`;
     }
 
     _buildShip(bp) {
@@ -315,6 +362,27 @@ export class BuildUpgradeTab {
         this.meta.removeShip(this._selectedShipId);
         this.meta.setHubResource('minerals', (this.meta.getHubResource('minerals') || 0) + returnMinerals);
         this._selectedShipId = null;
+        this._refresh();
+    }
+
+    _upgradeResearchLab() {
+        if (!this.meta) return;
+
+        const current = this.meta.getResearchState();
+        const currentMax = current.maxConcurrent || 2;
+        if (currentMax >= RESEARCH_LAB_UPGRADE.max) return;
+
+        const minerals = this.meta.getHubResource('minerals') || 0;
+        const credits = this.meta.getHubResource('credits') || 0;
+
+        const costM = RESEARCH_LAB_UPGRADE.cost.minerals;
+        const costC = RESEARCH_LAB_UPGRADE.cost.credits;
+
+        if (minerals < costM || credits < costC) return;
+
+        this.meta.setHubResource('minerals', minerals - costM);
+        this.meta.setHubResource('credits', credits - costC);
+        this.meta.upgradeResearchSlots();
         this._refresh();
     }
 

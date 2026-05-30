@@ -1,15 +1,9 @@
 // ResearchTab -- second extracted hub-tab scene. Mounts into the hub's
-// center panel when the user clicks the RESEARCH bottom-nav tab. See
-// ADR-0010 (hub tab scenes) for the contract + rationale.
+// center panel when the user clicks the RESEARCH bottom-nav tab.
 //
-// Visual: "RESEARCH: TECHNOLOGY TREE" title strip + 4 category columns
-// (Propulsion, Resource Extraction, Defense, Economics) of hex nodes
-// connected by prerequisite edges, plus a floating DETAIL card for the
-// selected node (cost / ETA / INITIATE RESEARCH button / effect blurb).
-//
-// The scene is purely presentational for now -- tech-tree data is
-// static, INITIATE RESEARCH is a stub. Real research ticking + cost
-// deduction + upgrade-apply lands in a later phase (ROADMAP P8).
+// Now fully functional: pulls live state from MetaState, supports
+// initiating research (with cost checks), shows live ticking progress,
+// and persists completed + in-progress research across reloads.
 
 import { Container, Graphics, Rectangle, Text, TextStyle } from 'pixi.js';
 import {
@@ -18,6 +12,18 @@ import {
     panelLabel,
     buildStartButton,
 } from '../../pixi-ui-kit.js';
+
+import {
+    getNodeView,
+    getResearchProgress,
+    getRemainingMs,
+    isNodeAvailable,
+    getAllNodes,
+    getPrerequisites,
+    RESEARCH_CATEGORIES as CATEGORIES,
+    RESEARCH_NODES as NODES,
+    RESEARCH_EDGES as EDGES,
+} from '../research.js';
 
 const COLOR_CYAN_300 = 0x67e8f9;
 const COLOR_CYAN_500 = 0x06b6d4;
@@ -29,62 +35,13 @@ const COLOR_AMBER_500 = 0xf59e0b;
 const COLOR_ROSE_300 = 0xfda4af;
 const COLOR_EMERALD_300 = 0x6ee7b7;
 
-// Node-state visual tokens. Kept at module scope so the legend /
-// detail-card status line + node glyph share one palette.
+// Node-state visual tokens (kept here for the tab's rendering)
 const NODE_STATE = Object.freeze({
     locked:     { stroke: COLOR_SLATE_600, fill: 0x0b1424, label: 'Locked',             labelColor: COLOR_ROSE_300,   icon: COLOR_SLATE_600 },
     available:  { stroke: COLOR_CYAN_300,  fill: 0x0b1424, label: 'Available',          labelColor: COLOR_CYAN_300,   icon: COLOR_CYAN_300 },
     researching:{ stroke: COLOR_AMBER_300, fill: 0x1c1207, label: 'Currently Researching', labelColor: COLOR_AMBER_300, icon: COLOR_AMBER_300 },
     completed:  { stroke: COLOR_EMERALD_300, fill: 0x042f1f, label: 'Completed',         labelColor: COLOR_EMERALD_300, icon: COLOR_EMERALD_300 },
 });
-
-// Category columns, left-to-right. `nx` is the normalized horizontal
-// center of the column (0..1) inside the tree region.
-const CATEGORIES = Object.freeze([
-    { id: 'propulsion', label: 'Propulsion',         nx: 0.12 },
-    { id: 'extraction', label: 'Resource Extraction', nx: 0.38 },
-    { id: 'defense',    label: 'Defense',             nx: 0.64 },
-    { id: 'economics',  label: 'Economics',           nx: 0.88 },
-]);
-
-// Tech-tree node catalog. `ny` is the normalized vertical position
-// (0..1) inside the tree region. `glyph` is a compact char/emoji shown
-// inside the hex (kept ASCII-safe for font reliability).
-const NODES = Object.freeze([
-    // Propulsion
-    { id: 'ion-thrusters',     category: 'propulsion', name: 'Ion Thrusters',        level: 3, ny: 0.22, state: 'locked',      glyph: '>>', effect: 'Increase fleet cruise speed. Reduces mission ETA by 8%.',                               cost: { minerals: 600, credits: 1200 }, time: '5h 00m' },
-    { id: 'warp-coils',        category: 'propulsion', name: 'Warp Coils',           level: 2, ny: 0.50, state: 'available',   glyph: '~~', effect: 'Cut warp-cell consumption for long-range plots by 1.',                                cost: { minerals: 500, credits: 900  }, time: '3h 45m' },
-    { id: 'fuel-cell',         category: 'propulsion', name: 'Compact Fuel Cell',    level: 1, ny: 0.78, state: 'completed',   glyph: '[]', effect: 'Doubles fleet fuel reserves. Enables longer missions.',                               cost: { minerals: 300, credits: 500  }, time: '1h 30m' },
-
-    // Resource Extraction
-    { id: 'mining-laser',      category: 'extraction', name: 'Advanced Mining Laser',level: 4, ny: 0.30, state: 'available',   glyph: '//', effect: 'Advanced mining laser. Increased cost by rocky planets, increase of time; 3 more effects.', cost: { minerals: 800, credits: 1500 }, time: '6h 30m' },
-    { id: 'refinery',          category: 'extraction', name: 'Refinery Throughput',  level: 2, ny: 0.58, state: 'locked',      glyph: 'Rf', effect: 'Refinery converts 15% more ore per hour.',                                          cost: { minerals: 700, credits: 1300 }, time: '5h 00m' },
-    { id: 'deep-scanner',      category: 'extraction', name: 'Deep Scanner',         level: 1, ny: 0.84, state: 'completed',   glyph: '()', effect: 'Reveals rare-ore bonus tiles on the mining board.',                                cost: { minerals: 400, credits: 800  }, time: '2h 00m' },
-
-    // Defense
-    { id: 'hull-plating',      category: 'defense',    name: 'Hull Plating',         level: 2, ny: 0.26, state: 'available',   glyph: '##', effect: 'Fleet hull takes 12% less damage on high-risk missions.',                           cost: { minerals: 650, credits: 1100 }, time: '4h 15m' },
-    { id: 'shield-array',      category: 'defense',    name: 'Shield Array',         level: 1, ny: 0.54, state: 'locked',      glyph: '()', effect: 'Equip shield array on cruiser-class ships. Blocks one hull hit per run.',           cost: { minerals: 900, credits: 1700 }, time: '7h 00m' },
-    { id: 'countermeasures',   category: 'defense',    name: 'Countermeasures',      level: 1, ny: 0.82, state: 'locked',      glyph: '!!', effect: 'Auto-reroll one unlucky risk event per mission.',                                   cost: { minerals: 1100, credits: 2200 }, time: '9h 30m' },
-
-    // Economics
-    { id: 'habitat-extension', category: 'economics',  name: 'Habitat Extension',    level: 2, ny: 0.32, state: 'researching', glyph: 'Hb', effect: '+1 crew slot on NOVA STATION. Unlocks tier-II contracts.',                         cost: { minerals: 550, credits: 1000 }, time: '4h 30m', progress: 0.65, eta: '02:45:00' },
-    { id: 'trade-compact',     category: 'economics',  name: 'Trade Compact',        level: 1, ny: 0.60, state: 'available',   glyph: '$$', effect: 'MARKET tab prices 6% more favorable on sell orders.',                             cost: { minerals: 450, credits: 1400 }, time: '3h 00m' },
-    { id: 'reputation-boost',  category: 'economics',  name: 'Reputation Programs',  level: 1, ny: 0.86, state: 'locked',      glyph: '**', effect: 'Reputation gain +10% per completed mission.',                                    cost: { minerals: 700, credits: 1800 }, time: '5h 45m' },
-]);
-
-// Prerequisite edges (directed: `from -> to`). Rendered as thin cyan
-// polyline connectors so the tree reads as a dependency graph.
-const EDGES = Object.freeze([
-    { from: 'fuel-cell',         to: 'warp-coils' },
-    { from: 'warp-coils',        to: 'ion-thrusters' },
-    { from: 'deep-scanner',      to: 'refinery' },
-    { from: 'refinery',          to: 'mining-laser' },
-    { from: 'warp-coils',        to: 'mining-laser' },
-    { from: 'hull-plating',      to: 'shield-array' },
-    { from: 'shield-array',      to: 'countermeasures' },
-    { from: 'trade-compact',     to: 'habitat-extension' },
-    { from: 'reputation-boost',  to: 'trade-compact' },
-]);
 
 const HEX_R = 22; // outer radius of a hex node in world pixels.
 
@@ -101,14 +58,15 @@ function drawHex(g, r, { stroke, fill }) {
 }
 
 export class ResearchTab {
-    constructor({ parent }) {
+    constructor({ parent, meta = null }) {
         if (!parent) throw new Error('ResearchTab: parent container is required');
         this.parent = parent;
+        this.meta = meta;
         this.root = new Container();
         this.root.visible = false;
         this.parent.addChild(this.root);
         this._nodes = null;
-        this._selectedId = 'mining-laser'; // Mock shows this as the default selection.
+        this._selectedId = 'mining-laser'; // Default selection
     }
 
     // ----------------------------------------------------------------
@@ -122,6 +80,7 @@ export class ResearchTab {
     show() {
         if (!this._nodes) this._build();
         this.root.visible = true;
+        this._refreshFromMeta();
         // Re-open the detail card for whatever was previously selected
         // so tab switches do not silently drop the selection.
         if (this._nodes && this._selectedId) this._refreshDetail();
@@ -189,19 +148,21 @@ export class ResearchTab {
         const edges = new Graphics();
         root.addChild(edges);
 
-        // Hex nodes.
-        const nodes = NODES.map((node) => {
+        // Hex nodes - now driven by live MetaState via the pure research module
+        const researchState = this._getCurrentResearchState();
+        const liveNodes = getAllNodes().map((baseNode) => {
+            const view = getNodeView(baseNode.id, researchState) || baseNode;
             const container = new Container();
             container.eventMode = 'static';
             container.cursor = 'pointer';
 
-            const state = NODE_STATE[node.state] || NODE_STATE.locked;
+            const state = NODE_STATE[view.state] || NODE_STATE.locked;
             const hex = new Graphics();
             drawHex(hex, HEX_R, state);
             container.addChild(hex);
 
             const glyph = new Text({
-                text: node.glyph,
+                text: view.glyph,
                 style: new TextStyle({
                     fontFamily: 'Inter, sans-serif',
                     fontSize: 12,
@@ -212,9 +173,8 @@ export class ResearchTab {
             glyph.anchor.set(0.5);
             container.addChild(glyph);
 
-            // Level pill at the bottom of the hex.
             const lvl = new Text({
-                text: `L${node.level}`,
+                text: `L${view.level}`,
                 style: new TextStyle({
                     fontFamily: 'Inter, sans-serif',
                     fontSize: 9,
@@ -227,9 +187,8 @@ export class ResearchTab {
             lvl.position.set(0, HEX_R + 2);
             container.addChild(lvl);
 
-            // Name label under the level pill.
             const nameText = new Text({
-                text: node.name,
+                text: view.name,
                 style: new TextStyle({
                     fontFamily: 'Inter, sans-serif',
                     fontSize: 10,
@@ -244,11 +203,12 @@ export class ResearchTab {
             nameText.position.set(0, HEX_R + 14);
             container.addChild(nameText);
 
-            container.on('pointertap', () => this._onNodeTapped(node));
+            // Store the id for later lookup instead of the full static node
+            container.on('pointertap', () => this._onNodeTapped({ id: view.id }));
             container.hitArea = new Rectangle(-HEX_R, -HEX_R, HEX_R * 2, HEX_R * 2 + 20);
             root.addChild(container);
 
-            return { node, container, hex, glyph, lvl, nameText };
+            return { node: view, container, hex, glyph, lvl, nameText };
         });
 
         // Floating DETAIL card (right side of the tree).
@@ -259,8 +219,19 @@ export class ResearchTab {
         const legend = this._buildLegend();
         root.addChild(legend.container);
 
-        this._nodes = { title, categoryLabels, edges, nodes, detail, legend };
+        // Research slots panel (left side when in research view)
+        const researchSlots = this._buildResearchSlots();
+        root.addChild(researchSlots.container);
+
+        this._nodes = { title, categoryLabels, edges, nodes: liveNodes, detail, legend, researchSlots };
         this._refreshDetail();
+    }
+
+    _getCurrentResearchState() {
+        if (this.meta && typeof this.meta.getResearchState === 'function') {
+            return this.meta.getResearchState();
+        }
+        return { completed: [], researching: null };
     }
 
     _buildDetail() {
@@ -340,12 +311,12 @@ export class ResearchTab {
         effect.position.set(12, 112);
         panel.addChild(effect);
 
-        // CTA button (INITIATE RESEARCH / VIEW PROGRESS / etc.).
+        // CTA button (INITIATE / CANCEL / RESUME).
         const cta = buildStartButton({
             text: 'INITIATE RESEARCH',
             width: 200,
             height: 30,
-            onTap: () => this._onInitiateResearch(),
+            onTap: () => this._onResearchCta(),
         });
         cta.container.position.set(12, 170);
         panel.addChild(cta.container);
@@ -393,6 +364,78 @@ export class ResearchTab {
         return { container, panel, header, rows, width: 220, height: 76 };
     }
 
+    // Simple panel showing current research slots (2 by default)
+    _buildResearchSlots() {
+        const container = new Container();
+        const panel = drawHologramPanel(260, 180, { accent: COLOR_AMBER_500 });
+        container.addChild(panel);
+
+        const header = panelLabel('ACTIVE RESEARCH', COLOR_AMBER_300, { size: 11 });
+        header.position.set(12, 8);
+        panel.addChild(header);
+
+        const researchState = this._getCurrentResearchState();
+        const active = researchState.activeResearches || [];
+        const maxSlots = researchState.maxConcurrent || 2;
+
+        const slotY = 32;
+        const slotHeight = 60;
+
+        for (let i = 0; i < maxSlots; i++) {
+            const project = active[i];
+            const y = slotY + i * slotHeight;
+
+            const slotPanel = drawHologramPanel(236, 52, { accent: project ? COLOR_AMBER_300 : COLOR_SLATE_600 });
+            slotPanel.position.set(12, y);
+            panel.addChild(slotPanel);
+
+            if (project) {
+                const node = getAllNodes().find(n => n.id === project.nodeId);
+                const name = new Text({
+                    text: node ? node.name : project.nodeId,
+                    style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: '700', fill: COLOR_SLATE_200 }),
+                });
+                name.position.set(18, y + 6);
+                panel.addChild(name);
+
+                const progress = getResearchProgressForProject(project, node, Date.now());
+                const remaining = getRemainingMsForProject(project, node, Date.now());
+                const totalSec = Math.ceil(remaining / 1000);
+                const min = Math.floor(totalSec / 60);
+                const sec = totalSec % 60;
+                const timeText = `${min}m ${sec}s`;
+
+                const progressText = new Text({
+                    text: `${Math.round(progress * 100)}%  ·  ${timeText}`,
+                    style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 10, fill: COLOR_AMBER_300 }),
+                });
+                progressText.position.set(18, y + 26);
+                panel.addChild(progressText);
+
+                const cancelBtn = buildStartButton({
+                    text: 'CANCEL',
+                    width: 70,
+                    height: 22,
+                    onTap: () => {
+                        this.meta?.cancelResearch(project.nodeId);
+                        this._refreshDetail();
+                    },
+                });
+                cancelBtn.container.position.set(170, y + 18);
+                panel.addChild(cancelBtn.container);
+            } else {
+                const empty = new Text({
+                    text: 'Empty Slot',
+                    style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: COLOR_SLATE_400 }),
+                });
+                empty.position.set(18, y + 18);
+                panel.addChild(empty);
+            }
+        }
+
+        return { container, panel, width: 260, height: 180 };
+    }
+
     // ----------------------------------------------------------------
     // Interactions
     // ----------------------------------------------------------------
@@ -402,67 +445,147 @@ export class ResearchTab {
         this._refreshDetail();
     }
 
-    _onInitiateResearch() {
-        // Stub -- real research-ticking + cost deduction lands under
-        // ROADMAP P8. For now the button is a visual affordance.
+    // Called by HubScene when MetaState changes (resources or research state)
+    _refreshFromMeta() {
+        if (this._nodes) {
+            this._refreshDetail();
+        }
+    }
+
+    tick(deltaMs) {
+        if (!this._nodes) return;
+
+        const researchState = this._getCurrentResearchState();
+        if (researchState.researching) {
+            // Always refresh when something is researching (live progress + tree colors)
+            this._refreshDetail();
+
+            // Auto-complete when the research timer expires
+            const remaining = getRemainingMs(researchState.researching, Date.now());
+            if (remaining <= 0) {
+                if (this.meta && typeof this.meta.completeResearch === 'function') {
+                    this.meta.completeResearch(researchState.researching.nodeId);
+                }
+                // Force one more refresh after completion
+                this._refreshDetail();
+            }
+        }
+    }
+
+    _onResearchCta() {
+        if (!this.meta || !this._selectedId) return;
+
+        const node = getAllNodes().find(n => n.id === this._selectedId);
+        if (!node) return;
+
+        const researchState = this.meta.getResearchState();
+        const isActive = researchState.activeResearches?.some(r => r.nodeId === this._selectedId);
+
+        if (isActive) {
+            // Currently researching → Cancel (pause with progress)
+            this.meta.cancelResearch(this._selectedId);
+        } else {
+            // Not active → try to start or resume
+            const isPaused = researchState.activeResearches?.some(r => r.nodeId === this._selectedId && r.startedAt === 0);
+
+            if (isPaused) {
+                this.meta.resumeResearch(this._selectedId);
+            } else {
+                // Normal start
+                const canAfford =
+                    (this.meta.getHubResource('minerals') || 0) >= (node.cost?.minerals || 0) &&
+                    (this.meta.getHubResource('credits') || 0) >= (node.cost?.credits || 0);
+
+                if (!canAfford) return;
+
+                if (node.cost?.minerals) this.meta.setHubResource('minerals', this.meta.getHubResource('minerals') - node.cost.minerals);
+                if (node.cost?.credits)  this.meta.setHubResource('credits',  this.meta.getHubResource('credits')  - node.cost.credits);
+
+                this.meta.startResearch(this._selectedId);
+            }
+        }
+
+        this._refreshDetail();
     }
 
     _refreshDetail() {
         const n = this._nodes;
         if (!n) return;
-        const sel = NODES.find((x) => x.id === this._selectedId);
-        if (!sel) return;
-        const state = NODE_STATE[sel.state] || NODE_STATE.locked;
+
+        const researchState = this._getCurrentResearchState();
+        const view = this._selectedId ? getNodeView(this._selectedId, researchState) : null;
+        if (!view) return;
+
+        const state = NODE_STATE[view.state] || NODE_STATE.locked;
         const d = n.detail;
 
-        d.name.text = `${sel.name} Lvl ${sel.level}`;
+        d.name.text = `${view.name} Lvl ${view.level}`;
         d.status.text = state.label;
         d.status.style.fill = state.labelColor;
 
         const costParts = [];
-        if (sel.cost?.minerals) costParts.push(`${sel.cost.minerals} minerals`);
-        if (sel.cost?.credits)  costParts.push(`${sel.cost.credits} credits`);
-        if (sel.time)           costParts.push(sel.time);
+        if (view.cost?.minerals) costParts.push(`${view.cost.minerals} minerals`);
+        if (view.cost?.credits)  costParts.push(`${view.cost.credits} credits`);
+        if (view.time)           costParts.push(view.time);
         d.costLine.text = costParts.join('   \u00B7   ');
-        d.costLine.visible = sel.state !== 'completed';
+        d.costLine.visible = view.state !== 'completed';
 
-        d.effect.text = sel.effect || '';
-        const effectY = sel.state === 'researching' ? 112 : 94;
+        d.effect.text = view.effect || '';
+        const effectY = view.state === 'researching' ? 112 : 94;
         d.effect.position.set(12, effectY);
 
-        // Progress bar: only for researching state.
-        const showProgress = sel.state === 'researching';
+        // Live progress bar for researching state
+        const showProgress = view.state === 'researching';
         d.progressBg.clear();
         d.progressFill.clear();
         d.progressText.text = '';
-        if (showProgress) {
-            const pct = Math.max(0, Math.min(1, sel.progress || 0));
+        if (showProgress && this.meta) {
+            const pct = getResearchProgress(researchState.researching, Date.now());
             const barW = 236;
             const barX = 12;
             const barY = 88;
             d.progressBg.roundRect(barX, barY, barW, 6, 3).fill({ color: 0x1e293b, alpha: 0.9 });
             d.progressBg.roundRect(barX, barY, barW, 6, 3).stroke({ color: COLOR_AMBER_300, width: 1, alpha: 0.4 });
             d.progressFill.roundRect(barX, barY, barW * pct, 6, 3).fill({ color: COLOR_AMBER_300, alpha: 0.9 });
-            d.progressText.text = `${Math.round(pct * 100)}%  \u00B7  ETA ${sel.eta || '--:--:--'}`;
+
+            const remainingMs = getRemainingMs(researchState.researching, Date.now());
+            const totalSec = Math.ceil(remainingMs / 1000);
+            const min = Math.floor(totalSec / 60);
+            const sec = totalSec % 60;
+            const timeStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
+            d.progressText.text = `${Math.round(pct * 100)}%  \u00B7  ${timeStr}`;
             d.progressText.position.set(12, 96);
         }
 
-        // CTA copy + visibility per state.
-        const ctaText = {
-            available:   'INITIATE RESEARCH',
-            locked:      'PREREQUISITES LOCKED',
-            researching: 'VIEW PROGRESS',
-            completed:   'COMPLETED',
-        }[sel.state] || 'INITIATE RESEARCH';
-        d.cta.label.text = ctaText;
-        d.cta.container.visible = sel.state !== 'completed';
-        // Dim the CTA for locked nodes; the button is inert either way
-        // because the onTap handler is a stub, but the dim reads right.
-        d.cta.container.alpha = sel.state === 'locked' ? 0.45 : 1.0;
+        // CTA based on live state (support cancel/resume for multi-research)
+        let ctaText = 'INITIATE RESEARCH';
+        let ctaAction = 'initiate';
 
-        // Highlight the selected hex with an amber outer glow ring.
+        if (view.state === 'available') {
+            ctaText = 'INITIATE RESEARCH';
+            ctaAction = 'initiate';
+        } else if (view.state === 'locked') {
+            ctaText = 'PREREQUISITES LOCKED';
+            ctaAction = 'locked';
+        } else if (view.state === 'researching') {
+            ctaText = 'CANCEL RESEARCH';
+            ctaAction = 'cancel';
+        } else if (view.state === 'completed') {
+            ctaText = 'COMPLETED';
+        }
+
+        d.cta.label.text = ctaText;
+        d.cta.container.visible = view.state !== 'completed';
+        d.cta.container.alpha = (view.state === 'locked') ? 0.45 : 1.0;
+
+        // Store action for the button handler
+        d.cta._currentAction = ctaAction;
+        d.cta._currentNodeId = view.id;
+
+        // Update all node visuals based on live state
         n.nodes.forEach(({ node, hex }) => {
-            const st = NODE_STATE[node.state] || NODE_STATE.locked;
+            const liveView = getNodeView(node.id, researchState);
+            const st = NODE_STATE[liveView?.state || 'locked'] || NODE_STATE.locked;
             drawHex(hex, HEX_R, st);
             if (node.id === this._selectedId) {
                 hex.poly([
@@ -500,7 +623,7 @@ export class ResearchTab {
 
         // Compute per-node screen positions.
         const nodePos = new Map();
-        NODES.forEach((node) => {
+        getAllNodes().forEach((node) => {
             const cat = CATEGORIES.find((c) => c.id === node.category);
             const nx = cat ? cat.nx : 0.5;
             const x = treeX + nx * treeW;
@@ -544,6 +667,12 @@ export class ResearchTab {
         // Legend: bottom-left of the tree area.
         redrawHologramPanel(n.legend.panel, n.legend.width, n.legend.height, COLOR_CYAN_500);
         n.legend.container.position.set(treeX, treeY + treeH - n.legend.height - 4);
+
+        // Position research slots panel on the left
+        if (n.researchSlots) {
+            redrawHologramPanel(n.researchSlots.panel, n.researchSlots.width, n.researchSlots.height, COLOR_AMBER_500);
+            n.researchSlots.container.position.set(12, 80);
+        }
     }
 }
 
@@ -557,4 +686,9 @@ function buildHexPoints(r) {
     return pts;
 }
 
-export { NODES as RESEARCH_NODES, EDGES as RESEARCH_EDGES, CATEGORIES as RESEARCH_CATEGORIES };
+// Re-export from the pure module for any consumers that still import from here
+export {
+    RESEARCH_NODES,
+    RESEARCH_EDGES,
+    RESEARCH_CATEGORIES,
+} from '../research.js';

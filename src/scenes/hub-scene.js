@@ -62,6 +62,11 @@ import {
 import { createTab } from '../ui/Tab.js';
 import { StarMapTab } from './tabs/star-map-tab.js';
 import { ResearchTab } from './tabs/research-tab.js';
+import {
+    getAllNodes,
+    getResearchProgressForProject,
+    getRemainingMsForProject,
+} from './research.js';
 import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
 import { CrewTab } from './tabs/crew-tab.js';
 import { MarketTab } from './tabs/market-tab.js';
@@ -246,6 +251,23 @@ export class HubScene {
             this._lastIdleUiRefreshAt = now;
             this._refreshActiveIdleMissions();
         }
+
+        // Forward tick to live tabs (Research needs it for live progress)
+        const activeTab = this._nodes?.tabs?.[this._nodes.activeTabId];
+        if (activeTab && typeof activeTab.tick === 'function') {
+            activeTab.tick(deltaMs);
+        }
+
+        // Always tick Research for background progress + auto-completion
+        const researchTab = this._nodes?.tabs?.research;
+        if (researchTab && typeof researchTab.tick === 'function') {
+            researchTab.tick(deltaMs);
+        }
+
+        // Live update research projects in left column when visible
+        if (this._nodes?.researchProjects?.container.visible) {
+            this._refreshResearchProjectsPanel();
+        }
     }
 
     destroy() {
@@ -291,6 +313,7 @@ export class HubScene {
         const topBar = this._buildTopBar();
         const news = this._buildNewsTicker();
         const leftCol = this._buildActiveMissions();
+        const researchProjects = this._buildResearchProjects(); // shown when RESEARCH tab is active
         const centerPanel = this._buildCenter();
         const rightCol = this._buildFleetCrew();
         const bottomNav = this._buildBottomNav();
@@ -303,7 +326,7 @@ export class HubScene {
         // remaining tabs still render a locked stub.
         const starMapTab = new StarMapTab({ parent: centerPanel.panel });
         const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel, meta: this.meta });
-        const researchTab = new ResearchTab({ parent: centerPanel.panel });
+        const researchTab = new ResearchTab({ parent: centerPanel.panel, meta: this.meta });
         const crewTab = new CrewTab({ parent: centerPanel.panel, meta: this.meta });
         const marketTab = new MarketTab({ parent: centerPanel.panel, meta: this.meta });
         const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab, crew: crewTab, market: marketTab };
@@ -311,6 +334,7 @@ export class HubScene {
         root.addChild(topBar.container);
         root.addChild(news.container);
         root.addChild(leftCol.container);
+        root.addChild(researchProjects.container); // will be shown/hidden based on active tab
         root.addChild(centerPanel.container);
         root.addChild(rightCol.container);
         root.addChild(bottomNav.container);
@@ -321,6 +345,7 @@ export class HubScene {
             topBar,
             news,
             leftCol,
+            researchProjects, // alternative left column content
             centerPanel,
             rightCol,
             bottomNav,
@@ -330,6 +355,11 @@ export class HubScene {
         };
 
         if (this.app) this._layoutShell(this.app.screen.width, this.app.screen.height);
+
+        // Start with idle fleet visible, research projects hidden
+        researchProjects.container.visible = false;
+        leftCol.container.visible = true;
+
         this._setActiveTab('missions');
         this._refreshActiveIdleMissions();
     }
@@ -394,6 +424,17 @@ export class HubScene {
                 this._refreshActiveIdleMissions?.();
                 this._refreshMissionPlanner?.();
                 this._refreshFleetCrewPanel?.();
+
+                // Research tab reacts to resource changes and research state
+                const researchTab = this._nodes?.tabs?.research;
+                if (researchTab && typeof researchTab._refreshFromMeta === 'function') {
+                    researchTab._refreshFromMeta();
+                }
+
+                // If research projects are visible in left column, refresh them
+                if (this._nodes?.researchProjects?.container.visible) {
+                    this._refreshResearchProjectsPanel();
+                }
             });
         }
 
@@ -534,6 +575,30 @@ export class HubScene {
 
         return {
             container, panel, panelAccent: 'amber', header, counter, list, empty, emptyTitle, emptyHint, rows: [],
+        };
+    }
+
+    // Research projects view for when the RESEARCH tab is active (replaces idle fleet in left column)
+    _buildResearchProjects() {
+        const container = new Container();
+        const panel = drawTechPanel(HUB_COL_W, 420, { accent: 'amber' });
+        container.addChild(panel);
+
+        const header = panelLabel('ACTIVE RESEARCH', COLOR_AMBER_300, { size: 14 });
+        header.position.set(14, 12);
+        panel.addChild(header);
+
+        const list = new Container();
+        list.position.set(12, 40);
+        panel.addChild(list);
+
+        return {
+            container,
+            panel,
+            panelAccent: 'amber',
+            header,
+            list,
+            slots: [], // will hold the rendered research slot rows
         };
     }
 
@@ -1130,6 +1195,19 @@ export class HubScene {
             c.planner.container.visible = false;
             this._closeMissionBoard();
         }
+
+        // === Left column content swap for RESEARCH tab ===
+        const n = this._nodes;
+        const showResearchLeft = tabId === 'research';
+
+        if (n.leftCol && n.researchProjects) {
+            n.leftCol.container.visible = !showResearchLeft;
+            n.researchProjects.container.visible = showResearchLeft;
+
+            if (showResearchLeft) {
+                this._refreshResearchProjectsPanel();
+            }
+        }
     }
 
     _setDispatchMode(mode) {
@@ -1381,6 +1459,94 @@ export class HubScene {
             row.status.text = member.status.toUpperCase();
             row.status.style.fill = member.status === 'Available' ? colors.status.success : colors.status.warning;
         });
+    }
+
+    // Refresh the research projects shown in the left column when RESEARCH tab is active
+    _refreshResearchProjectsPanel() {
+        const col = this._nodes?.researchProjects;
+        if (!col || !this.meta) return;
+
+        const researchState = this.meta.getResearchState();
+        const active = researchState.activeResearches || [];
+        const maxSlots = researchState.maxConcurrent || 2;
+
+        // Clear previous content
+        col.list.removeChildren();
+
+        const rowH = 78;
+        const rowW = HUB_COL_W - 24;
+
+        for (let i = 0; i < maxSlots; i++) {
+            const project = active[i];
+            const y = i * (rowH + 6);
+
+            const slot = drawTechPanel(rowW, rowH, { accent: project ? 'amber' : 'slate' });
+            slot.position.set(0, y);
+            col.list.addChild(slot);
+
+            if (project) {
+                const node = getAllNodes().find(n => n.id === project.nodeId);
+                const title = new Text({
+                    text: `${node?.glyph || '??'} ${node ? node.name : project.nodeId}`,
+                    style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: colors.text.primary }),
+                });
+                title.position.set(10, 8);
+                slot.addChild(title);
+
+                const progress = getResearchProgressForProject(project, node, Date.now());
+                const remainingMs = getRemainingMsForProject(project, node, Date.now());
+                const totalSec = Math.ceil(remainingMs / 1000);
+                const min = Math.floor(totalSec / 60);
+                const sec = totalSec % 60;
+                const timeStr = `${min}m ${sec}s`;
+
+                const progressText = new Text({
+                    text: `${Math.round(progress * 100)}%  ·  ${timeStr}`,
+                    style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.status.warning }),
+                });
+                progressText.position.set(10, 28);
+                slot.addChild(progressText);
+
+                const cancel = buildSimpleButton({
+                    text: 'CANCEL',
+                    width: 70,
+                    height: 22,
+                    accent: 'rose',
+                    onTap: () => {
+                        this.meta.cancelResearch(project.nodeId);
+                        this._refreshResearchProjectsPanel();
+                        // Also refresh the research tab if open
+                        this._nodes?.tabs?.research?._refreshFromMeta?.();
+                    },
+                });
+                cancel.container.position.set(rowW - 80, 42);
+                slot.addChild(cancel.container);
+
+                // Optional: Resume button if paused (startedAt === 0)
+                if (project.startedAt === 0) {
+                    const resume = buildSimpleButton({
+                        text: 'RESUME',
+                        width: 70,
+                        height: 22,
+                        accent: 'cyan',
+                        onTap: () => {
+                            this.meta.resumeResearch(project.nodeId);
+                            this._refreshResearchProjectsPanel();
+                            this._nodes?.tabs?.research?._refreshFromMeta?.();
+                        },
+                    });
+                    resume.container.position.set(rowW - 160, 42);
+                    slot.addChild(resume.container);
+                }
+            } else {
+                const empty = new Text({
+                    text: 'Empty Research Slot',
+                    style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: colors.text.muted }),
+                });
+                empty.position.set(10, 28);
+                slot.addChild(empty);
+            }
+        }
     }
 
     _refreshActiveIdleMissions() {

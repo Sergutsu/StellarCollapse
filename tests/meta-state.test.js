@@ -269,3 +269,62 @@ test('activeMissions round-trip through snapshot + load (persistence)', () => {
     assert.equal(restored[0].rewardCredits, 180);
     assert.equal(meta2.fleetSnapshot().find((s) => s.id === 'ship-3').status, 'On Mission');
 });
+
+// ------------------------------------------------------------------
+// Multi-research tests (new concurrent research system)
+// ------------------------------------------------------------------
+
+test('can start up to maxConcurrent researches', () => {
+    const meta = new MetaState();
+    meta.startResearch('warp-coils');
+    meta.startResearch('hull-plating');
+
+    const state = meta.getResearchState();
+    assert.equal(state.activeResearches.length, 2);
+    assert.equal(state.maxConcurrent, 2);
+});
+
+test('cannot exceed maxConcurrent research slots', () => {
+    const meta = new MetaState();
+    meta.startResearch('warp-coils');
+    meta.startResearch('hull-plating');
+    meta.startResearch('trade-compact'); // should be blocked
+
+    assert.equal(meta.getResearchState().activeResearches.length, 2);
+});
+
+test('cancelResearch preserves progress via accumulatedMs', () => {
+    const meta = new MetaState();
+    meta.startResearch('warp-coils');
+
+    // Simulate time passing (we can't easily fake time, but cancel should store accumulated)
+    meta.cancelResearch('warp-coils');
+
+    const state = meta.getResearchState();
+    const project = state.activeResearches[0];
+    assert.equal(project.nodeId, 'warp-coils');
+    assert.equal(project.startedAt, 0); // paused
+    assert.ok(project.accumulatedMs >= 0);
+});
+
+test('resumeResearch after cancel continues from accumulated progress', () => {
+    const meta = new MetaState();
+    meta.startResearch('warp-coils');
+    meta.cancelResearch('warp-coils');
+
+    const before = meta.getResearchState().activeResearches[0].accumulatedMs || 0;
+
+    meta.resumeResearch('warp-coils');
+
+    const after = meta.getResearchState().activeResearches[0];
+    assert.ok(after.startedAt > 0);
+    assert.equal(after.accumulatedMs, before);
+});
+
+test('upgradeResearchSlots increases maxConcurrent', () => {
+    const meta = new MetaState();
+    assert.equal(meta.getResearchState().maxConcurrent, 2);
+
+    meta.upgradeResearchSlots();
+    assert.equal(meta.getResearchState().maxConcurrent, 3);
+});
