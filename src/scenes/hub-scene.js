@@ -1798,6 +1798,7 @@ export class HubScene {
         const centerW = Math.max(HUB_MIN_CENTER_W, rightX - centerX - HUB_GUTTER);
 
         this._layoutColumnPanel(n.leftCol, leftX, columnsY, HUB_COL_W, columnsH);
+        this._layoutColumnPanel(n.researchProjects, leftX, columnsY, HUB_COL_W, columnsH);
         this._layoutColumnPanel(n.rightCol, rightX, columnsY, HUB_COL_W, columnsH);
         this._layoutCenterPanel(n.centerPanel, centerX, columnsY, centerW, columnsH);
 
