@@ -23,7 +23,7 @@ import {
     RESEARCH_CATEGORIES as CATEGORIES,
     RESEARCH_NODES as NODES,
     RESEARCH_EDGES as EDGES,
-} from '../research.js';
+} from '../../research.js';
 
 const COLOR_CYAN_300 = 0x67e8f9;
 const COLOR_CYAN_500 = 0x06b6d4;
@@ -691,4 +691,4 @@ export {
     RESEARCH_NODES,
     RESEARCH_EDGES,
     RESEARCH_CATEGORIES,
-} from '../research.js';
+} from '../../research.js';

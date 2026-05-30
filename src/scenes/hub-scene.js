@@ -66,7 +66,7 @@ import {
     getAllNodes,
     getResearchProgressForProject,
     getRemainingMsForProject,
-} from './research.js';
+} from '../research.js';
 import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
 import { CrewTab } from './tabs/crew-tab.js';
 import { MarketTab } from './tabs/market-tab.js';
@@ -79,6 +79,7 @@ const PANEL_BG_TOP = colors.bg.panel;
 const PANEL_BG_BOT = colors.bg.panelAlt;
 
 const COLOR_CYAN_300 = colors.text.accent;
+const COLOR_AMBER_300 = colors.status.warning;
 const COLOR_WHITE = colors.text.white;
 
 // Hub shell layout constants. The hub fills the viewport: top bar +
@@ -1197,7 +1198,6 @@ export class HubScene {
         }
 
         // === Left column content swap for RESEARCH tab ===
-        const n = this._nodes;
         const showResearchLeft = tabId === 'research';
 
         if (n.leftCol && n.researchProjects) {
