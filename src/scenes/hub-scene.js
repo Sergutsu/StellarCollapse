@@ -1198,7 +1198,6 @@ export class HubScene {
         }
 
         // === Left column content swap for RESEARCH tab ===
-        const n = this._nodes;
         const showResearchLeft = tabId === 'research';
 
         if (n.leftCol && n.researchProjects) {
