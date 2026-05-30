@@ -8,9 +8,8 @@
 // screen applying mission rewards) but no gameplay module calls them
 // yet -- that wiring lands in P1.
 //
-// Non-goals for P3: idle ticking (P4), building queues / upgrades (P5),
-// research / crew levelling loops (P6+). Shape is permissive enough to
-// extend without a migration when those phases land.
+// P4 (idle dispatch) added activeMissions + lastTickAt for persistent
+// wall-time autonomous missions. Shape remains additive for future phases.
 
 import { Emitter } from './emitter.js';
 
@@ -76,6 +75,9 @@ const STARTER_PROFILE = Object.freeze({
     ]),
     reputationTier: 1,
     completedMissionIds: Object.freeze([]),
+    // P4: persistent idle dispatches (source of truth for Hub left column)
+    activeMissions: Object.freeze([]),
+    lastTickAt: 0,
 });
 
 export function starterProfile() {
@@ -88,6 +90,8 @@ export function starterProfile() {
         crew: STARTER_PROFILE.crew.map((c) => ({ ...c })),
         reputationTier: STARTER_PROFILE.reputationTier,
         completedMissionIds: [...STARTER_PROFILE.completedMissionIds],
+        activeMissions: [],
+        lastTickAt: Date.now(),
     };
 }
 
@@ -122,6 +126,16 @@ export class MetaState {
     fleetSnapshot() { return this._data.fleet.map((s) => ({ ...s })); }
     crewSnapshot()  { return this._data.crew.map((c)  => ({ ...c })); }
 
+    // P4: defensive copy of currently dispatched idle jobs (the live source
+    // for the hub's left column). Jobs are plain objects with baked rewards
+    // and absolute endsAt times.
+    activeMissionsSnapshot() {
+        return (this._data.activeMissions || []).map((j) => ({
+            ...j,
+            rewardOres: j && j.rewardOres ? { ...j.rewardOres } : { common: [], rare: [] },
+        }));
+    }
+
     // Full snapshot for Persistence.save(). Includes the schema version
     // so loaders can refuse incompatible blobs instead of corrupting.
     snapshot() {
@@ -134,6 +148,11 @@ export class MetaState {
             crew: this._data.crew.map((c) => ({ ...c })),
             reputationTier: this._data.reputationTier,
             completedMissionIds: this._data.completedMissionIds.slice(),
+            activeMissions: (this._data.activeMissions || []).map((j) => ({
+                ...j,
+                rewardOres: j && j.rewardOres ? { ...j.rewardOres } : { common: [], rare: [] },
+            })),
+            lastTickAt: this._data.lastTickAt || Date.now(),
         };
     }
 
@@ -283,6 +302,83 @@ export class MetaState {
         this._changed('ship-remove', { id });
     }
 
+    // ---- P4 active idle missions (persistent dispatch loop) ------------
+
+    addActiveMission(job = {}) {
+        if (!job || !job.id || !job.shipId || !job.crewId) return;
+        if (this._data.activeMissions.some((j) => j.id === job.id)) return;
+
+        const normalized = {
+            id: String(job.id),
+            offerId: job.offerId || job.missionId || null,
+            missionId: job.missionId || null,
+            title: String(job.title || 'Idle Assignment'),
+            type: job.type || 'Mining',
+            dispatchMode: job.dispatchMode === 'manual' ? 'manual' : 'idle',
+            risk: Number.isFinite(job.risk) ? job.risk : 1,
+            rewardCredits: Math.max(0, Math.floor(job.rewardCredits || 0)),
+            rewardOres: {
+                common: Array.isArray(job.rewardOres?.common) ? job.rewardOres.common.slice() : [],
+                rare: Array.isArray(job.rewardOres?.rare) ? job.rewardOres.rare.slice() : [],
+            },
+            shipId: job.shipId,
+            shipName: job.shipName || job.shipId,
+            crewId: job.crewId,
+            crewName: job.crewName || job.crewId,
+            startedAt: Number.isFinite(job.startedAt) ? job.startedAt : Date.now(),
+            etaSec: Math.max(1, Math.floor(job.etaSec || 60)),
+            endsAt: Number.isFinite(job.endsAt) ? job.endsAt : (Number.isFinite(job.startedAt) ? job.startedAt : Date.now()) + Math.max(1, Math.floor(job.etaSec || 60)) * 1000,
+            claimed: false,
+        };
+
+        this._data.activeMissions = [...(this._data.activeMissions || []), normalized];
+        // Self-contained: the act of dispatching also marks the assets unavailable
+        this.setShipStatus(normalized.shipId, 'On Mission');
+        this.setCrewStatus(normalized.crewId, 'On Mission');
+        this._touchLastTick();
+        this._changed('active-mission-add', { id: normalized.id });
+    }
+
+    abortActiveMission(id, { partialCredits = 0 } = {}) {
+        const idx = (this._data.activeMissions || []).findIndex((j) => j.id === id);
+        if (idx < 0) return;
+        const job = this._data.activeMissions[idx];
+
+        if (partialCredits > 0) {
+            this.addCredits(partialCredits);
+        }
+        this.setShipStatus(job.shipId, 'Standby');
+        this.setCrewStatus(job.crewId, 'Available');
+
+        this._data.activeMissions = this._data.activeMissions.filter((j) => j.id !== id);
+        this._touchLastTick();
+        this._changed('active-mission-abort', { id, partialCredits });
+    }
+
+    claimActiveMission(id, { credits = 0, ores = {} } = {}) {
+        const idx = (this._data.activeMissions || []).findIndex((j) => j.id === id);
+        if (idx < 0) return;
+        const job = this._data.activeMissions[idx];
+
+        if (credits > 0) {
+            this.addCredits(credits);
+        }
+        // Apply ores using the same safe pattern as applyMissionReward
+        for (const color of ORE_IDS) {
+            const n = ores[color];
+            if (n) {
+                this._data.ores[color] = Math.max(0, Math.floor(this._data.ores[color] + n));
+            }
+        }
+
+        this.setShipStatus(job.shipId, 'Standby');
+        this.setCrewStatus(job.crewId, 'Available');
+
+        this._data.activeMissions = this._data.activeMissions.filter((j) => j.id !== id);
+        this._touchLastTick();
+        this._changed('active-mission-claim', { id, credits, ores });
+    }
+
     setReputationTier(n) {
         const v = Math.max(1, Math.floor(n));
         if (v === this._data.reputationTier) return;
@@ -294,6 +390,10 @@ export class MetaState {
 
     _changed(kind, detail) {
         this._emitter.emit('change', { kind, detail });
+    }
+
+    _touchLastTick() {
+        this._data.lastTickAt = Date.now();
     }
 
     // Shallow-merge an incoming saved profile onto a fresh starter so
@@ -362,6 +462,36 @@ export class MetaState {
         }
         if (Array.isArray(incoming.completedMissionIds)) {
             base.completedMissionIds = incoming.completedMissionIds.filter((id) => typeof id === 'string');
+        }
+        if (Array.isArray(incoming.activeMissions)) {
+            // Accept any job-like objects; Hub + idle-clock treat unknown fields defensively.
+            base.activeMissions = incoming.activeMissions
+                .filter((j) => j && typeof j.id === 'string' && j.shipId && j.crewId)
+                .map((j) => ({
+                    id: String(j.id),
+                    offerId: j.offerId || j.missionId || null,
+                    missionId: j.missionId || null,
+                    title: String(j.title || 'Idle Assignment'),
+                    type: j.type || 'Mining',
+                    dispatchMode: j.dispatchMode === 'manual' ? 'manual' : 'idle',
+                    risk: Number.isFinite(j.risk) ? j.risk : 1,
+                    rewardCredits: Math.max(0, Math.floor(j.rewardCredits || 0)),
+                    rewardOres: {
+                        common: Array.isArray(j.rewardOres?.common) ? j.rewardOres.common.filter((x) => typeof x === 'string') : [],
+                        rare: Array.isArray(j.rewardOres?.rare) ? j.rewardOres.rare.filter((x) => typeof x === 'string') : [],
+                    },
+                    shipId: j.shipId,
+                    shipName: j.shipName || j.shipId,
+                    crewId: j.crewId,
+                    crewName: j.crewName || j.crewId,
+                    startedAt: Number.isFinite(j.startedAt) ? j.startedAt : Date.now(),
+                    etaSec: Math.max(1, Math.floor(j.etaSec || 60)),
+                    endsAt: Number.isFinite(j.endsAt) ? j.endsAt : Date.now() + 60000,
+                    claimed: !!j.claimed,
+                }));
+        }
+        if (Number.isFinite(incoming.lastTickAt)) {
+            base.lastTickAt = incoming.lastTickAt;
         }
         return base;
     }

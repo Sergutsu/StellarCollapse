@@ -2,7 +2,7 @@
 
 > Three buckets only: **Now**, **Next**, **Later**. Anything in Now has a branch or PR open. Anything in Later is an idea, not a commitment.
 >
-> Updated at phase boundaries — not every PR. Last bump: hub wireframe pivot (FLEET & CREW on the right, MISSION BOARD modal with narrative mission cards, rename to Stellar Venture). See [ADR-0006](adr/0006-rename-stellar-venture.md) + [ADR-0007](adr/0007-hub-wireframe-pivot.md).
+> Updated at phase boundaries — not every PR. Last bump: P4 complete — persistent idle dispatch loop (real `IdleClock` + MetaState-backed active missions, reload + offline survival, CLAIM/RETURN flow).
 
 ---
 
@@ -14,7 +14,7 @@
 | P1 | Resource ledger: ores tallied per run, credits awarded, results screen | **Shipped** |
 | P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSION BOARD modal with narrative mission cards (mapped 1:1 to the 9 tier archetypes), Galactic News ticker; replaces today's transitional mission-select entirely | **Shipped** |
 | P3 | Persistent meta-state (`MetaState`, `Persistence`) + rep-tier gates on narrative mission cards | **Shipped** (mutation hooks wired in P1) |
-| P4 | Active-missions idle tick (`IdleClock`, `MissionRegistry`): left column ticks ETAs, completion → results → hub with rewards; FLEET & CREW live updates (hull damage, crew injured) on return | **In progress** (idle dispatch UI shipped; real `IdleClock` tick + completion-to-results flow still pending) |
+| P4 | Active-missions idle tick (`IdleClock`): persistent wall-time dispatches survive reload + offline; left column shows live ETAs + CLAIM/RETURN; assets free on completion/abort; rewards (credits + ores) granted via MetaState | **Shipped** (full persistent idle loop + pure clock + MetaState integration) |
 | P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue + available-upgrade list (moved from the earlier BASE COMMAND right-column concept per [ADR-0007](adr/0007-hub-wireframe-pivot.md)) | **Scaffolding shipped** (tab scene + static diorama + stub build queue; real `BuildQueue` MetaState integration later) |
 | P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | **RESEARCH scaffolding shipped** (tab scene + static tech tree; real research ticking later). CREW + MARKET still later |
 | P7 | STAR MAP tab: sector exploration, mission discovery tied to the map | **Scaffolding shipped** (tab scene + sector pins + SYSTEM DATA panel; real warp-cell dispatch later) |

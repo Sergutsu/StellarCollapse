@@ -111,13 +111,20 @@ Bomb blast:    cells × 25 × level
 No dependencies, no build. ES modules need to be loaded over HTTP (not `file://`), so run a tiny static server:
 
 ```bash
-git clone https://github.com/Sergutsu/StellarCollapse.git
-cd StellarCollapse
-python3 -m http.server 8000
+# From the project root (works on Windows, macOS, Linux)
+npm run serve
+# then open http://localhost:3000
+```
+
+The `serve` script uses `npx -y serve .` (reliable on Windows/PowerShell without Python).
+
+Alternative (if you prefer Python):
+```bash
+python -m http.server 8000   # or python3 on some systems
 # then open http://localhost:8000
 ```
 
-Or with Node: `npx serve .` or any other static server.
+Or directly: `npx -y serve .`
 
 ### Running tests
 
