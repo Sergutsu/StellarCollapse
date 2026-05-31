@@ -114,7 +114,7 @@ const HUB_NEWS_POOL = Object.freeze([
 const HUB_TABS = Object.freeze([
     { id: 'star-map',   label: 'STAR MAP',      locked: false, colorKey: 'starMap' },
     { id: 'missions',   label: 'MISSIONS',      locked: false, colorKey: 'missions' },
-    { id: 'build',      label: 'BUILD/UPGRADE', locked: false, colorKey: 'build' },
+    { id: 'build',      label: 'FLEET UPGRADE', locked: false, colorKey: 'build' },
     { id: 'research',   label: 'RESEARCH',      locked: false, colorKey: 'research' },
     { id: 'crew',       label: 'CREW',          locked: false, colorKey: 'crew' },
     { id: 'market',     label: 'MARKET',        locked: false, colorKey: 'market' },
@@ -1162,7 +1162,7 @@ export class HubScene {
         this._redrawTabHighlights(tabId);
         // Center panel contents change per tab.
         //   MISSIONS  -> mission-board modal + open-board button.
-        //   STAR MAP / BUILD / RESEARCH -> extracted tab scene.
+        //   STAR MAP / FLEET UPGRADE / RESEARCH -> extracted tab scene.
         //   any other -> locked stub text (until that tab is extracted).
         const c = n.centerPanel;
         const activeTab = HUB_TABS.find((t) => t.id === tabId) || HUB_TABS[1];
@@ -1197,11 +1197,14 @@ export class HubScene {
             this._closeMissionBoard();
         }
 
-        // === Left column content swap for RESEARCH tab ===
+        // Left-column content is contextual: idle dispatches are shown only
+        // on MISSIONS, and active research is shown only on RESEARCH. Other
+        // tabs keep the left bay clear so their center content can breathe.
+        const showIdleLeft = tabId === 'missions';
         const showResearchLeft = tabId === 'research';
 
         if (n.leftCol && n.researchProjects) {
-            n.leftCol.container.visible = !showResearchLeft;
+            n.leftCol.container.visible = showIdleLeft;
             n.researchProjects.container.visible = showResearchLeft;
 
             if (showResearchLeft) {

@@ -1,16 +1,13 @@
-// BuildUpgradeTab -- ship construction, upgrade & disassembly. Mounts
-// into the hub center panel when BUILD/UPGRADE tab is clicked.
-//
-// Left: current fleet list with hull bars + UPGRADE/DISASSEMBLE actions.
-// Right: ship construction menu (blueprints that cost minerals).
+// FleetUpgradeTab -- fleet construction, servicing, and mother-ship
+// upgrade overview. Mounts into the hub center panel when FLEET UPGRADE
+// tab is clicked.
 
-import { Container, Graphics, Rectangle, Text, TextStyle } from 'pixi.js';
+import { Container, Graphics, Rectangle } from 'pixi.js';
 import {
     drawHologramPanel,
     redrawHologramPanel,
     panelLabel,
     buildSimpleButton,
-    buildStartButton,
 } from '../../pixi-ui-kit.js';
 
 const COLOR_CYAN_300 = 0x67e8f9;
@@ -20,6 +17,7 @@ const COLOR_SLATE_400 = 0x94a3b8;
 const COLOR_AMBER_300 = 0xfcd34d;
 const COLOR_EMERALD_300 = 0x6ee7b7;
 const COLOR_ROSE_300 = 0xfda4af;
+const COLOR_PURPLE_300 = 0xc084fc;
 
 const CLASS_COLORS = {
     Scout:     0x67e8f9,
@@ -33,16 +31,27 @@ const CLASS_COLORS = {
 
 // Ship blueprints available for construction.
 const BLUEPRINTS = Object.freeze([
-    { className: 'Scout',     baseName: 'Scout',     cost: 400,  desc: 'Fast recon vessel. Low hull but quick missions.' },
+    { className: 'Scout',     baseName: 'Scout',      cost: 400,  desc: 'Fast recon vessel. Low hull but quick missions.' },
     { className: 'Defense',   baseName: 'Defender',   cost: 800,  desc: 'Armored patrol ship. Strong in combat missions.' },
     { className: 'Resource',  baseName: 'Harvester',  cost: 600,  desc: 'Mining vessel. Bonus mineral yield on resource missions.' },
     { className: 'Terraform', baseName: 'Terraformer', cost: 1000, desc: 'Planetary engineering. Enables terraform missions.' },
-    { className: 'Trade',     baseName: 'Trader',     cost: 500,  desc: 'Cargo hauler. Extra credits from trade missions.' },
-    { className: 'Frigate',   baseName: 'Frigate',    cost: 1200, desc: 'Heavy warship. Highest hull, strongest combat.' },
+    { className: 'Trade',     baseName: 'Trader',      cost: 500,  desc: 'Cargo hauler. Extra credits from trade missions.' },
+    { className: 'Frigate',   baseName: 'Frigate',     cost: 1200, desc: 'Heavy warship. Highest hull, strongest combat.' },
 ]);
 
 const REPAIR_COST_PER_POINT = 3; // minerals per hull point
 const DISASSEMBLE_RETURN = 0.4;  // fraction of build cost returned as minerals
+const BASE_FLEET_SLOTS = 10;
+
+// Mother-ship upgrade readouts driven by tech-tree completion. The tab
+// shows these as the path toward larger fleet berths without inventing a
+// second upgrade currency outside the research tree.
+const FLEET_SLOT_TECH_UPGRADES = Object.freeze([
+    { nodeId: 'fuel-cell', label: 'Compact Fuel Cell', slots: 2, desc: 'Auxiliary hangar power for two more fleet berths.' },
+    { nodeId: 'warp-coils', label: 'Warp Coils', slots: 2, desc: 'Reinforced jump cradles stabilize two extra berths.' },
+    { nodeId: 'habitat-extension', label: 'Habitat Extension', slots: 1, desc: 'Crew support expansion unlocks one command berth.' },
+    { nodeId: 'shield-array', label: 'Shield Array', slots: 1, desc: 'Shielded docking lane opens one guarded berth.' },
+]);
 
 // Research lab expansion (increases concurrent research slots)
 const RESEARCH_LAB_UPGRADE = {
@@ -64,6 +73,7 @@ export class BuildUpgradeTab {
         this._nodes = null;
         this._selectedShipId = null;
         this._shipCounter = 0;
+        this._activeSubTab = 'fleet';
     }
 
     get visible() { return !!this.root.visible; }
@@ -93,25 +103,66 @@ export class BuildUpgradeTab {
     }
 
     _build() {
-        const title = panelLabel('BUILD / UPGRADE  ·  SHIPYARD', COLOR_AMBER_300, { size: 14, weight: '800' });
+        const title = panelLabel('FLEET UPGRADE  ·  SHIPYARD', COLOR_AMBER_300, { size: 14, weight: '800' });
         title.style.letterSpacing = 2;
         title.position.set(16, 12);
         this.root.addChild(title);
 
-        // Left pane: current fleet.
-        const fleetPanel = drawHologramPanel(240, 400, { accent: COLOR_CYAN_500 });
-        this.root.addChild(fleetPanel);
+        const fleetTab = buildSimpleButton({
+            text: 'AVAILABLE FLEET',
+            width: 142,
+            height: 28,
+            accent: 'cyan',
+            onTap: () => this._setSubTab('fleet'),
+        });
+        const motherShipTab = buildSimpleButton({
+            text: 'MOTHER-SHIP',
+            width: 128,
+            height: 28,
+            accent: 'magenta',
+            onTap: () => this._setSubTab('motherShip'),
+        });
+        this.root.addChild(fleetTab.container, motherShipTab.container);
 
+        const contentPanel = drawHologramPanel(620, 400, { accent: COLOR_CYAN_500 });
+        this.root.addChild(contentPanel);
+
+        const visualPanel = drawHologramPanel(300, 400, { accent: COLOR_PURPLE_300 });
+        this.root.addChild(visualPanel);
+
+        const fleetContent = new Container();
+        contentPanel.addChild(fleetContent);
+        const motherShipContent = new Container();
+        contentPanel.addChild(motherShipContent);
+
+        const visualContent = this._buildVisualContent(visualPanel);
+        const fleetNodes = this._buildFleetContent(fleetContent);
+        const motherShipNodes = this._buildMotherShipContent(motherShipContent);
+
+        this._nodes = {
+            title,
+            fleetTab,
+            motherShipTab,
+            contentPanel,
+            visualPanel,
+            fleetContent,
+            motherShipContent,
+            visualContent,
+            ...fleetNodes,
+            ...motherShipNodes,
+        };
+    }
+
+    _buildFleetContent(parent) {
         const fleetHeader = panelLabel('CURRENT FLEET', COLOR_CYAN_300, { size: 11 });
-        fleetHeader.position.set(12, 9);
-        fleetPanel.addChild(fleetHeader);
+        fleetHeader.position.set(12, 12);
+        parent.addChild(fleetHeader);
 
         const fleetList = new Container();
-        fleetPanel.addChild(fleetList);
+        parent.addChild(fleetList);
 
-        // Ship detail pane (selected ship info + actions).
-        const detailPanel = drawHologramPanel(260, 160, { accent: COLOR_CYAN_500 });
-        this.root.addChild(detailPanel);
+        const detailPanel = drawHologramPanel(260, 132, { accent: COLOR_CYAN_500 });
+        parent.addChild(detailPanel);
 
         const detailName = panelLabel('', COLOR_SLATE_200, { size: 13, weight: '800' });
         detailName.position.set(12, 12);
@@ -132,7 +183,7 @@ export class BuildUpgradeTab {
         const repairBtn = buildSimpleButton({
             text: 'REPAIR',
             width: 80,
-            height: 26,
+            height: 24,
             accent: 'green',
             onTap: () => this._repairShip(),
         });
@@ -143,20 +194,18 @@ export class BuildUpgradeTab {
 
         const disassembleBtn = buildSimpleButton({
             text: 'DISASSEMBLE',
-            width: 100,
-            height: 26,
+            width: 104,
+            height: 24,
             accent: 'amber',
             onTap: () => this._disassembleShip(),
         });
         detailPanel.addChild(disassembleBtn.container);
 
-        // Right pane: blueprints for building.
-        const buildPanel = drawHologramPanel(260, 300, { accent: 0x14532d });
-        this.root.addChild(buildPanel);
-
         const buildHeader = panelLabel('BUILD NEW SHIP', COLOR_EMERALD_300, { size: 11, weight: '700' });
-        buildHeader.position.set(12, 9);
-        buildPanel.addChild(buildHeader);
+        parent.addChild(buildHeader);
+
+        const capacityText = panelLabel('', COLOR_SLATE_400, { size: 10 });
+        parent.addChild(capacityText);
 
         const blueprintCards = BLUEPRINTS.map((bp) => {
             const card = new Container();
@@ -188,13 +237,59 @@ export class BuildUpgradeTab {
             });
             card.addChild(buildBtn.container);
 
-            buildPanel.addChild(card);
+            parent.addChild(card);
             return { card, bg, name, desc, cost, buildBtn, bp };
         });
 
-        // Research Lab upgrade card (simple for now)
+        return {
+            fleetHeader,
+            fleetList,
+            detailPanel,
+            detailName,
+            detailClass,
+            detailHull,
+            detailStatus,
+            repairBtn,
+            repairCost,
+            disassembleBtn,
+            buildHeader,
+            capacityText,
+            blueprintCards,
+        };
+    }
+
+    _buildMotherShipContent(parent) {
+        const motherShipHeader = panelLabel('MOTHER-SHIP UPGRADES', COLOR_PURPLE_300, { size: 11, weight: '700' });
+        motherShipHeader.position.set(12, 12);
+        parent.addChild(motherShipHeader);
+
+        const berthSummary = panelLabel('', COLOR_SLATE_200, { size: 12 });
+        berthSummary.position.set(12, 34);
+        parent.addChild(berthSummary);
+
+        const berthDetail = panelLabel('', COLOR_SLATE_400, { size: 10 });
+        berthDetail.position.set(12, 52);
+        parent.addChild(berthDetail);
+
+        const upgradeCards = FLEET_SLOT_TECH_UPGRADES.map((upgrade) => {
+            const card = new Container();
+            const bg = new Graphics();
+            card.addChild(bg);
+            const name = panelLabel(upgrade.label, COLOR_SLATE_200, { size: 11, weight: '700' });
+            name.position.set(10, 7);
+            card.addChild(name);
+            const status = panelLabel('', COLOR_SLATE_400, { size: 9, weight: '700' });
+            status.position.set(10, 24);
+            card.addChild(status);
+            const desc = panelLabel(upgrade.desc, COLOR_SLATE_400, { size: 9 });
+            desc.position.set(10, 39);
+            card.addChild(desc);
+            parent.addChild(card);
+            return { card, bg, name, status, desc, upgrade };
+        });
+
         const researchLabPanel = drawHologramPanel(260, 90, { accent: COLOR_AMBER_300 });
-        this.root.addChild(researchLabPanel);
+        parent.addChild(researchLabPanel);
 
         const researchLabHeader = panelLabel('RESEARCH LAB', COLOR_AMBER_300, { size: 10, weight: '700' });
         researchLabHeader.position.set(12, 6);
@@ -217,15 +312,58 @@ export class BuildUpgradeTab {
         });
         researchLabPanel.addChild(researchLabBtn.container);
 
-        this._nodes = {
-            title,
-            fleetPanel, fleetHeader, fleetList,
-            detailPanel, detailName, detailClass, detailHull, detailStatus,
-            repairBtn, repairCost, disassembleBtn,
-            researchLabPanel, researchLabHeader, researchLabDesc, researchLabCost, researchLabBtn,
-            blueprintCards, buildPanel,
-            buildPanel, buildHeader, blueprintCards,
+        return {
+            motherShipHeader,
+            berthSummary,
+            berthDetail,
+            upgradeCards,
+            researchLabPanel,
+            researchLabHeader,
+            researchLabDesc,
+            researchLabCost,
+            researchLabBtn,
         };
+    }
+
+    _buildVisualContent(parent) {
+        const header = panelLabel('MOTHER-SHIP + FLEET', COLOR_PURPLE_300, { size: 11, weight: '700' });
+        header.position.set(12, 12);
+        parent.addChild(header);
+
+        const shipGraphic = new Graphics();
+        parent.addChild(shipGraphic);
+
+        const shipName = panelLabel('SV STARWARDEN', COLOR_SLATE_200, { size: 12, weight: '800' });
+        parent.addChild(shipName);
+
+        const shipStats = panelLabel('', COLOR_SLATE_400, { size: 10 });
+        parent.addChild(shipStats);
+
+        const slotsLabel = panelLabel('FLEET BERTHS', COLOR_CYAN_300, { size: 10 });
+        parent.addChild(slotsLabel);
+
+        const slotNodes = Array.from({ length: 20 }, () => {
+            const slot = new Graphics();
+            parent.addChild(slot);
+            return slot;
+        });
+
+        const fleetText = panelLabel('', COLOR_SLATE_400, { size: 9 });
+        parent.addChild(fleetText);
+
+        return { header, shipGraphic, shipName, shipStats, slotsLabel, slotNodes, fleetText };
+    }
+
+    _setSubTab(tabId) {
+        this._activeSubTab = tabId === 'motherShip' ? 'motherShip' : 'fleet';
+        this._refresh();
+    }
+
+    _fleetSlotLimit() {
+        const completed = this.meta?.getResearchState?.().completed || [];
+        return BASE_FLEET_SLOTS + FLEET_SLOT_TECH_UPGRADES.reduce((sum, upgrade) => (
+            completed.includes(upgrade.nodeId) ? sum + upgrade.slots : sum
+        ), 0);
     }
 
     _refresh() {
@@ -233,8 +371,22 @@ export class BuildUpgradeTab {
         const n = this._nodes;
         const fleet = this.meta?.fleetSnapshot() || [];
         const minerals = this.meta?.getHubResource('minerals') ?? 0;
+        const credits = this.meta?.getHubResource('credits') ?? 0;
+        const slotLimit = this._fleetSlotLimit();
+        const hasFreeBerth = fleet.length < slotLimit;
 
-        // Rebuild fleet list.
+        n.fleetContent.visible = this._activeSubTab === 'fleet';
+        n.motherShipContent.visible = this._activeSubTab === 'motherShip';
+        n.fleetTab.container.alpha = this._activeSubTab === 'fleet' ? 1 : 0.62;
+        n.motherShipTab.container.alpha = this._activeSubTab === 'motherShip' ? 1 : 0.62;
+
+        this._refreshFleetList(fleet, minerals, hasFreeBerth, slotLimit);
+        this._refreshMotherShip(fleet, minerals, credits, slotLimit);
+        this._refreshVisual(fleet, slotLimit);
+    }
+
+    _refreshFleetList(fleet, minerals, hasFreeBerth, slotLimit) {
+        const n = this._nodes;
         n.fleetList.removeChildren();
         fleet.forEach((s, i) => {
             const row = new Container();
@@ -256,7 +408,6 @@ export class BuildUpgradeTab {
             classLabel.position.set(10, 17);
             row.addChild(classLabel);
 
-            // Hull bar.
             const hullBg = new Graphics();
             hullBg.roundRect(120, 20, 80, 8, 3).fill({ color: 0x1e293b });
             row.addChild(hullBg);
@@ -275,13 +426,12 @@ export class BuildUpgradeTab {
             statusLabel.position.set(120, 5);
             row.addChild(statusLabel);
 
-            row.position.set(12, 30 + i * 42);
+            row.position.set(12, 34 + i * 42);
             row.hitArea = new Rectangle(0, 0, 216, 38);
             row.on('pointertap', () => { this._selectedShipId = s.id; this._refresh(); });
             n.fleetList.addChild(row);
         });
 
-        // Detail panel.
         const selected = fleet.find((s) => s.id === this._selectedShipId);
         if (!selected && fleet.length > 0) {
             this._selectedShipId = fleet[0].id;
@@ -302,24 +452,35 @@ export class BuildUpgradeTab {
             n.repairCost.visible = damage > 0 && selected.status === 'Standby';
             n.repairBtn.container.alpha = minerals >= cost ? 1 : 0.4;
             n.repairBtn.container.eventMode = minerals >= cost && damage > 0 ? 'static' : 'none';
-
             n.disassembleBtn.container.visible = selected.status === 'Standby';
         } else {
             n.detailPanel.visible = false;
         }
 
-        // Update blueprint affordance.
+        n.capacityText.text = `Fleet berths: ${fleet.length}/${slotLimit}${hasFreeBerth ? '' : ' · capacity full'}`;
         n.blueprintCards.forEach((entry) => {
-            const canBuild = minerals >= entry.bp.cost;
+            const canBuild = minerals >= entry.bp.cost && hasFreeBerth;
             entry.buildBtn.container.alpha = canBuild ? 1 : 0.4;
             entry.buildBtn.container.eventMode = canBuild ? 'static' : 'none';
         });
+    }
 
-        // Research Lab card
+    _refreshMotherShip(fleet, minerals, credits, slotLimit) {
+        const n = this._nodes;
+        const completed = this.meta?.getResearchState?.().completed || [];
+        n.berthSummary.text = `SV Starwarden berths: ${fleet.length}/${slotLimit}`;
+        n.berthDetail.text = `Base mother-ship capacity is ${BASE_FLEET_SLOTS}. Research completions add more fleet slots.`;
+
+        n.upgradeCards.forEach((entry) => {
+            const unlocked = completed.includes(entry.upgrade.nodeId);
+            entry.status.text = unlocked ? `ONLINE  ·  +${entry.upgrade.slots} slots` : `TECH TREE  ·  ${entry.upgrade.nodeId}`;
+            entry.status.style.fill = unlocked ? COLOR_EMERALD_300 : COLOR_AMBER_300;
+        });
+
         const currentMax = this.meta ? (this.meta.getResearchState().maxConcurrent || 2) : 2;
-        const canUpgrade = currentMax < RESEARCH_LAB_UPGRADE.max &&
-            minerals >= RESEARCH_LAB_UPGRADE.cost.minerals &&
-            credits >= RESEARCH_LAB_UPGRADE.cost.credits;
+        const canUpgrade = currentMax < RESEARCH_LAB_UPGRADE.max
+            && minerals >= RESEARCH_LAB_UPGRADE.cost.minerals
+            && credits >= RESEARCH_LAB_UPGRADE.cost.credits;
 
         n.researchLabCost.text = `${RESEARCH_LAB_UPGRADE.cost.minerals} minerals  ·  ${RESEARCH_LAB_UPGRADE.cost.credits} credits`;
         n.researchLabBtn.container.alpha = canUpgrade ? 1 : 0.4;
@@ -327,8 +488,27 @@ export class BuildUpgradeTab {
         n.researchLabDesc.text = `Current: ${currentMax} slots  →  ${RESEARCH_LAB_UPGRADE.effect}`;
     }
 
+    _refreshVisual(fleet, slotLimit) {
+        const v = this._nodes.visualContent;
+        v.shipStats.text = `Carrier core online · Fleet capacity ${fleet.length}/${slotLimit}`;
+        v.slotNodes.forEach((slot, i) => {
+            slot.clear();
+            const isUnlocked = i < slotLimit;
+            const ship = fleet[i];
+            const color = ship ? (CLASS_COLORS[ship.className] || COLOR_CYAN_300) : 0x1e293b;
+            const alpha = ship ? 0.95 : (isUnlocked ? 0.72 : 0.24);
+            slot.roundRect(0, 0, 16, 16, 4).fill({ color, alpha });
+            slot.roundRect(0, 0, 16, 16, 4).stroke({ color: isUnlocked ? COLOR_CYAN_300 : 0x475569, width: 1, alpha: isUnlocked ? 0.65 : 0.35 });
+        });
+        v.fleetText.text = fleet.length > 0
+            ? fleet.map((s, i) => `${String(i + 1).padStart(2, '0')} ${s.name} · ${s.className}`).join('\n')
+            : 'No ships assigned to fleet berths.';
+    }
+
     _buildShip(bp) {
         if (!this.meta) return;
+        const fleet = this.meta.fleetSnapshot();
+        if (fleet.length >= this._fleetSlotLimit()) return;
         const minerals = this.meta.getHubResource('minerals') || 0;
         if (minerals < bp.cost) return;
         this.meta.setHubResource('minerals', minerals - bp.cost);
@@ -391,39 +571,112 @@ export class BuildUpgradeTab {
         const n = this._nodes;
 
         n.title.position.set(16, 12);
+        n.fleetTab.container.position.set(16, 36);
+        n.motherShipTab.container.position.set(166, 36);
 
-        // Fleet panel (left).
-        const fleetW = Math.min(250, Math.floor(w * 0.42));
-        const fleetH = h - 50;
-        n.fleetPanel.position.set(8, 38);
-        redrawHologramPanel(n.fleetPanel, fleetW, fleetH, { accent: COLOR_CYAN_500 });
+        const topY = 70;
+        const panelH = Math.max(280, h - topY - 12);
+        const visualW = Math.min(340, Math.max(260, Math.floor(w * 0.30)));
+        const contentW = Math.max(420, w - visualW - 30);
+        n.contentPanel.position.set(8, topY);
+        n.visualPanel.position.set(18 + contentW, topY);
+        redrawHologramPanel(n.contentPanel, contentW, panelH, COLOR_CYAN_500);
+        redrawHologramPanel(n.visualPanel, visualW, panelH, COLOR_PURPLE_300);
 
-        // Detail panel (right top).
-        const rightX = fleetW + 24;
-        const rightW = Math.max(240, w - rightX - 8);
-        const detailH = 160;
-        n.detailPanel.position.set(rightX, 38);
-        redrawHologramPanel(n.detailPanel, rightW, detailH, { accent: COLOR_CYAN_500 });
+        this._layoutFleetContent(contentW, panelH);
+        this._layoutMotherShipContent(contentW, panelH);
+        this._layoutVisualContent(visualW, panelH);
+    }
 
-        n.repairBtn.container.position.set(12, 92);
-        n.repairCost.position.set(98, 97);
-        n.disassembleBtn.container.position.set(12, 124);
+    _layoutFleetContent(w, h) {
+        const n = this._nodes;
+        const leftW = Math.min(250, Math.max(224, Math.floor(w * 0.38)));
+        const rightX = leftW + 18;
+        const rightW = Math.max(170, w - rightX - 14);
 
-        // Build panel (right bottom).
-        const buildY = 38 + detailH + 12;
-        const buildH = Math.max(200, h - buildY - 10);
-        n.buildPanel.position.set(rightX, buildY);
-        redrawHologramPanel(n.buildPanel, rightW, buildH, { accent: 0x14532d });
+        n.fleetList.position.set(0, 0);
+        n.detailPanel.position.set(rightX, 34);
+        redrawHologramPanel(n.detailPanel, rightW, 132, COLOR_CYAN_500);
+        n.repairBtn.container.position.set(12, 94);
+        n.repairCost.position.set(98, 99);
+        n.disassembleBtn.container.position.set(Math.min(180, rightW - 116), 94);
 
-        // Position blueprint cards.
-        const cardW = rightW - 24;
+        n.buildHeader.position.set(rightX, 184);
+        n.capacityText.position.set(rightX + 138, 184);
+
+        const cardW = rightW - 4;
+        const cardsStartY = 204;
         n.blueprintCards.forEach((entry, i) => {
-            entry.card.position.set(12, 30 + i * 54);
+            entry.card.position.set(rightX, cardsStartY + i * 54);
             entry.bg.clear();
             entry.bg.roundRect(0, 0, cardW, 48, 4).fill({ color: 0x0f172a, alpha: 0.8 });
             entry.bg.roundRect(0, 0, cardW, 48, 4).stroke({ color: 0x334155, width: 1, alpha: 0.5 });
             entry.buildBtn.container.position.set(cardW - 68, 12);
             entry.desc.style.wordWrapWidth = Math.max(80, cardW - 100);
         });
+
+        const maxVisibleRows = Math.max(0, Math.floor((h - 50) / 42));
+        n.fleetList.children.forEach((row, i) => { row.visible = i < maxVisibleRows; });
+    }
+
+    _layoutMotherShipContent(w, h) {
+        const n = this._nodes;
+        const cardW = Math.max(260, w - 28);
+        n.upgradeCards.forEach((entry, i) => {
+            entry.card.position.set(12, 82 + i * 66);
+            entry.bg.clear();
+            entry.bg.roundRect(0, 0, cardW, 58, 4).fill({ color: 0x0f172a, alpha: 0.8 });
+            entry.bg.roundRect(0, 0, cardW, 58, 4).stroke({ color: 0x6d28d9, width: 1, alpha: 0.55 });
+            entry.desc.style.wordWrapWidth = Math.max(180, cardW - 22);
+        });
+        const researchY = Math.min(h - 104, 82 + n.upgradeCards.length * 66 + 10);
+        n.researchLabPanel.position.set(12, researchY);
+        redrawHologramPanel(n.researchLabPanel, cardW, 90, COLOR_AMBER_300);
+        n.researchLabBtn.container.position.set(cardW - 84, 34);
+    }
+
+    _layoutVisualContent(w, h) {
+        const v = this._nodes.visualContent;
+        v.header.position.set(12, 12);
+        v.shipGraphic.clear();
+        const cx = Math.round(w / 2);
+        const shipY = 78;
+        v.shipGraphic.poly([
+            cx, shipY - 42,
+            cx + 92, shipY,
+            cx + 38, shipY + 34,
+            cx, shipY + 22,
+            cx - 38, shipY + 34,
+            cx - 92, shipY,
+        ]).fill({ color: 0x111827, alpha: 0.9 });
+        v.shipGraphic.poly([
+            cx, shipY - 42,
+            cx + 92, shipY,
+            cx + 38, shipY + 34,
+            cx, shipY + 22,
+            cx - 38, shipY + 34,
+            cx - 92, shipY,
+        ]).stroke({ color: COLOR_PURPLE_300, width: 2, alpha: 0.8 });
+        v.shipGraphic.circle(cx, shipY, 14).fill({ color: 0x0e7490, alpha: 0.9 });
+        v.shipGraphic.circle(cx, shipY, 14).stroke({ color: COLOR_CYAN_300, width: 1.5, alpha: 0.9 });
+
+        v.shipName.position.set(14, 126);
+        v.shipStats.position.set(14, 146);
+        v.shipStats.style.wordWrap = true;
+        v.shipStats.style.wordWrapWidth = Math.max(160, w - 28);
+        v.slotsLabel.position.set(14, 178);
+
+        const slotSize = 16;
+        const gap = 6;
+        const cols = Math.max(5, Math.min(10, Math.floor((w - 28) / (slotSize + gap))));
+        v.slotNodes.forEach((slot, i) => {
+            const x = 14 + (i % cols) * (slotSize + gap);
+            const y = 200 + Math.floor(i / cols) * (slotSize + gap);
+            slot.position.set(x, y);
+        });
+
+        v.fleetText.position.set(14, Math.min(h - 170, 258));
+        v.fleetText.style.wordWrap = true;
+        v.fleetText.style.wordWrapWidth = Math.max(160, w - 28);
     }
 }
