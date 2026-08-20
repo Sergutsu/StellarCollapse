@@ -11,9 +11,10 @@
 //   destroy():                 drop all Pixi nodes.
 //   get visible():             duck-type flag for the tab manager.
 //
-// The scene is purely presentational for now -- sector data is static,
-// PLOT COURSE is a stub. Real warp-cost deduction + sector->mission
-// wiring lands in a later phase (ROADMAP P7).
+// The scene now features a procedurally generated single star system
+// with 50-100 points of interest (planets, moons, stations, hazards).
+// Pan and zoom controls allow navigation around the system map.
+// Ship icons are displayed in orbits around their parent POIs.
 
 import { Container, Graphics, Rectangle, Text, TextStyle } from 'pixi.js';
 import {
@@ -21,7 +22,9 @@ import {
     redrawHologramPanel,
     panelLabel,
     buildStartButton,
+    drawStarShape,
 } from '../../pixi-ui-kit.js';
+import { generateStarSystem, calculateOrbitalPosition, getShipsOrbitingPoi } from '../../procedural-star-system.js';
 
 const COLOR_CYAN_300 = 0x67e8f9;
 const COLOR_CYAN_500 = 0x06b6d4;
@@ -30,42 +33,84 @@ const COLOR_SLATE_200 = 0xe2e8f0;
 const COLOR_AMBER_300 = 0xfcd34d;
 const COLOR_ROSE_300 = 0xfda4af;
 
-// Static sector catalog shown on the map. Coordinates are normalized
-// (0..1) inside the tab-content area. `warpCost` and `threat` are
-// display-only stubs until P7 wires them to MetaState + missions.
-const SECTORS = Object.freeze([
-    { id: 'omega4',   name: 'Omega-4 Belt',     nx: 0.18, ny: 0.22, klass: 'Asteroid Belt',   planets: '0 Mapped',     threat: 2, warpCost: 1, kind: 'belt' },
-    { id: 'ares',     name: 'ARES Waystation',  nx: 0.42, ny: 0.18, klass: 'Orbital Platform', planets: '--',           threat: 1, warpCost: 0, kind: 'station' },
-    { id: 'cygnus',   name: 'Cygnus X-1',       nx: 0.76, ny: 0.24, klass: 'Black Hole',       planets: 'Anomaly',      threat: 5, warpCost: 2, kind: 'hazard' },
-    { id: 'sol',      name: 'Sol',              nx: 0.22, ny: 0.48, klass: 'Class G Yellow',   planets: '8 Planets',    threat: 1, warpCost: 1, kind: 'star' },
-    { id: 'trappist', name: 'Trappist-1',       nx: 0.52, ny: 0.52, klass: 'Class M Dwarf',    planets: '7 Rocky Planets', threat: 3, warpCost: 1, kind: 'star' },
-    { id: 'proxima',  name: 'Proxima Centauri', nx: 0.26, ny: 0.72, klass: 'Red Dwarf',        planets: '3 Planets',    threat: 2, warpCost: 1, kind: 'star' },
-    { id: 'barnard',  name: "Barnard's Star",   nx: 0.50, ny: 0.80, klass: 'Red Dwarf',        planets: '2 Planets',    threat: 2, warpCost: 1, kind: 'star' },
-    { id: 'psr',      name: 'PSR B1257+12',     nx: 0.78, ny: 0.74, klass: 'Pulsar',           planets: '4 Planets',    threat: 4, warpCost: 2, kind: 'hazard' },
-]);
+// Default seed for starting game - can be overridden by game state
+const DEFAULT_SYSTEM_SEED = 12345;
 
-// Legend entries shown in the bottom-left card. Must cover every
-// `kind` used in SECTORS above.
-const LEGEND = Object.freeze([
-    { kind: 'star',    label: 'Mapped System',  color: COLOR_CYAN_300 },
-    { kind: 'belt',    label: 'Resource Belt',  color: COLOR_AMBER_300 },
-    { kind: 'station', label: 'Waystation',     color: COLOR_SLATE_200 },
-    { kind: 'hazard',  label: 'Hazard / Anomaly', color: COLOR_ROSE_300 },
-]);
-
-function pinColor(kind) {
-    const entry = LEGEND.find((l) => l.kind === kind);
-    return entry ? entry.color : COLOR_CYAN_300;
+// Pin colors by POI type
+function pinColor(poiType) {
+    switch (poiType) {
+        case 'planet': return COLOR_CYAN_300;
+        case 'moon': return COLOR_SLATE_400;
+        case 'station': return COLOR_AMBER_300;
+        case 'belt': return COLOR_AMBER_300;
+        case 'hazard': return COLOR_ROSE_300;
+        case 'ship': return COLOR_CYAN_300;
+        default: return COLOR_CYAN_300;
+    }
 }
 
-function drawPinGlyph(g, color) {
+// Legend entries for POI types
+const LEGEND = Object.freeze([
+    { kind: 'star',    label: 'Central Star',  color: COLOR_AMBER_300 },
+    { kind: 'planet',  label: 'Planet',        color: COLOR_CYAN_300 },
+    { kind: 'moon',    label: 'Moon',          color: COLOR_SLATE_400 },
+    { kind: 'station', label: 'Station',       color: COLOR_AMBER_300 },
+    { kind: 'belt',    label: 'Asteroid Belt', color: COLOR_AMBER_300 },
+    { kind: 'hazard',  label: 'Hazard',        color: COLOR_ROSE_300 },
+    { kind: 'ship',    label: 'Spacecraft',    color: COLOR_CYAN_300 },
+]);
+
+function drawPinGlyph(g, color, poiType, size = 8) {
     g.clear();
-    // Outer ring.
-    g.circle(0, 0, 8).stroke({ color, width: 1.5, alpha: 0.85 });
-    // Inner dot.
-    g.circle(0, 0, 3).fill({ color, alpha: 0.95 });
-    // Downward drop tail (pin foot).
-    g.moveTo(-4, 4).lineTo(0, 12).lineTo(4, 4).stroke({ color, width: 1.2, alpha: 0.7 });
+    
+    if (poiType === 'star') {
+        // Draw star shape
+        const spikes = 8;
+        const outerR = size * 1.5;
+        const innerR = size * 0.6;
+        let rot = -Math.PI / 2;
+        const step = Math.PI / spikes;
+        const pts = [];
+        for (let i = 0; i < spikes * 2; i++) {
+            const r = i % 2 === 0 ? outerR : innerR;
+            pts.push(Math.cos(rot) * r, Math.sin(rot) * r);
+            rot += step;
+        }
+        g.poly(pts).fill({ color, alpha: 0.9 });
+        // Glow effect
+        g.circle(0, 0, size * 2).stroke({ color, width: 1, alpha: 0.3 });
+    } else if (poiType === 'planet') {
+        // Outer ring
+        g.circle(0, 0, size).stroke({ color, width: 1.5, alpha: 0.85 });
+        // Inner dot
+        g.circle(0, 0, size * 0.4).fill({ color, alpha: 0.95 });
+    } else if (poiType === 'moon') {
+        g.circle(0, 0, size * 0.6).fill({ color, alpha: 0.9 });
+    } else if (poiType === 'station') {
+        // Diamond shape for stations
+        g.moveTo(0, -size).lineTo(size, 0).lineTo(0, size).lineTo(-size, 0).closePath();
+        g.stroke({ color, width: 1.5, alpha: 0.85 });
+        g.circle(0, 0, size * 0.3).fill({ color, alpha: 0.9 });
+    } else if (poiType === 'belt') {
+        // Dashed circle for asteroid belt
+        g.circle(0, 0, size * 1.2).stroke({ color, width: 1, alpha: 0.6 });
+        g.circle(0, 0, size * 0.5).stroke({ color, width: 1, alpha: 0.4 });
+    } else if (poiType === 'hazard') {
+        // Warning triangle
+        const s = size * 1.1;
+        g.moveTo(0, -s).lineTo(s, s).lineTo(-s, s).closePath();
+        g.stroke({ color, width: 1.5, alpha: 0.9 });
+        g.circle(0, 0, size * 0.3).fill({ color, alpha: 0.9 });
+    } else if (poiType === 'ship') {
+        // Ship icon - arrow/triangle pointing up
+        const shipSize = size * 0.7;
+        g.moveTo(0, -shipSize).lineTo(shipSize * 0.7, shipSize).lineTo(0, shipSize * 0.5).lineTo(-shipSize * 0.7, shipSize).closePath();
+        g.fill({ color, alpha: 0.9 });
+    } else {
+        // Generic pin
+        g.circle(0, 0, size).stroke({ color, width: 1.5, alpha: 0.85 });
+        g.circle(0, 0, size * 0.4).fill({ color, alpha: 0.95 });
+    }
 }
 
 export class StarMapTab {
@@ -478,3 +523,6 @@ export class StarMapTab {
 }
 
 export { SECTORS as STAR_MAP_SECTORS, LEGEND as STAR_MAP_LEGEND };
+
+// Export the default seed constant for use in hub-scene.js
+export { DEFAULT_SYSTEM_SEED as STAR_MAP_DEFAULT_SEED };
