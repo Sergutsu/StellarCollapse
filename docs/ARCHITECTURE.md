@@ -97,13 +97,29 @@ Piece shape pool per complexity. Read-only.
 
 `buildMissions({ seed })`, `findMission(list, id)`, `pickMissionBoard(missions, { count, seed })`, `baseCreditsFor(tierIndex)`, `ORES`, `ORE_BY_COLOR`, `MISSION_TYPES`. Seeded Mulberry32 for deterministic asteroid-name rolling and for the risk-stratified MISSION BOARD subset roll. Every mission also carries narrative metadata (`narrativeName`, `type`, `sector`, `risk` 1–5, `etaLabel`) that the hub MISSION BOARD cards render on top of the underlying tier archetype. No side effects.
 
+### `src/defense-state.js` — pure
+
+Pure game logic for the defense (Space-Invaders / Breakout hybrid) mission mode. Same contract as `GameState`: construct with `{ rng, schedule }`, attach listeners via `.on()`, call `.start()`, drive with `.tick(deltaMs)`. Owns paddle, balls, invaders, boss, towers, bullets, power-ups, score, player health. Emits: `game-started`, `tick`, `ball-lost`, `invader-hit`, `invader-destroyed`, `boss-hit`, `boss-destroyed`, `powerup-collected`, `player-hit`, `tower-placed`, `laser-fired`, `game-over`. `snapshot()` returns a deep-copy snapshot for the renderer.
+
+### `src/defense-constants.js` — pure
+
+Shared tuning constants for the defense mode: grid size, arena dimensions, entity speeds, timing intervals, scoring values, collision radii, power-up types, invader pixel patterns. No DOM, no Pixi.
+
+### `src/defense-input.js`
+
+Input wiring for the defense mode. `bindDefenseInput({ state, canvas, getScale })` → teardown function. Translates keyboard (arrows/WASD, spacebar), mouse (pointermove for paddle, click for tower placement), and the held-spacebar laser loop into `DefenseState` verbs.
+
+### `src/scenes/defense-scene.js`
+
+Pixi scene for the defense mode. Reads from `DefenseState.snapshot()` on every tick and paints paddle, balls, invaders (pixel-art patterns), boss, towers, bullets, power-ups, health bars, score, buff strip, and bonus-progress bar. Implements the standard scene contract (`show(defenseState)`, `hide`, `layout`, `tick`, `destroy`, `visible`). Uses `pixi-ui-kit.js` panel helpers.
+
 ### `src/audio.js`
 
 WebAudio tone generators. Wired to state events from `main.js`.
 
 ### `src/meta-state.js` — pure
 
-Persistent player profile. Owns **credits**, **hub resources** (O₂, fuel, minerals, warp), **per-color ore counts** (6 ores, one per tile color), **fleet roster** (ship id / name / class / hull % / status), **crew roster** (id / name / role / level / status), **reputation tier**, and **completed mission ids**. Emits a `change` event with `{ kind, detail }` on every mutation so `Persistence` saves and `PixiView` re-syncs the top-bar chips without a full rebuild.
+Persistent player profile. Owns **credits**, **hub resources** (minerals, warp), **per-color ore counts** (6 ores, one per tile color), **fleet roster** (ship id / name / class / hull % / status), **crew roster** (id / name / role / level / status), **reputation tier**, and **completed mission ids**. Supports `addShip`/`removeShip` and `addCrew`/`removeCrew` for shipyard and crew hire flows. Emits a `change` event with `{ kind, detail }` on every mutation so `Persistence` saves and `PixiView` re-syncs the top-bar chips without a full rebuild.
 
 Exposes reads (`credits`, `getHubResource(id)`, `getOre(color)`, `fleetSnapshot()`, `crewSnapshot()`, `snapshot()`) and writes (`setCredits`, `addCredits`, `addOre`, `applyMissionReward`, `setShipHull`, `setShipStatus`, `setCrewLevel`, `setCrewStatus`, `setReputationTier`). Constructor takes an optional hydrated blob and shallow-merges it onto the starter profile so malformed saves fall back to defaults instead of breaking the game.
 
@@ -123,27 +139,31 @@ The Pixi bootstrap + scene host. After the 4-stage scene-graph split (ADR-0009),
 
 - Pixi `Application`, stage hierarchy, and the `#gameContainer` mount
 - Viewport-filling starfield + cinematic hub backdrop
-- `SceneManager` + registered `HubScene` + `GameScene` + `ResultsScene`
+- `SceneManager` + registered `HubScene` + `GameScene` + `DefenseScene` + `ResultsScene`
 - Single `app.ticker` that drives `starfield.update(deltaMs)` and fans out `tick(deltaMs)` to every scene that exposes one
 - Window `resize` listener that rebuilds the starfield + calls `SceneManager.layout(screen)`
 
 Shared Pixi render helpers (panel chrome, label text, star icon, CTA button) live in [`src/pixi-ui-kit.js`](../src/pixi-ui-kit.js). Scenes import them directly; PixiView no longer hand-wires them through scene constructors.
 
-Public API (unchanged across the entire scene-split series so `main.js` never needed updating): `init`, `createBoard`, `createPreviews`, `setTopControlsHandlers`, `setSoundEnabled`, `setTip`, `showStartScreen`, `showGameScreen`, `showResultsScreen`, `hideResultsScreen`, `onStartGame`, `_levelInfoFor` setter. Every entry point is a thin delegate onto the appropriate scene; there is no game logic, no hub logic, and no Pixi event handling left in `PixiView`.
+Public API: `init`, `createBoard`, `createPreviews`, `setTopControlsHandlers`, `setSoundEnabled`, `setTip`, `showStartScreen`, `showGameScreen`, `showDefenseScreen`, `hideDefenseScreen`, `showResultsScreen`, `hideResultsScreen`, `onStartGame`, `_levelInfoFor` setter. Every entry point is a thin delegate onto the appropriate scene; there is no game logic, no hub logic, and no Pixi event handling left in `PixiView`.
 
 ### `src/pixi-ui-kit.js`
 
 Shared Pixi render helpers. Zero GameState / MetaState / DOM imports — strictly render data. Today's exports:
 
-- `drawHologramPanel(w, h, { accent })` → `Container` — translucent gradient panel with a thin accent border + horizontal scanline overlay. Consumed by every scene that draws a card.
-- `redrawHologramPanel(panel, w, h, accent)` — in-place resize of an existing panel Container so resize handlers don't rebuild the node tree. Consumed by `HubScene` on viewport resize.
+- `drawTechPanel(w, h, { accent, cut })` → `Container` — sharp-cornered, cut-corner sci-fi frame panel. The canonical panel style for the hub.
+- `redrawTechPanel(panel, w, h, { accent, cut })` — in-place resize of an existing tech-frame panel.
+- `drawTechChip(w, h, { accent })` → `Container` — compact version of the tech panel (`cut: 8`) used for resource-strip chips and small labels.
+- `redrawTechChip(chip, w, h, { accent })` — in-place resize of a tech chip.
+- `drawHologramPanel(w, h, { accent })` → `Container` — delegates to `drawTechPanel` so all panels share the same visual language.
+- `redrawHologramPanel(panel, w, h, accent)` — delegates to `redrawTechPanel`.
 - `panelLabel(text, color, { size, weight })` → `Text` — small-caps Inter label with a soft drop-shadow glow matching its fill colour.
 - `drawStarShape(r, color)` → `Graphics` — 5-point star icon used for the reactive title actor and galactic-map pins.
-- `buildStartButton({ text, width, height, fill, hoverFill, textColor, onTap })` → `{ container, bg, label, setActive(bool), ... }` — rounded CTA button with hover + active states.
+- `buildStartButton({ text, width, height, fill, hoverFill, textColor, onTap })` → `{ container, bg, label, setActive(bool), ... }` — CTA button with a colour-matched neon glow, frame stroke, and hover/active state transitions.
 
-All panel / button colour constants (`PANEL_BG_TOP`, `PANEL_BG_BOT`, `PANEL_BORDER_ALPHA`, `BUTTON_DEFAULT_FILL`, etc.) are exported from this module for scenes that need the same tints on bespoke chrome (e.g. the mission-board modal backdrop in `HubScene`).
+All panel / button colour constants (`PANEL_BG_TOP`, `PANEL_BG_BOT`, `PANEL_BORDER_ALPHA`, `BUTTON_DEFAULT_FILL`, `BUTTON_DEFAULT_STROKE`, etc.) and accent variant palettes (`PANEL_ACCENT_VARIANTS`) are exported from this module for scenes that need the same tints on bespoke chrome (e.g. the mission-board modal backdrop in `HubScene`).
 
-Consumers: `HubScene`, `GameScene`, `ResultsScene`. Future tab-scenes and minigame scenes register under `SceneManager` and pull chrome from this module without ever touching `PixiView`.
+Consumers: `HubScene`, `GameScene`, `ResultsScene`, `StarMapTab`, `ResearchTab`, `BuildUpgradeTab`. Future tab-scenes and minigame scenes register under `SceneManager` and pull chrome from this module without ever touching `PixiView`.
 
 ### `src/scenes/scene-manager.js`
 
@@ -199,7 +219,7 @@ Each hub bottom-nav tab with bespoke content is its own scene class, hosted by `
 - `_layoutCenterPanel(...)` fans out `tab.layout({ width, height })` to every tab scene (visible or not) after the hologram frame is redrawn, so a hidden tab does not flash at the old size on re-show.
 - `destroy()` tears down tab scenes before the center panel's own destroy.
 
-Shipped today: `src/scenes/tabs/star-map-tab.js` (STAR MAP) + `src/scenes/tabs/research-tab.js` (RESEARCH). Subsequent PRs add the rest.
+Shipped today: `src/scenes/tabs/star-map-tab.js` (STAR MAP) + `src/scenes/tabs/research-tab.js` (RESEARCH) + `src/scenes/tabs/build-upgrade-tab.js` (BUILD/UPGRADE). CREW and MARKET still use the shared inline stub.
 
 ### `src/scenes/tabs/star-map-tab.js`
 
@@ -218,6 +238,18 @@ new StarMapTab({
 ```
 
 Exports the sector catalog + legend entries for testing + documentation: `STAR_MAP_SECTORS`, `STAR_MAP_LEGEND`.
+
+### `src/scenes/tabs/build-upgrade-tab.js`
+
+Station-diorama view for the BUILD/UPGRADE bottom-nav tab. Mounts under the hub's center-panel hologram surface. Owns: an isometric station silhouette with 4 interactive callout pins (Docking Arms, Reactor Spine, Sensor Crown, Fabrication Yard) that highlight on click and display a tooltip-style note, a 3-slot build queue (one active `Building` item with ETA + 2 `Queued` slots), and 2 available-upgrade cards showing title, level, effect blurb, and mineral cost. All data is static/seed for now; real `BuildQueue` MetaState integration lands under ROADMAP P5.
+
+Constructor shape:
+
+```js
+new BuildUpgradeTab({
+    parent,   // Pixi Container to mount under (hub's center panel)
+});
+```
 
 ### `src/scenes/game-scene.js`
 
@@ -254,6 +286,10 @@ Public API forwarded from `PixiView` so `main.js` never sees the scene directly:
 - `setLevelInfoFor(fn)` — level-name formatter; proxied from `view._levelInfoFor = fn`
 
 PixiView no longer holds any game state fields (no `boardCells`, `_tweens`, `_particlePool`, `_specialOverlays`, `_clockMs`, or `layers`) — those all live inside `GameScene` now. The `CELL_PALETTE` render data is shared across scenes via [`src/scenes/cell-palette.js`](../src/scenes/cell-palette.js).
+
+### `src/input.js`
+
+Keyboard + touch wiring. Translates raw DOM events into `GameState` verbs. Arrow keys, space (hard drop), and swipe gestures (mobile) are all bound here. Touch-gesture support (added in PR #55): swipe left/right to move, swipe up to rotate, swipe down to soft/hard drop (`SWIPE_PX = 24`, fast-swipe threshold `FAST_SWIPE_MS = 140`). `touch-action` is disabled on the canvas to prevent browser scroll/zoom gestures from stealing game input.
 
 ### `src/pixi-starfield.js`
 
@@ -339,17 +375,13 @@ See `adr/0001-pixi-only-renderer.md`. Short version: DOM-per-cell + CSS animatio
 
 ## Persistence
 
-No persisted state **currently**. The legacy `stellarCollapseScoresV2` leaderboard was deleted with the `HighScores` module (see `adr/0005-delete-highscore-system.md`); any payload still sitting in returning players' browsers is orphaned and read by nothing.
-
-P3 adds:
-
-- `stellar-save:v1` — credits, ore inventory, completed missions, rep tier, settings. Versioned, self-migrating, loaded into a pure `MetaState` at boot. All persisted state lives in `src/persistence.js` (P3). Leaderboards, if they ever return, are a derived read-out of `MetaState` — not a standalone module.
+Persistent state ships via P3's `MetaState` + `Persistence` modules. Single localStorage key `stellarVentureSaveV1` stores the player profile: credits, hub resources, per-colour ore counts, fleet roster, crew roster, reputation tier, and completed mission ids. The legacy `stellarCollapseScoresV2` leaderboard was deleted (see `adr/0005-delete-highscore-system.md`); any orphaned payload in returning players' browsers is read by nothing. See [`GAMEPLAY.md §8`](GAMEPLAY.md) for the full profile schema and mutation API.
 
 ---
 
 ## Testing strategy
 
-- **Unit tests** (`node --test`, `tests/*.test.js`) cover pure modules: `GameState`, `missions`. 60 tests currently.
+- **Unit tests** (`node --test`, `tests/*.test.js`) cover pure modules: `GameState`, `missions`, `MetaState`, `SceneManager`. 108 tests currently.
 - **View is not unit-tested.** Visual bugs are caught by manual / scripted browser runs. Smoke tests via `enter_test_mode` on meaningful feature PRs; headless automation is a future option but not a requirement.
 - **Every rule change has a test.** Bomb radius, snake length, score multipliers, level ramp, special arming-timer — all covered.
 - **Determinism.** GameState takes a seeded RNG in tests. Any test that is flaky is a bug in the test, not in the code.

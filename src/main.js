@@ -4,9 +4,11 @@
 // about mission-run resource tallies now (landing in P1+).
 
 import { GameState } from './game-state.js';
+import { DefenseState } from './defense-state.js';
 import { PixiView } from './pixi-view.js';
 import { Audio } from './audio.js';
 import { bindInput } from './input.js';
+import { bindDefenseInput } from './defense-input.js';
 import { MetaState } from './meta-state.js';
 import { Persistence } from './persistence.js';
 import { RunLedger } from './run-ledger.js';
@@ -148,7 +150,90 @@ async function boot() {
         });
     });
 
+    // --- Defense mission support ---------------------------------
+    let defenseState = null;
+    let defenseInputTeardown = null;
+    let defenseRaf = 0;
+
+    function launchDefenseMission(mission) {
+        if (!audio.ctx && audio.enabled) audio.init();
+        audio.resume();
+
+        defenseState = new DefenseState({
+            rng: Math.random,
+            schedule: (fn, ms) => setTimeout(fn, ms),
+        });
+
+        defenseState.on('game-over', ({ won, score }) => {
+            if (defenseInputTeardown) { defenseInputTeardown(); defenseInputTeardown = null; }
+            cancelAnimationFrame(defenseRaf);
+
+            // Build a results-compatible summary from the defense run.
+            const summary = {
+                missionName: mission?.narrativeName || 'Defense Mission',
+                sector: mission?.sector || 'Unknown Sector',
+                tier: mission?.tierId || 'defense',
+                won,
+                score,
+                level: 1,
+                lines: 0,
+                cells: 0,
+                matches: 0,
+                bombs: 0,
+                ores: {},
+                credits: Math.floor(score / 10),
+                baseCredits: mission?.baseCredits || 0,
+            };
+            const envelope = {
+                credits: summary.credits,
+                ores: {},
+                missionId: mission?.id || null,
+            };
+
+            view.showResultsScreen(summary, {
+                onContinue: () => {
+                    meta.applyMissionReward(envelope);
+                    view.hideResultsScreen();
+                    view.showStartScreen();
+                    defenseState = null;
+                },
+            });
+        });
+
+        defenseState.start();
+        view.showDefenseScreen(defenseState);
+
+        if (view.app?.canvas) {
+            defenseInputTeardown = bindDefenseInput({
+                state: defenseState,
+                canvas: view.app.canvas,
+                getScale: () => view._defense?.scale ?? 1,
+                getOffset: () => ({
+                    x: view._defense?._root?.x ?? 0,
+                    y: view._defense?._root?.y ?? 0,
+                }),
+            });
+        }
+
+        let lastDefenseFrame = -1;
+        function defenseLoop(time = 0) {
+            if (defenseState?.gameOver) return;
+            defenseRaf = requestAnimationFrame(defenseLoop);
+            if (lastDefenseFrame < 0) { lastDefenseFrame = time; return; }
+            const delta = time - lastDefenseFrame;
+            lastDefenseFrame = time;
+            defenseState?.tick(delta);
+        }
+        defenseRaf = requestAnimationFrame(defenseLoop);
+    }
+
     view.onStartGame(({ mode, complexity, fieldSizeId, mission }) => {
+        // Route Combat / defense missions to the defense game mode.
+        if (mission?.type === 'Combat') {
+            launchDefenseMission(mission);
+            return;
+        }
+
         if (!audio.ctx && audio.enabled) audio.init();
         audio.resume();
         state.configure({

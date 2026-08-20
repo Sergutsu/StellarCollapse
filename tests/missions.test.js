@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 
 import {
     buildMissions,
+    buildIdleMissions,
     findMission,
     baseCreditsFor,
     pickMissionBoard,
@@ -149,4 +150,26 @@ test('pickMissionBoard handles empty and count>list gracefully', () => {
     const list = buildMissions({ seed: 7 }).slice(0, 2);
     const picks = pickMissionBoard(list, { count: 4, seed: 1 });
     assert.equal(picks.length, 2);
+});
+
+test('buildIdleMissions derives one idle contract per manual mission', () => {
+    const manual = buildMissions({ seed: 11 });
+    const idle = buildIdleMissions(manual);
+    assert.equal(idle.length, manual.length);
+    idle.forEach((job, i) => {
+        assert.equal(job.sourceMissionId, manual[i].id);
+        assert.ok(job.id.startsWith('idle-mission-'));
+        assert.ok(job.etaSec >= 120);
+        assert.ok(job.rewardCredits >= 120);
+    });
+});
+
+test('buildIdleMissions includes ore payout lanes', () => {
+    const idle = buildIdleMissions(buildMissions({ seed: 7 }));
+    idle.forEach((job) => {
+        assert.ok(Array.isArray(job.rewardOres.common));
+        assert.ok(Array.isArray(job.rewardOres.rare));
+        assert.ok(job.rewardOres.common.length <= 2);
+        assert.ok(job.rewardOres.rare.length <= 1);
+    });
 });

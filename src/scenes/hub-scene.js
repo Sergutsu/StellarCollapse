@@ -33,31 +33,54 @@ import {
     PIECE_COMPLEXITY,
 } from '../constants.js';
 
-import { buildMissions, pickMissionBoard, ORES } from '../missions.js';
+import {
+    buildMissions,
+    pickMissionBoard,
+    ORES,
+    IDLE_DURATION_SEC_BY_RISK,
+} from '../missions.js';
+
+import {
+    computeJobState,
+    computePartialCredits,
+    partitionJobs,
+    makeRecoveryJob,
+} from '../idle-clock.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
+import { colors } from '../theme/tokens.js';
 import {
     drawTechPanel,
     redrawTechPanel,
     drawTechChip,
     redrawTechChip,
     buildStartButton,
+    buildSimpleButton,
     panelLabel,
     drawStarShape,
 } from '../pixi-ui-kit.js';
-import { StarMapTab, STAR_MAP_DEFAULT_SEED } from './tabs/star-map-tab.js';
+import { createTab } from '../ui/Tab.js';
+import { StarMapTab } from './tabs/star-map-tab.js';
 import { ResearchTab } from './tabs/research-tab.js';
+import {
+    getAllNodes,
+    getResearchProgressForProject,
+    getRemainingMsForProject,
+} from '../research.js';
 import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
+import { CrewTab } from './tabs/crew-tab.js';
+import { MarketTab } from './tabs/market-tab.js';
 
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
 // will promote them to a shared ui-kit module once 2+ scenes want
 // them.
-const PANEL_BG_TOP = 0x0b1b3a;
-const PANEL_BG_BOT = 0x050a1c;
+const PANEL_BG_TOP = colors.bg.panel;
+const PANEL_BG_BOT = colors.bg.panelAlt;
 
-const COLOR_CYAN_300 = 0x67e8f9;
-const COLOR_WHITE = 0xffffff;
+const COLOR_CYAN_300 = colors.text.accent;
+const COLOR_AMBER_300 = colors.status.warning;
+const COLOR_WHITE = colors.text.white;
 
 // Hub shell layout constants. The hub fills the viewport: top bar +
 // news ticker + 3 columns + bottom nav + a mission-board modal
@@ -68,10 +91,11 @@ const HUB_NEWS_H = 28;
 const HUB_NAV_H = 56;
 const HUB_COL_W = 276;
 const HUB_GUTTER = 14;
+const HUB_SURFACE_INSET = HUB_GUTTER;
+const HUB_SURFACE_INSET_Y = HUB_GUTTER;
 const HUB_MIN_CENTER_W = 460;
 const HUB_MIN_LAYOUT_W = HUB_COL_W * 2 + HUB_MIN_CENTER_W + HUB_GUTTER * 4;
 const HUB_MIN_LAYOUT_H = 760;
-
 // Galactic News ticker pool. Static flavor strings for now; runtime
 // mission-complete / ship-damaged / anomaly events wire in from P4.
 const HUB_NEWS_POOL = Object.freeze([
@@ -88,23 +112,21 @@ const HUB_NEWS_POOL = Object.freeze([
 // Hub bottom-nav tabs. Only MISSIONS is active; the rest render a
 // locked stub panel. `lockRep` is a placeholder gate until rep lands.
 const HUB_TABS = Object.freeze([
-    { id: 'star-map',   label: 'STAR MAP',      locked: false },
-    { id: 'missions',   label: 'MISSIONS',      locked: false },
-    { id: 'build',      label: 'BUILD/UPGRADE', locked: false },
-    { id: 'research',   label: 'RESEARCH',      locked: false },
-    { id: 'crew',       label: 'CREW',          locked: true,  lockRep: 3 },
-    { id: 'market',     label: 'MARKET',        locked: true,  lockRep: 2 },
+    { id: 'star-map',   label: 'STAR MAP',      locked: false, colorKey: 'starMap' },
+    { id: 'missions',   label: 'MISSIONS',      locked: false, colorKey: 'missions' },
+    { id: 'build',      label: 'FLEET UPGRADE', locked: false, colorKey: 'build' },
+    { id: 'research',   label: 'RESEARCH',      locked: false, colorKey: 'research' },
+    { id: 'crew',       label: 'CREW',          locked: false, colorKey: 'crew' },
+    { id: 'market',     label: 'MARKET',        locked: false, colorKey: 'market' },
 ]);
 
 // Resource strip metadata. Numeric values come from MetaState at
 // render time. `metaId` is the MetaState key; `format` is the
 // display format.
 const HUB_RESOURCES = Object.freeze([
-    { id: 'o2',   metaId: 'o2',       label: 'O\u2082',   format: 'percent', color: 0x67e8f9 },
-    { id: 'fuel', metaId: 'fuel',     label: 'Fuel',      format: 'int',     color: 0xfcd34d },
-    { id: 'mins', metaId: 'minerals', label: 'Minerals',  format: 'kilo',    color: 0xc4b5fd },
-    { id: 'cred', metaId: 'credits',  label: 'Credits',   format: 'comma',   color: 0x86efac },
-    { id: 'warp', metaId: 'warp',     label: 'Warp',      format: 'int',     color: 0xf9a8d4 },
+    { id: 'mins', metaId: 'minerals', label: 'Minerals',  format: 'kilo',    color: colors.misc.mineral },
+    { id: 'cred', metaId: 'credits',  label: 'Credits',   format: 'comma',   color: colors.status.success },
+    { id: 'warp', metaId: 'warp',     label: 'Warp',      format: 'int',     color: colors.misc.warp },
 ]);
 
 // Format a numeric MetaState value for the top-bar chip.
@@ -119,14 +141,28 @@ function formatHubResourceValue(value, format) {
     }
 }
 
+function formatDuration(totalSec) {
+    const s = Math.max(0, Math.floor(totalSec || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+    return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
 // Risk -> label/color mapping on mission-board cards.
 const HUB_RISK_PRESETS = Object.freeze({
-    1: { label: 'LOW',      color: 0x86efac },
-    2: { label: 'MODERATE', color: 0xfde047 },
-    3: { label: 'ELEVATED', color: 0xfbbf24 },
-    4: { label: 'HIGH',     color: 0xfb923c },
-    5: { label: 'CRITICAL', color: 0xf87171 },
+    1: { label: 'LOW',      color: colors.status.success },
+    2: { label: 'MODERATE', color: colors.status.warning },
+    3: { label: 'ELEVATED', color: colors.status.elevated },
+    4: { label: 'HIGH',     color: colors.status.high },
+    5: { label: 'CRITICAL', color: colors.status.error },
 });
+
+const PLANNER_ROW_H = 30;
+const PLANNER_ROW_GAP = 8;
+const PLANNER_SECTION_GAP = 18;
+const PLANNER_DISPATCH_BUTTON = Object.freeze({ width: 220, height: 46 });
 
 // CELL_PALETTE (ore preview dots on mission cards) is shared across
 // scenes via src/scenes/cell-palette.js.
@@ -147,6 +183,13 @@ export class HubScene {
         // Deterministic per-boot mission catalog so asteroid names on
         // cards don't shuffle every time the player re-opens the menu.
         this._missions = buildMissions({ seed: Math.floor(Math.random() * 0xffffffff) });
+        this._idleMissions = [];
+        this._idleMissionSeq = 1;
+        this._selectedMissionDispatch = 'idle';
+        this._selectedMissionTierId = this._missions[0]?.tierId || null;
+        this._selectedShipId = null;
+        this._selectedCrewId = null;
+        this._lastIdleUiRefreshAt = 0;
 
         // Mirrors whichever mission is currently selected. HUD tier
         // color + size multiplier readouts read this via getStartState.
@@ -171,6 +214,13 @@ export class HubScene {
 
     show() {
         if (!this._nodes) this._build();
+        this._reconcileIdleMissionState();
+        // Re-run layout on every show so nodes created while the app
+        // screen was still 0x0 don't stay pinned at their build-time
+        // defaults (notably the bottom-nav tabs at y=0).
+        if (this.app?.screen) {
+            this._layoutShell(this.app.screen.width, this.app.screen.height);
+        }
         this._nodes.root.visible = true;
     }
 
@@ -196,6 +246,29 @@ export class HubScene {
             news.offset = bandW;
         }
         news.body.x = Math.round(news.offset);
+
+        const now = Date.now();
+        if (now - this._lastIdleUiRefreshAt >= 250) {
+            this._lastIdleUiRefreshAt = now;
+            this._refreshActiveIdleMissions();
+        }
+
+        // Forward tick to live tabs (Research needs it for live progress)
+        const activeTab = this._nodes?.tabs?.[this._nodes.activeTabId];
+        if (activeTab && typeof activeTab.tick === 'function') {
+            activeTab.tick(deltaMs);
+        }
+
+        // Always tick Research for background progress + auto-completion
+        const researchTab = this._nodes?.tabs?.research;
+        if (researchTab && typeof researchTab.tick === 'function') {
+            researchTab.tick(deltaMs);
+        }
+
+        // Live update research projects in left column when visible
+        if (this._nodes?.researchProjects?.container.visible) {
+            this._refreshResearchProjectsPanel();
+        }
     }
 
     destroy() {
@@ -241,6 +314,7 @@ export class HubScene {
         const topBar = this._buildTopBar();
         const news = this._buildNewsTicker();
         const leftCol = this._buildActiveMissions();
+        const researchProjects = this._buildResearchProjects(); // shown when RESEARCH tab is active
         const centerPanel = this._buildCenter();
         const rightCol = this._buildFleetCrew();
         const bottomNav = this._buildBottomNav();
@@ -251,14 +325,17 @@ export class HubScene {
         // shows the right one and hides the others. STAR MAP,
         // BUILD/UPGRADE, and RESEARCH are extracted scenes; the
         // remaining tabs still render a locked stub.
-        const starMapTab = new StarMapTab({ parent: centerPanel.panel, seed: STAR_MAP_DEFAULT_SEED });
-        const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel });
-        const researchTab = new ResearchTab({ parent: centerPanel.panel });
-        const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab };
+        const starMapTab = new StarMapTab({ parent: centerPanel.panel });
+        const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel, meta: this.meta });
+        const researchTab = new ResearchTab({ parent: centerPanel.panel, meta: this.meta });
+        const crewTab = new CrewTab({ parent: centerPanel.panel, meta: this.meta });
+        const marketTab = new MarketTab({ parent: centerPanel.panel, meta: this.meta });
+        const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab, crew: crewTab, market: marketTab };
 
         root.addChild(topBar.container);
         root.addChild(news.container);
         root.addChild(leftCol.container);
+        root.addChild(researchProjects.container); // will be shown/hidden based on active tab
         root.addChild(centerPanel.container);
         root.addChild(rightCol.container);
         root.addChild(bottomNav.container);
@@ -269,6 +346,7 @@ export class HubScene {
             topBar,
             news,
             leftCol,
+            researchProjects, // alternative left column content
             centerPanel,
             rightCol,
             bottomNav,
@@ -278,7 +356,13 @@ export class HubScene {
         };
 
         if (this.app) this._layoutShell(this.app.screen.width, this.app.screen.height);
+
+        // Start with idle fleet visible, research projects hidden
+        researchProjects.container.visible = false;
+        leftCol.container.visible = true;
+
         this._setActiveTab('missions');
+        this._refreshActiveIdleMissions();
     }
 
     _buildTopBar() {
@@ -288,13 +372,13 @@ export class HubScene {
         const frame = drawTechPanel(960, HUB_TOPBAR_H, { accent: 'cyan' });
         container.addChild(frame);
 
-        const star = drawStarShape(14, 0xfacc15);
+        const star = drawStarShape(14, colors.brand.gold);
         container.addChild(star);
 
         const brandGradient = new FillGradient(0, 0, 320, 0);
-        brandGradient.addColorStop(0, 0x22d3ee);
-        brandGradient.addColorStop(0.5, 0xfacc15);
-        brandGradient.addColorStop(1, 0xf87171);
+        brandGradient.addColorStop(0, colors.brand.cyan);
+        brandGradient.addColorStop(0.5, colors.brand.gold);
+        brandGradient.addColorStop(1, colors.status.error);
         const brand = new Text({
             text: 'STELLAR VENTURE',
             style: new TextStyle({
@@ -303,7 +387,7 @@ export class HubScene {
                 fontWeight: '800',
                 letterSpacing: 3,
                 fill: brandGradient,
-                dropShadow: { color: 0xfacc15, alpha: 0.24, blur: 6, distance: 0, angle: 0 },
+                dropShadow: { color: colors.brand.gold, alpha: 0.24, blur: 6, distance: 0, angle: 0 },
             }),
         });
         container.addChild(brand);
@@ -315,7 +399,7 @@ export class HubScene {
                 fontSize: 11,
                 fontWeight: '700',
                 letterSpacing: 1,
-                fill: 0xfde68a,
+                fill: colors.brand.amber,
             }),
         });
         container.addChild(dispatcherBadge);
@@ -337,12 +421,27 @@ export class HubScene {
                 if (this._nodes && this._nodes.topBar) {
                     this._syncResourceChips(this._nodes.topBar.chips);
                 }
+                // P4: any meta mutation (dispatch claim/abort, rewards, etc.) can affect the idle list
+                this._refreshActiveIdleMissions?.();
+                this._refreshMissionPlanner?.();
+                this._refreshFleetCrewPanel?.();
+
+                // Research tab reacts to resource changes and research state
+                const researchTab = this._nodes?.tabs?.research;
+                if (researchTab && typeof researchTab._refreshFromMeta === 'function') {
+                    researchTab._refreshFromMeta();
+                }
+
+                // If research projects are visible in left column, refresh them
+                if (this._nodes?.researchProjects?.container.visible) {
+                    this._refreshResearchProjectsPanel();
+                }
             });
         }
 
         const gear = new Text({
             text: '\u2699',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 20, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 20, fill: colors.text.info }),
         });
         gear.anchor.set(0.5);
         gear.eventMode = 'static';
@@ -386,7 +485,7 @@ export class HubScene {
                 fontFamily: '"Courier New", monospace',
                 fontSize: 14,
                 fontWeight: '700',
-                fill: 0xf8fafc,
+                fill: colors.text.primary,
             }),
         });
         valueText.anchor.set(0, 0.5);
@@ -408,7 +507,7 @@ export class HubScene {
                 fontSize: 10,
                 fontWeight: '700',
                 letterSpacing: 2,
-                fill: 0xfde047,
+                fill: colors.status.warning,
             }),
         });
         prefix.anchor.set(0, 0.5);
@@ -429,7 +528,7 @@ export class HubScene {
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 13,
-                fill: 0xcbd5e1,
+                fill: colors.misc.pale,
             }),
         });
         scroller.addChild(body);
@@ -442,40 +541,65 @@ export class HubScene {
         const panel = drawTechPanel(HUB_COL_W, 420, { accent: 'amber' });
         container.addChild(panel);
 
-        const header = panelLabel('ACTIVE MISSIONS', COLOR_CYAN_300, { size: 14 });
+        const header = panelLabel('IDLE FLEET MISSIONS', COLOR_CYAN_300, { size: 14 });
         header.position.set(14, 12);
         panel.addChild(header);
 
         const counter = new Text({
-            text: '0 / 2',
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0x93c5fd }),
+            text: '0 / 0',
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.text.info }),
         });
         counter.anchor.set(1, 0);
         counter.position.set(HUB_COL_W - 14, 12);
         panel.addChild(counter);
 
-        // Empty-state card. Renders in place of any running missions
-        // until P4 wires idle ticking + real mission state.
+        const list = new Container();
+        list.position.set(12, 40);
+        panel.addChild(list);
+
         const empty = drawTechPanel(HUB_COL_W - 24, 108, { accent: 'cyan' });
-        empty.position.set(12, 40);
-        panel.addChild(empty);
+        list.addChild(empty);
 
         const emptyTitle = new Text({
-            text: 'No active missions',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: 0xe2e8f0 }),
+            text: 'No fleet dispatches',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: colors.text.secondary }),
         });
         emptyTitle.position.set(14, 14);
         empty.addChild(emptyTitle);
 
         const emptyHint = new Text({
-            text: 'Deploy from the MISSIONS tab to\nput a ship to work.',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: 0x94a3b8, wordWrap: true, wordWrapWidth: HUB_COL_W - 52 }),
+            text: 'Open MISSIONS > IDLE FLEET and\ndispatch a ship + crew.',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: colors.text.muted, wordWrap: true, wordWrapWidth: HUB_COL_W - 52 }),
         });
         emptyHint.position.set(14, 38);
         empty.addChild(emptyHint);
 
         return {
-            container, panel, panelAccent: 'amber', header, counter, empty, emptyTitle, emptyHint,
+            container, panel, panelAccent: 'amber', header, counter, list, empty, emptyTitle, emptyHint, rows: [],
+        };
+    }
+
+    // Research projects view for when the RESEARCH tab is active (replaces idle fleet in left column)
+    _buildResearchProjects() {
+        const container = new Container();
+        const panel = drawTechPanel(HUB_COL_W, 420, { accent: 'amber' });
+        container.addChild(panel);
+
+        const header = panelLabel('ACTIVE RESEARCH', COLOR_AMBER_300, { size: 14 });
+        header.position.set(14, 12);
+        panel.addChild(header);
+
+        const list = new Container();
+        list.position.set(12, 40);
+        panel.addChild(list);
+
+        return {
+            container,
+            panel,
+            panelAccent: 'amber',
+            header,
+            list,
+            slots: [], // will hold the rendered research slot rows
         };
     }
 
@@ -486,42 +610,133 @@ export class HubScene {
         container.addChild(panel);
 
         const tabTitle = new Text({
-            text: 'MISSION BOARD',
+            text: 'MISSIONS',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: '800', letterSpacing: 2, fill: COLOR_CYAN_300 }),
         });
         tabTitle.position.set(16, 12);
         panel.addChild(tabTitle);
 
-        // Galactic-map backdrop stub: a dim star-grid hint so the
-        // center panel reads as "looking at a region of space" even
-        // before the real map ships. The mission-board modal floats
-        // on top when MISSIONS tab is active.
-        const map = new Graphics();
-        panel.addChild(map);
+        const planner = this._buildMissionPlannerPanel();
+        panel.addChild(planner.container);
 
-        const stub = new Text({
+        return {
+            container,
+            panel,
+            tabTitle,
+            planner,
+        };
+    }
+
+    _buildMissionPlannerPanel() {
+        const container = new Container();
+        const frame = drawTechPanel(560, 320, { accent: 'cyan' });
+        container.addChild(frame);
+
+        const subtitle = new Text({
+            text: 'Pick ship, crew, mission, and dispatch mode.',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: colors.text.muted }),
+        });
+        subtitle.position.set(12, 12);
+        frame.addChild(subtitle);
+
+        const modeLabel = new Text({
+            text: 'DISPATCH MODE',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: colors.text.info }),
+        });
+        modeLabel.position.set(12, 34);
+        frame.addChild(modeLabel);
+
+        const modeIdle = buildSimpleButton({
+            text: 'IDLE',
+            width: 96,
+            height: 28,
+            accent: 'cyan',
+            onTap: () => this._setDispatchMode('idle'),
+        });
+        frame.addChild(modeIdle.container);
+        const modeManual = buildSimpleButton({
+            text: 'MANUAL',
+            width: 110,
+            height: 28,
+            accent: 'magenta',
+            onTap: () => this._setDispatchMode('manual'),
+        });
+        frame.addChild(modeManual.container);
+
+        const hint = new Text({
+            text: 'Manual gameplay currently available for RESOURCE missions only.',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
+        });
+        hint.position.set(232, 40);
+        frame.addChild(hint);
+
+        const shipHeader = panelLabel('FREE SHIPS', COLOR_CYAN_300, { size: 11 });
+        shipHeader.position.set(12, 78);
+        frame.addChild(shipHeader);
+        const shipList = new Container();
+        frame.addChild(shipList);
+
+        const crewHeader = panelLabel('FREE CREWS', COLOR_CYAN_300, { size: 11 });
+        crewHeader.position.set(200, 78);
+        frame.addChild(crewHeader);
+        const crewList = new Container();
+        frame.addChild(crewList);
+
+        const missionHeader = panelLabel('MISSION TYPES', COLOR_CYAN_300, { size: 11 });
+        missionHeader.position.set(388, 78);
+        frame.addChild(missionHeader);
+        const missionList = new Container();
+        frame.addChild(missionList);
+
+        const outcomeCard = drawTechPanel(536, 96, { accent: 'green' });
+        frame.addChild(outcomeCard);
+        const outcomeTitle = new Text({
+            text: 'POSSIBLE OUTCOME',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: '700', letterSpacing: 1, fill: colors.status.success }),
+        });
+        outcomeTitle.position.set(10, 8);
+        outcomeCard.addChild(outcomeTitle);
+        const outcomeBody = new Text({
             text: '',
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 13,
-                fill: 0x94a3b8,
-                align: 'center',
-                wordWrap: true,
-                wordWrapWidth: 480,
-            }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: colors.misc.pale, wordWrap: true, wordWrapWidth: 518 }),
         });
-        stub.anchor.set(0.5);
-        panel.addChild(stub);
+        outcomeBody.position.set(10, 28);
+        outcomeCard.addChild(outcomeBody);
 
-        const openBoardButton = buildStartButton({
-            text: 'OPEN MISSION BOARD',
-            width: 220,
-            height: 38,
-            onTap: () => this._openMissionBoard(),
+        const capacityText = new Text({
+            text: '',
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.text.info }),
         });
-        panel.addChild(openBoardButton.container);
+        frame.addChild(capacityText);
 
-        return { container, panel, tabTitle, map, stub, openBoardButton };
+        const dispatch = buildStartButton({
+            text: 'DISPATCH',
+            width: PLANNER_DISPATCH_BUTTON.width,
+            height: PLANNER_DISPATCH_BUTTON.height,
+            onTap: () => this._dispatchSelectedMission(),
+        });
+        frame.addChild(dispatch.container);
+
+        return {
+            container,
+            frame,
+            modeIdle,
+            modeManual,
+            hint,
+            shipHeader,
+            crewHeader,
+            missionHeader,
+            shipList,
+            crewList,
+            missionList,
+            outcomeCard,
+            outcomeBody,
+            capacityText,
+            dispatch,
+            shipRows: [],
+            crewRows: [],
+            missionRows: [],
+        };
     }
 
     _buildFleetCrew() {
@@ -535,7 +750,7 @@ export class HubScene {
 
         const fleetLabel = new Text({
             text: 'FLEET',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: colors.text.info }),
         });
         fleetLabel.position.set(14, 38);
         panel.addChild(fleetLabel);
@@ -544,21 +759,21 @@ export class HubScene {
         const crew  = this.meta ? this.meta.crewSnapshot()  : [];
         const fleetRows = fleet.map((ship, i) => {
             const row = this._buildFleetRow(ship, HUB_COL_W - 28);
-            row.container.position.set(14, 56 + i * 46);
+            row.container.position.set(14, 56 + i * 48);
             panel.addChild(row.container);
             return row;
         });
 
         const crewLabel = new Text({
             text: 'CREW',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 2, fill: colors.text.info }),
         });
-        crewLabel.position.set(14, 56 + fleet.length * 46 + 10);
+        crewLabel.position.set(14, 56 + fleet.length * 48 + 10);
         panel.addChild(crewLabel);
 
         const crewRows = crew.map((crewMember, i) => {
             const row = this._buildCrewRow(crewMember, HUB_COL_W - 28);
-            row.container.position.set(14, 56 + fleet.length * 46 + 28 + i * 38);
+            row.container.position.set(14, 56 + fleet.length * 48 + 28 + i * 38);
             panel.addChild(row.container);
             return row;
         });
@@ -573,14 +788,14 @@ export class HubScene {
 
         const name = new Text({
             text: `${ship.name}`,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: 0xe2e8f0 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: '700', fill: colors.text.secondary }),
         });
         name.position.set(0, 0);
         container.addChild(name);
 
         const klass = new Text({
             text: ship.className,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
         });
         klass.anchor.set(1, 0);
         klass.position.set(w, 2);
@@ -588,24 +803,24 @@ export class HubScene {
 
         // Hull % bar + value.
         const barBg = new Graphics();
-        barBg.roundRect(0, 22, w, 8, 4).fill({ color: 0x0f172a, alpha: 0.85 });
+        barBg.roundRect(0, 22, w, 8, 4).fill({ color: colors.bg.dark, alpha: 0.85 });
         container.addChild(barBg);
 
-        const hullColor = ship.hull >= 75 ? 0x86efac : ship.hull >= 45 ? 0xfde047 : 0xf87171;
+        const hullColor = ship.hull >= 75 ? colors.status.success : ship.hull >= 45 ? colors.status.warning : colors.status.error;
         const bar = new Graphics();
         bar.roundRect(0, 22, Math.max(2, (w) * (ship.hull / 100)), 8, 4).fill({ color: hullColor, alpha: 0.9 });
         container.addChild(bar);
 
         const hullText = new Text({
             text: `HULL ${ship.hull}%`,
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 10, fill: 0x93c5fd }),
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 10, fill: colors.text.info }),
         });
         hullText.position.set(0, 34);
         container.addChild(hullText);
 
         const status = new Text({
             text: ship.status.toUpperCase(),
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 1, fill: 0x86efac }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 1, fill: colors.status.success }),
         });
         status.anchor.set(1, 0);
         status.position.set(w, 34);
@@ -618,13 +833,13 @@ export class HubScene {
         const container = new Container();
         const name = new Text({
             text: crew.name,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xe2e8f0 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: colors.text.secondary }),
         });
         container.addChild(name);
 
         const role = new Text({
             text: `${crew.role} \u00B7 Lv ${crew.level}`,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
         });
         role.position.set(0, 16);
         container.addChild(role);
@@ -632,7 +847,7 @@ export class HubScene {
         const status = new Text({
             text: crew.status.toUpperCase(),
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: '700', letterSpacing: 1,
-                fill: crew.status === 'Available' ? 0x86efac : 0xfde047 }),
+                fill: crew.status === 'Available' ? colors.status.success : colors.status.warning }),
         });
         status.anchor.set(1, 0);
         status.position.set(w, 4);
@@ -649,7 +864,6 @@ export class HubScene {
         const tabs = HUB_TABS.map((tab) => {
             const button = this._buildNavTab(tab);
             container.addChild(button.container);
-            button.container.on('pointertap', () => this._setActiveTab(tab.id));
             return button;
         });
 
@@ -657,39 +871,19 @@ export class HubScene {
     }
 
     _buildNavTab(tab) {
-        const container = new Container();
-        container.eventMode = 'static';
-        container.cursor = tab.locked ? 'not-allowed' : 'pointer';
-
-        const chipFrame = drawTechChip(120, 40, { accent: tab.locked ? 'amber' : 'cyan' });
-        const bg = chipFrame.frame;
-        container.addChild(chipFrame.container);
-
-        const label = new Text({
-            text: tab.label,
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 12,
-                fontWeight: '800',
-                letterSpacing: 2,
-                fill: tab.locked ? 0x64748b : 0xe2e8f0,
-            }),
+        const dynamicWidth = Math.max(136, Math.round(56 + (tab.label.length * 9)));
+        const btn = createTab({
+            label: tab.label,
+            width: dynamicWidth,
+            height: 40,
+            colorKey: tab.colorKey,
+            locked: !!tab.locked,
+            lockRep: tab.lockRep,
+            onTap: () => {
+                if (!tab.locked) this._setActiveTab(tab.id);
+            },
         });
-        label.anchor.set(0.5);
-        container.addChild(label);
-
-        const sublabel = new Text({
-            text: tab.locked ? `Unlocks at Rep Tier ${tab.lockRep ?? 2}` : '',
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 9,
-                fill: 0x64748b,
-            }),
-        });
-        sublabel.anchor.set(0.5);
-        container.addChild(sublabel);
-
-        return { container, bg, label, sublabel, tab };
+        return { container: btn.container, bg: btn, label: btn.label, sublabel: btn.sublabel, tab };
     }
 
     _buildMissionBoardModal() {
@@ -713,8 +907,8 @@ export class HubScene {
                 fontSize: 18,
                 fontWeight: '800',
                 letterSpacing: 3,
-                fill: 0x67e8f9,
-                dropShadow: { color: 0x67e8f9, alpha: 0.3, blur: 8, distance: 0, angle: 0 },
+                fill: colors.text.accent,
+                dropShadow: { color: colors.text.accent, alpha: 0.3, blur: 8, distance: 0, angle: 0 },
             }),
         });
         title.position.set(18, 14);
@@ -722,7 +916,7 @@ export class HubScene {
 
         const subtitle = new Text({
             text: 'Select a contract to dispatch',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: 0x94a3b8 }),
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fill: colors.text.muted }),
         });
         subtitle.position.set(18, 42);
         panel.addChild(subtitle);
@@ -759,10 +953,11 @@ export class HubScene {
         });
         panel.addChild(rerollButton.container);
 
-        const closeButton = buildStartButton({
+        const closeButton = buildSimpleButton({
             text: 'CLOSE',
             width: 100,
             height: 34,
+            accent: 'amber',
             onTap: () => this._closeMissionBoard(),
         });
         panel.addChild(closeButton.container);
@@ -812,7 +1007,7 @@ export class HubScene {
             style: new TextStyle({
                 fontFamily: '"Courier New", monospace',
                 fontSize: 10,
-                fill: 0x93c5fd,
+                fill: colors.text.info,
             }),
         });
         sector.anchor.set(1, 0);
@@ -826,7 +1021,7 @@ export class HubScene {
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 15,
                 fontWeight: '800',
-                fill: 0xf8fafc,
+                fill: colors.text.primary,
                 wordWrap: true,
                 wordWrapWidth: w - 24,
             }),
@@ -851,7 +1046,7 @@ export class HubScene {
 
         const etaText = new Text({
             text: `ETA ${mission.etaLabel}`,
-            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: 0xcbd5e1 }),
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.misc.pale }),
         });
         etaText.anchor.set(1, 0);
         etaText.position.set(w - 12, h - 86);
@@ -880,7 +1075,7 @@ export class HubScene {
                 fontFamily: '"Courier New", monospace',
                 fontSize: 13,
                 fontWeight: '700',
-                fill: 0xfde047,
+                fill: colors.status.warning,
             }),
         });
         reward.anchor.set(1, 0.5);
@@ -888,12 +1083,11 @@ export class HubScene {
         container.addChild(reward);
 
         // ACCEPT button spans the card's bottom edge.
-        const accept = buildStartButton({
+        const accept = buildSimpleButton({
             text: 'ACCEPT',
             width: w - 24,
-            height: 30,
-            fill: 0x14532d,
-            hoverFill: 0x166534,
+            height: 28,
+            accent: 'green',
         });
         accept.container.position.set(12, h - 40);
         container.addChild(accept.container);
@@ -953,11 +1147,8 @@ export class HubScene {
         if (!n) return;
         n.bottomNav.tabs.forEach((t) => {
             const isActive = t.tab.id === tabId;
-            const w = t.container.__width || 0;
-            const h = t.container.__height || 0;
-            const accent = isActive ? 'cyan' : (t.tab.locked ? 'amber' : 'green');
-            redrawTechChip(t.bg, w, h, { accent });
-            t.label.style.fill = t.tab.locked ? (isActive ? 0xfef3c7 : 0x94a3b8) : (isActive ? 0xf0f9ff : 0xe2e8f0);
+            t.bg.setActive?.(isActive);
+            t.label.style.fill = t.tab.locked ? (isActive ? colors.misc.cream : colors.text.muted) : (isActive ? colors.misc.frost : colors.text.secondary);
         });
     }
 
@@ -971,7 +1162,7 @@ export class HubScene {
         this._redrawTabHighlights(tabId);
         // Center panel contents change per tab.
         //   MISSIONS  -> mission-board modal + open-board button.
-        //   STAR MAP / BUILD / RESEARCH -> extracted tab scene.
+        //   STAR MAP / FLEET UPGRADE / RESEARCH -> extracted tab scene.
         //   any other -> locked stub text (until that tab is extracted).
         const c = n.centerPanel;
         const activeTab = HUB_TABS.find((t) => t.id === tabId) || HUB_TABS[1];
@@ -985,41 +1176,553 @@ export class HubScene {
 
         if (tabId === 'missions') {
             c.tabTitle.visible = true;
-            c.tabTitle.text = 'MISSIONS \u2014 MISSION BOARD';
-            c.stub.visible = true;
-            c.stub.text = '';
-            c.map.visible = true;
-            c.openBoardButton.container.visible = true;
-            this._openMissionBoard();
-        } else if (tabId === 'star-map' || tabId === 'build' || tabId === 'research') {
+            c.tabTitle.text = 'MISSIONS';
+            c.planner.container.visible = true;
+            this._refreshMissionPlanner();
+        } else if (n.tabs[tabId]) {
             // Extracted tab scenes own their own title + surface; hide
             // the default chrome so they don't overlap.
             c.tabTitle.visible = false;
-            c.stub.visible = false;
-            c.map.visible = false;
-            c.openBoardButton.container.visible = false;
+            c.planner.container.visible = false;
             this._closeMissionBoard();
             const scene = n.tabs[tabId];
             scene.show();
-            // show() lazy-builds the scene's Pixi nodes on first call.
-            // The _layoutCenterPanel fan-out only fires during
-            // _layoutShell, which ran at hub-build time (before the
-            // nodes existed and scene.layout early-returned). Call
-            // layout now with the center panel's last-known inner
-            // dims so the newly-built content positions itself
-            // correctly on first show instead of collapsing to (0, 0).
             if (typeof scene.layout === 'function' && c._w && c._h) {
                 scene.layout({ width: c._w, height: c._h });
             }
         } else {
             c.tabTitle.visible = true;
             c.tabTitle.text = activeTab.label;
-            c.stub.visible = true;
-            c.stub.text = `${activeTab.label} \u2014 Unlocks at Rep Tier ${activeTab.lockRep ?? 2}.\nComing in a later phase.`;
-            c.map.visible = true;
-            c.openBoardButton.container.visible = false;
+            c.planner.container.visible = false;
             this._closeMissionBoard();
         }
+
+        // Left-column content is contextual: idle dispatches are shown only
+        // on MISSIONS, and active research is shown only on RESEARCH. Other
+        // tabs keep the left bay clear so their center content can breathe.
+        const showIdleLeft = tabId === 'missions';
+        const showResearchLeft = tabId === 'research';
+
+        if (n.leftCol && n.researchProjects) {
+            n.leftCol.container.visible = showIdleLeft;
+            n.researchProjects.container.visible = showResearchLeft;
+
+            if (showResearchLeft) {
+                this._refreshResearchProjectsPanel();
+            }
+        }
+    }
+
+    _setDispatchMode(mode) {
+        this._selectedMissionDispatch = mode === 'manual' ? 'manual' : 'idle';
+        this._refreshMissionPlanner();
+    }
+
+    _environmentLevelForMission(mission) {
+        const complexity = mission?.gameConfig?.complexity;
+        if (complexity === PIECE_COMPLEXITY.COLLAPSED) return 3;
+        if (complexity === PIECE_COMPLEXITY.MUTATED) return 2;
+        return 1;
+    }
+
+    _idleEtaSecForMission(mission, shipTypeMatch) {
+        const base = IDLE_DURATION_SEC_BY_RISK[mission?.risk] || 240;
+        const tierBonus = Math.max(0, ((mission?.tierIndex || 1) - 1) * 15);
+        const envBonus = (this._environmentLevelForMission(mission) - 1) * 25;
+        const hullPenalty = shipTypeMatch ? -12 : 16;
+        return Math.max(90, Math.round(base + tierBonus + envBonus + hullPenalty));
+    }
+
+    _truncateSingleLine(textNode, fullText, maxWidth) {
+        if (!textNode) return;
+        let next = String(fullText ?? '');
+        textNode.text = next;
+        if (textNode.width <= maxWidth) return;
+        const ellipsis = '\u2026';
+        while (next.length > 1) {
+            next = next.slice(0, -1);
+            textNode.text = `${next}${ellipsis}`;
+            if (textNode.width <= maxWidth) return;
+        }
+        textNode.text = ellipsis;
+    }
+
+    _buildSelectableRow(label, width, onTap) {
+        const container = new Container();
+        container.eventMode = 'static';
+        container.cursor = 'pointer';
+        const frame = drawTechPanel(width, 30, { accent: 'cyan' });
+        container.addChild(frame);
+        const title = new Text({
+            text: label,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: colors.text.primary }),
+        });
+        title.position.set(8, 7);
+        frame.addChild(title);
+        this._truncateSingleLine(title, label, width - 14);
+        container.on('pointertap', onTap);
+        return { container, frame, title };
+    }
+
+    _refreshMissionPlanner() {
+        this._reconcileIdleMissionState();
+        const planner = this._nodes?.centerPanel?.planner;
+        if (!planner) return;
+        const fleet = this.meta?.fleetSnapshot() || [];
+        const crew = this.meta?.crewSnapshot() || [];
+        const freeShips = fleet.filter((s) => s.status === 'Standby');
+        const freeCrew = crew.filter((c) => c.status === 'Available');
+        if (!freeShips.find((s) => s.id === this._selectedShipId)) this._selectedShipId = freeShips[0]?.id ?? null;
+        if (!freeCrew.find((c) => c.id === this._selectedCrewId)) this._selectedCrewId = freeCrew[0]?.id ?? null;
+        const missionPool = Array.isArray(this._missions) ? this._missions : [];
+        if (!missionPool.find((m) => m.tierId === this._selectedMissionTierId)) {
+            this._selectedMissionTierId = missionPool[0]?.tierId ?? null;
+        }
+
+        const modeIdleActive = this._selectedMissionDispatch === 'idle';
+        const modeManualActive = this._selectedMissionDispatch === 'manual';
+        planner.modeIdle.setAccent?.(modeIdleActive ? 'cyan' : 'green');
+        planner.modeManual.setAccent?.(modeManualActive ? 'magenta' : 'amber');
+        planner.modeIdle.label.style.fill = modeIdleActive ? colors.text.white : colors.text.muted;
+        planner.modeManual.label.style.fill = modeManualActive ? colors.text.white : colors.text.muted;
+
+        const shipRowW = planner.shipRowW || 160;
+        const crewRowW = planner.crewRowW || 160;
+        const missionRowW = planner.missionRowW || 160;
+        const shipX = planner.shipListX ?? 12;
+        const crewX = planner.crewListX ?? (shipX + shipRowW + PLANNER_SECTION_GAP);
+        const missionX = planner.missionListX ?? (crewX + crewRowW + PLANNER_SECTION_GAP);
+        const listY = planner.listBaseY ?? 86;
+
+        planner.shipRows.forEach((r) => r.container.destroy({ children: true }));
+        planner.shipRows = [];
+        freeShips.forEach((ship, i) => {
+            const row = this._buildSelectableRow(`${ship.name} · ${ship.className}`, shipRowW, () => {
+                this._selectedShipId = ship.id;
+                this._refreshMissionPlanner();
+            });
+            if (ship.id === this._selectedShipId) redrawTechPanel(row.frame, shipRowW, PLANNER_ROW_H, { accent: 'magenta' });
+            row.container.position.set(shipX, listY + i * (PLANNER_ROW_H + PLANNER_ROW_GAP));
+            planner.frame.addChild(row.container);
+            planner.shipRows.push(row);
+        });
+
+        planner.crewRows.forEach((r) => r.container.destroy({ children: true }));
+        planner.crewRows = [];
+        freeCrew.forEach((member, i) => {
+            const row = this._buildSelectableRow(`${member.name} · Lv${member.level}`, crewRowW, () => {
+                this._selectedCrewId = member.id;
+                this._refreshMissionPlanner();
+            });
+            if (member.id === this._selectedCrewId) redrawTechPanel(row.frame, crewRowW, PLANNER_ROW_H, { accent: 'magenta' });
+            row.container.position.set(crewX, listY + i * (PLANNER_ROW_H + PLANNER_ROW_GAP));
+            planner.frame.addChild(row.container);
+            planner.crewRows.push(row);
+        });
+
+        planner.missionRows.forEach((r) => r.container.destroy({ children: true }));
+        planner.missionRows = [];
+        missionPool.forEach((mission, i) => {
+            const rowLabel = `T${mission.tierIndex} · ${mission.type.toUpperCase()} · ${mission.difficulty}`;
+            const row = this._buildSelectableRow(rowLabel, missionRowW, () => {
+                this._selectedMissionTierId = mission.tierId;
+                this._refreshMissionPlanner();
+            });
+            if (mission.tierId === this._selectedMissionTierId) redrawTechPanel(row.frame, missionRowW, PLANNER_ROW_H, { accent: 'magenta' });
+            row.container.position.set(missionX, listY + i * (PLANNER_ROW_H + PLANNER_ROW_GAP));
+            planner.frame.addChild(row.container);
+            planner.missionRows.push(row);
+        });
+
+        const mission = missionPool.find((m) => m.tierId === this._selectedMissionTierId) || missionPool[0];
+        const maxIdle = this._maxIdleAssignments();
+        const risk = HUB_RISK_PRESETS[mission.risk] || HUB_RISK_PRESETS[3];
+        const envLvl = this._environmentLevelForMission(mission);
+        const threatLvl = mission.risk;
+        const etaPreviewSec = this._idleEtaSecForMission(mission, true);
+        planner.outcomeBody.text = `${mission.narrativeName} · ${mission.type} · ${mission.difficulty}\n` +
+            `Threat Lv ${threatLvl} · Environment Lv ${envLvl} · ETA ${formatDuration(etaPreviewSec)}\n` +
+            `Reward ~${Math.round(mission.baseCredits * 0.8)}-${Math.round(mission.baseCredits * 1.25)} credits. ` +
+            `${this._selectedMissionDispatch === 'manual'
+                ? 'Launches playable minigame.'
+                : 'Autonomous idle run, can be aborted anytime for partial return.'}`;
+        planner.capacityText.text = `IDLE CAPACITY ${this._idleMissions.length}/${maxIdle} · FREE SHIPS ${freeShips.length} · FREE CREW ${freeCrew.length}`;
+
+        const canDispatch = !!(this._selectedShipId && this._selectedCrewId && mission);
+        planner.dispatch.container.eventMode = canDispatch ? 'static' : 'none';
+        planner.dispatch.container.cursor = canDispatch ? 'pointer' : 'not-allowed';
+        planner.dispatch.label.style.fill = canDispatch ? colors.text.white : colors.text.muted;
+    }
+
+    _dispatchSelectedMission() {
+        const ship = this.meta?.fleetSnapshot().find((s) => s.id === this._selectedShipId && s.status === 'Standby');
+        const crew = this.meta?.crewSnapshot().find((c) => c.id === this._selectedCrewId && c.status === 'Available');
+        const mission = this._missions.find((m) => m.tierId === this._selectedMissionTierId);
+        if (!ship || !crew || !mission) return;
+        if (this._selectedMissionDispatch === 'idle' && this._idleMissions.length >= this._maxIdleAssignments()) return;
+
+        const now = Date.now();
+        const missionResult = this._resolveMissionForDispatch(mission, ship, crew);
+
+        // P4: for idle dispatches, populate real ore rewards using the same
+        // catalog derivation that buildIdleMissions uses (common + rare split).
+        let rewardOres = missionResult.rewardOres;
+        if (this._selectedMissionDispatch === 'idle') {
+            const idleOffers = buildIdleMissions(this._missions);
+            const offer = idleOffers.find((o) => o.sourceMissionId === mission.id || o.id === `idle-${mission.id}`);
+            if (offer && offer.rewardOres) {
+                rewardOres = offer.rewardOres;
+            }
+        }
+
+        const jobId = `dispatch-${this._idleMissionSeq++}`;
+        const job = {
+            id: jobId,
+            offerId: mission.tierId,
+            missionId: mission.id,
+            title: mission.narrativeName,
+            type: mission.type,
+            dispatchMode: this._selectedMissionDispatch,
+            risk: mission.risk,
+            difficulty: mission.difficulty,
+            threatLevel: missionResult.threatLevel,
+            environmentLevel: missionResult.environmentLevel,
+            rewardCredits: missionResult.rewardCredits,
+            rewardOres,
+            shipId: ship.id,
+            shipName: ship.name,
+            crewId: crew.id,
+            crewName: crew.name,
+            startedAt: now,
+            etaSec: missionResult.etaSec,
+            endsAt: now + missionResult.etaSec * 1000,
+            claimed: false,
+        };
+
+        if (this._selectedMissionDispatch === 'idle') {
+            // P4: persist via MetaState (auto-saves + emits change)
+            this.meta?.addActiveMission(job);
+            // Local cache will be refreshed from meta in the change handler + explicit refresh below
+            this._idleMissions.push(job);
+        } else {
+            this._idleMissions.push(job);
+        }
+
+        this.meta?.setShipStatus(ship.id, 'On Mission');
+        this.meta?.setCrewStatus(crew.id, 'On Mission');
+
+        if (this._selectedMissionDispatch === 'manual') {
+            this._onMissionCardTapped(mission);
+        }
+
+        this._refreshActiveIdleMissions();
+        this._refreshMissionPlanner();
+        this._refreshFleetCrewPanel();
+    }
+
+    _resolveMissionForDispatch(mission, ship, crew) {
+        const missionType = String(mission.type || '').toLowerCase();
+        const shipTypeMatch = String(ship.className || '').toLowerCase().includes(missionType);
+        const skillFactor = 1 + ((crew.level - 1) * 0.04);
+        const typeFactor = shipTypeMatch ? 1.12 : 0.94;
+        const threatLevel = mission.risk;
+        const environmentLevel = this._environmentLevelForMission(mission);
+        const rewardCredits = Math.max(60, Math.round(mission.baseCredits * skillFactor * typeFactor));
+        const etaSec = this._idleEtaSecForMission(mission, shipTypeMatch);
+        return {
+            rewardCredits,
+            etaSec,
+            threatLevel,
+            environmentLevel,
+            rewardOres: { common: [], rare: [] },
+        };
+    }
+
+    _maxIdleAssignments() {
+        const ships = this.meta?.fleetSnapshot()?.length || 0;
+        const crews = this.meta?.crewSnapshot()?.length || 0;
+        return Math.max(0, Math.min(ships, crews));
+    }
+
+    _refreshFleetCrewPanel() {
+        const col = this._nodes?.rightCol;
+        if (!col || !this.meta) return;
+        const fleet = this.meta.fleetSnapshot();
+        const crew = this.meta.crewSnapshot();
+        col.fleetRows.forEach((row, i) => {
+            const ship = fleet[i];
+            if (!ship) return;
+            row.status.text = ship.status.toUpperCase();
+            row.status.style.fill = ship.status === 'Standby' ? colors.status.success : colors.status.warning;
+            row.hull = ship.hull;
+        });
+        col.crewRows.forEach((row, i) => {
+            const member = crew[i];
+            if (!member) return;
+            row.status.text = member.status.toUpperCase();
+            row.status.style.fill = member.status === 'Available' ? colors.status.success : colors.status.warning;
+        });
+    }
+
+    // Refresh the research projects shown in the left column when RESEARCH tab is active
+    _refreshResearchProjectsPanel() {
+        const col = this._nodes?.researchProjects;
+        if (!col || !this.meta) return;
+
+        const researchState = this.meta.getResearchState();
+        const active = researchState.activeResearches || [];
+        const maxSlots = researchState.maxConcurrent || 2;
+
+        // Clear previous content
+        col.list.removeChildren();
+
+        const rowH = 78;
+        const rowW = HUB_COL_W - 24;
+
+        for (let i = 0; i < maxSlots; i++) {
+            const project = active[i];
+            const y = i * (rowH + 6);
+
+            const slot = drawTechPanel(rowW, rowH, { accent: project ? 'amber' : 'slate' });
+            slot.position.set(0, y);
+            col.list.addChild(slot);
+
+            if (project) {
+                const node = getAllNodes().find(n => n.id === project.nodeId);
+                const title = new Text({
+                    text: `${node?.glyph || '??'} ${node ? node.name : project.nodeId}`,
+                    style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: colors.text.primary }),
+                });
+                title.position.set(10, 8);
+                slot.addChild(title);
+
+                const progress = getResearchProgressForProject(project, node, Date.now());
+                const remainingMs = getRemainingMsForProject(project, node, Date.now());
+                const totalSec = Math.ceil(remainingMs / 1000);
+                const min = Math.floor(totalSec / 60);
+                const sec = totalSec % 60;
+                const timeStr = `${min}m ${sec}s`;
+
+                const progressText = new Text({
+                    text: `${Math.round(progress * 100)}%  ·  ${timeStr}`,
+                    style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.status.warning }),
+                });
+                progressText.position.set(10, 28);
+                slot.addChild(progressText);
+
+                const cancel = buildSimpleButton({
+                    text: 'CANCEL',
+                    width: 70,
+                    height: 22,
+                    accent: 'rose',
+                    onTap: () => {
+                        this.meta.cancelResearch(project.nodeId);
+                        this._refreshResearchProjectsPanel();
+                        // Also refresh the research tab if open
+                        this._nodes?.tabs?.research?._refreshFromMeta?.();
+                    },
+                });
+                cancel.container.position.set(rowW - 80, 42);
+                slot.addChild(cancel.container);
+
+                // Optional: Resume button if paused (startedAt === 0)
+                if (project.startedAt === 0) {
+                    const resume = buildSimpleButton({
+                        text: 'RESUME',
+                        width: 70,
+                        height: 22,
+                        accent: 'cyan',
+                        onTap: () => {
+                            this.meta.resumeResearch(project.nodeId);
+                            this._refreshResearchProjectsPanel();
+                            this._nodes?.tabs?.research?._refreshFromMeta?.();
+                        },
+                    });
+                    resume.container.position.set(rowW - 160, 42);
+                    slot.addChild(resume.container);
+                }
+            } else {
+                const empty = new Text({
+                    text: 'Empty Research Slot',
+                    style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 11, fill: colors.text.muted }),
+                });
+                empty.position.set(10, 28);
+                slot.addChild(empty);
+            }
+        }
+    }
+
+    _refreshActiveIdleMissions() {
+        this._reconcileIdleMissionState();
+        const left = this._nodes?.leftCol;
+        if (!left) return;
+        left.counter.text = `${this._idleMissions.length} / ${this._maxIdleAssignments()}`;
+        if (left.empty?.parent === left.list) {
+            left.list.removeChild(left.empty);
+        }
+        if (Array.isArray(left.rows)) {
+            left.rows.forEach((row) => {
+                row?.container?.destroy({ children: true });
+            });
+        }
+        left.rows = [];
+        if (this._idleMissions.length === 0) {
+            left.list.addChild(left.empty);
+            return;
+        }
+        const rowW = HUB_COL_W - 24;
+        const now = Date.now();
+        this._idleMissions.forEach((job, i) => {
+            const state = computeJobState(job, now);
+            const row = this._buildActiveIdleRow(job, rowW, state.remainingSec, state.done);
+            row.container.y = i * 118;
+            left.list.addChild(row.container);
+            left.rows.push(row);
+        });
+    }
+
+    _reconcileIdleMissionState() {
+        if (!this.meta) return;
+
+        // P4: primary source of truth is now the persisted list in MetaState.
+        // Hydrate local working copy from meta (defensive deep-ish copy).
+        const persisted = this.meta.activeMissionsSnapshot ? this.meta.activeMissionsSnapshot() : [];
+        // Merge any local-only jobs that haven't been persisted yet (race on first dispatch)
+        const localOnly = this._idleMissions.filter((j) => !persisted.some((p) => p.id === j.id));
+        this._idleMissions = [...persisted, ...localOnly];
+
+        const fleet = this.meta.fleetSnapshot();
+        const crew = this.meta.crewSnapshot();
+        const fleetById = new Map(fleet.map((ship) => [ship.id, ship]));
+        const crewById = new Map(crew.map((member) => [member.id, member]));
+        const validJobs = [];
+        const usedShips = new Set();
+        const usedCrew = new Set();
+
+        for (const job of this._idleMissions) {
+            if (!fleetById.has(job.shipId) || !crewById.has(job.crewId)) {
+                continue;
+            }
+            if (usedShips.has(job.shipId) || usedCrew.has(job.crewId)) {
+                continue;
+            }
+            validJobs.push(job);
+            usedShips.add(job.shipId);
+            usedCrew.add(job.crewId);
+        }
+        this._idleMissions = validJobs;
+
+        // Only fabricate recovery placeholders for truly orphaned "On Mission" assets
+        // (defensive; real jobs should come from persisted activeMissions).
+        const orphanShips = fleet.filter((ship) => ship.status === 'On Mission' && !usedShips.has(ship.id));
+        const orphanCrew = crew.filter((member) => member.status === 'On Mission' && !usedCrew.has(member.id));
+        const pairCount = Math.min(orphanShips.length, orphanCrew.length);
+        for (let i = 0; i < pairCount; i += 1) {
+            const ship = orphanShips[i];
+            const member = orphanCrew[i];
+            const rec = makeRecoveryJob(ship, member, this._idleMissionSeq++);
+            this._idleMissions.push(rec);
+            usedShips.add(ship.id);
+            usedCrew.add(member.id);
+            // Also persist the recovery so it survives the next reload
+            this.meta.addActiveMission?.(rec);
+        }
+
+        for (const ship of fleet) {
+            const onMission = usedShips.has(ship.id);
+            const next = onMission ? 'On Mission' : 'Standby';
+            if (ship.status !== next) this.meta.setShipStatus(ship.id, next);
+        }
+        for (const member of crew) {
+            const onMission = usedCrew.has(member.id);
+            const next = onMission ? 'On Mission' : 'Available';
+            if (member.status !== next) this.meta.setCrewStatus(member.id, next);
+        }
+    }
+
+    _buildActiveIdleRow(job, w, remainingSec, done) {
+        const container = new Container();
+        const frame = drawTechPanel(w, 108, { accent: done ? 'green' : 'cyan' });
+        container.addChild(frame);
+        const title = new Text({
+            text: job.title,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '700', fill: colors.text.primary, wordWrap: true, wordWrapWidth: w - 20 }),
+        });
+        title.position.set(10, 10);
+        frame.addChild(title);
+        const crewShip = new Text({
+            text: `${job.shipName} · ${job.crewName}`,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
+        });
+        crewShip.position.set(10, 46);
+        frame.addChild(crewShip);
+        const status = new Text({
+            text: done ? `READY · +${job.rewardCredits} CR` : `ETA ${formatDuration(remainingSec)}`,
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: done ? colors.status.success : colors.text.info }),
+        });
+        status.position.set(10, 66);
+        frame.addChild(status);
+        if (done) {
+            const claim = buildSimpleButton({
+                text: 'CLAIM',
+                width: 80,
+                height: 26,
+                accent: 'green',
+                onTap: () => this._claimIdleMission(job.id),
+            });
+            claim.container.position.set(w - 90, 72);
+            frame.addChild(claim.container);
+        } else {
+            const abort = buildSimpleButton({
+                text: 'RETURN',
+                width: 80,
+                height: 26,
+                accent: 'amber',
+                onTap: () => this._abortIdleMission(job.id),
+            });
+            abort.container.position.set(w - 90, 72);
+            frame.addChild(abort.container);
+        }
+        return { container, frame };
+    }
+
+    _abortIdleMission(jobId) {
+        const job = this._idleMissions.find((m) => m.id === jobId);
+        if (!job) return;
+
+        // P4: compute pure partial via clock helper, then delegate to MetaState
+        // (meta handles credits + status flips + removal + persistence)
+        const partialCredits = computePartialCredits(job);
+        this.meta?.abortActiveMission(jobId, { partialCredits });
+
+        // Keep local cache in sync (meta change handler will also refresh)
+        this._idleMissions = this._idleMissions.filter((m) => m.id !== jobId);
+        this._refreshActiveIdleMissions();
+        this._refreshMissionPlanner();
+        this._refreshFleetCrewPanel();
+    }
+
+    _claimIdleMission(jobId) {
+        const idx = this._idleMissions.findIndex((m) => m.id === jobId);
+        if (idx < 0) return;
+        const job = this._idleMissions[idx];
+
+        // P4: build the exact payout envelope (credits + per-color ores) then delegate
+        let credits = job.rewardCredits || 0;
+        const ores = {};
+        const applyOre = (oreId) => {
+            const ore = ORES.find((o) => o.id === oreId);
+            if (ore?.color) ores[ore.color] = (ores[ore.color] || 0) + 1;
+        };
+        if (Array.isArray(job.rewardOres?.common)) job.rewardOres.common.forEach(applyOre);
+        if (Array.isArray(job.rewardOres?.rare)) job.rewardOres.rare.forEach(applyOre);
+
+        this.meta?.claimActiveMission(jobId, { credits, ores });
+
+        this._idleMissions.splice(idx, 1);
+        this._refreshActiveIdleMissions();
+        this._refreshMissionPlanner();
+        this._refreshFleetCrewPanel();
     }
 
     _rollCallsign() {
@@ -1063,49 +1766,55 @@ export class HubScene {
     _layoutShell(w, h) {
         const n = this._nodes;
         if (!n) return;
+        const safeW = (typeof w === 'number' && Number.isFinite(w) && w > 0) ? w : HUB_MIN_LAYOUT_W;
+        const safeH = (typeof h === 'number' && Number.isFinite(h) && h > 0) ? h : HUB_MIN_LAYOUT_H;
         // Keep the desktop-first hub shell intact and scale it down as a
         // single surface when the viewport is narrower than the layout's
         // minimum width/height. This avoids panel overlap on phones while
         // preserving one authoritative set of hub coordinates.
-        const scale = Math.min(w / HUB_MIN_LAYOUT_W, h / HUB_MIN_LAYOUT_H, 1);
-        const vw = Math.max(HUB_MIN_LAYOUT_W, w / scale);
-        const vh = Math.max(HUB_MIN_LAYOUT_H, h / scale);
+        const scale = Math.min(safeW / HUB_MIN_LAYOUT_W, safeH / HUB_MIN_LAYOUT_H, 1);
+        const vw = Math.max(HUB_MIN_LAYOUT_W, safeW / scale);
+        const vh = Math.max(HUB_MIN_LAYOUT_H, safeH / scale);
         n.root.scale.set(scale);
         n.root.position.set(
-            Math.round((w - (vw * scale)) / 2),
-            Math.round((h - (vh * scale)) / 2),
+            Math.round((safeW - (vw * scale)) / 2),
+            Math.round((safeH - (vh * scale)) / 2),
         );
 
-        // --- Top bar: full viewport width, fixed height.
-        this._layoutTopBar(n.topBar, vw);
+        const shellX = HUB_SURFACE_INSET;
+        const shellW = Math.max(HUB_MIN_LAYOUT_W - HUB_SURFACE_INSET * 2, vw - HUB_SURFACE_INSET * 2);
 
-        // --- News ticker: full viewport width, under top bar.
-        this._layoutNewsTicker(n.news, vw, HUB_TOPBAR_H);
+        // --- Top bar: aligned to the same outer edges as middle panels.
+        this._layoutTopBar(n.topBar, shellX, shellW, HUB_SURFACE_INSET_Y);
+
+        // --- News ticker: aligned to shell width under top bar.
+        this._layoutNewsTicker(n.news, shellX, shellW, HUB_SURFACE_INSET_Y + HUB_TOPBAR_H);
 
         // --- Columns + center live in the middle band.
-        const columnsY = HUB_TOPBAR_H + HUB_NEWS_H + HUB_GUTTER;
-        const columnsH = Math.max(360, vh - columnsY - HUB_NAV_H - HUB_GUTTER);
-        const leftX = HUB_GUTTER;
-        const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, vw - HUB_COL_W - HUB_GUTTER);
+        const columnsY = HUB_SURFACE_INSET_Y + HUB_TOPBAR_H + HUB_NEWS_H + HUB_GUTTER;
+        const columnsH = Math.max(360, vh - columnsY - HUB_NAV_H - HUB_GUTTER - HUB_SURFACE_INSET_Y);
+        const leftX = shellX;
+        const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, shellX + shellW - HUB_COL_W);
         // Center gets whatever is left; clamp to a minimum so cards
         // don't overlap at narrow viewports.
         const centerX = leftX + HUB_COL_W + HUB_GUTTER;
         const centerW = Math.max(HUB_MIN_CENTER_W, rightX - centerX - HUB_GUTTER);
 
         this._layoutColumnPanel(n.leftCol, leftX, columnsY, HUB_COL_W, columnsH);
+        this._layoutColumnPanel(n.researchProjects, leftX, columnsY, HUB_COL_W, columnsH);
         this._layoutColumnPanel(n.rightCol, rightX, columnsY, HUB_COL_W, columnsH);
         this._layoutCenterPanel(n.centerPanel, centerX, columnsY, centerW, columnsH);
 
-        // --- Bottom nav: full viewport width, pinned to bottom.
-        this._layoutBottomNav(n.bottomNav, vw, vh - HUB_NAV_H, HUB_NAV_H);
+        // --- Bottom nav: aligned to shell width, pinned to bottom.
+        this._layoutBottomNav(n.bottomNav, shellX, shellW, vh - HUB_SURFACE_INSET_Y - HUB_NAV_H, HUB_NAV_H);
 
         // --- Modal is centered on the viewport. Panel clamps to viewport.
         this._layoutModal(n.modal, vw, vh);
     }
 
-    _layoutTopBar(topBar, w) {
+    _layoutTopBar(topBar, x, w, y = 0) {
         const h = HUB_TOPBAR_H;
-        topBar.container.position.set(0, 0);
+        topBar.container.position.set(x, y);
         redrawTechPanel(topBar.frame, w, h, { accent: 'cyan' });
 
         const starX = 20;
@@ -1134,19 +1843,19 @@ export class HubScene {
         });
     }
 
-    _layoutNewsTicker(news, w, y) {
+    _layoutNewsTicker(news, x, w, y) {
         const h = HUB_NEWS_H;
-        news.container.position.set(0, y);
+        news.container.position.set(x, y);
         news.bg.clear();
-        news.bg.rect(0, 0, w, h).fill({ color: 0x0b1b3a, alpha: 0.7 });
-        news.bg.rect(0, h - 1, w, 1).fill({ color: 0x38bdf8, alpha: 0.2 });
+        news.bg.rect(0, 0, w, h).fill({ color: colors.bg.panel, alpha: 0.7 });
+        news.bg.rect(0, h - 1, w, 1).fill({ color: colors.misc.line, alpha: 0.2 });
 
         news.prefix.position.set(14, h / 2);
 
         const prefixRight = 14 + news.prefix.width + 16;
         const bandWidth = Math.max(120, w - prefixRight - 14);
         news.clipMask.clear();
-        news.clipMask.rect(prefixRight, 0, bandWidth, h).fill({ color: 0xffffff });
+        news.clipMask.rect(prefixRight, 0, bandWidth, h).fill({ color: colors.text.white });
 
         news.scroller.position.set(prefixRight, h / 2 - news.body.height / 2);
         news.__bandWidth = bandWidth;
@@ -1160,30 +1869,31 @@ export class HubScene {
         col.container.position.set(x, y);
         redrawTechPanel(col.panel, w, h, { accent: col.panelAccent ?? 'cyan' });
         if (col.counter) col.counter.position.set(w - 14, 12);
+        if (col.list) col.list.position.set(12, 40);
         if (col.empty) {
             // Keep the sky-400 accent set by _buildActiveMissions;
             // re-using the default cyan here would mute the empty card
             // against the panel border.
             redrawTechPanel(col.empty, w - 24, 108, { accent: 'cyan' });
-            col.empty.position.set(12, 40);
+            col.empty.position.set(0, 0);
         }
         if (col.fleetRows) {
             const rowW = w - 28;
             col.fleetRows.forEach((row, i) => {
-                row.container.position.set(14, 56 + i * 54);
+                row.container.position.set(14, 56 + i * 48);
                 row.klass.position.set(rowW, 2);
                 row.barBg.clear();
-                row.barBg.roundRect(0, 22, rowW, 8, 4).fill({ color: 0x0f172a, alpha: 0.85 });
+                row.barBg.roundRect(0, 22, rowW, 8, 4).fill({ color: colors.bg.dark, alpha: 0.85 });
                 row.bar.clear();
                 const hull = typeof row.hull === 'number' ? row.hull : 0;
-                const hullColor = hull >= 75 ? 0x86efac : hull >= 45 ? 0xfde047 : 0xf87171;
+                const hullColor = hull >= 75 ? colors.status.success : hull >= 45 ? colors.status.warning : colors.status.error;
                 row.bar.roundRect(0, 22, Math.max(2, rowW * (hull / 100)), 8, 4).fill({ color: hullColor, alpha: 0.9 });
                 row.status.position.set(rowW, 34);
             });
-            if (col.crewLabel) col.crewLabel.position.set(14, 56 + col.fleetRows.length * 54 + 10);
+            if (col.crewLabel) col.crewLabel.position.set(14, 56 + col.fleetRows.length * 48 + 10);
             if (col.crewRows) {
                 col.crewRows.forEach((row, i) => {
-                    row.container.position.set(14, 56 + col.fleetRows.length * 54 + 28 + i * 38);
+                    row.container.position.set(14, 56 + col.fleetRows.length * 48 + 28 + i * 38);
                     row.status.position.set(rowW, 4);
                 });
             }
@@ -1198,19 +1908,36 @@ export class HubScene {
         center._w = w;
         center._h = h;
         redrawTechPanel(center.panel, w, h, { accent: 'magenta' });
-        center.map.clear();
-        // Faint dotted grid to evoke a star map.
-        const gridStep = 40;
-        for (let gx = gridStep; gx < w - 10; gx += gridStep) {
-            for (let gy = 56; gy < h - 20; gy += gridStep) {
-                center.map.circle(gx, gy, 1).fill({ color: 0x67e8f9, alpha: 0.25 });
-            }
-        }
-        center.stub.position.set(w / 2, h / 2 + 10);
-        center.stub.style.wordWrapWidth = w - 60;
-        // Open-board button centered near the bottom of the center panel.
-        const btnW = center.openBoardButton.width;
-        center.openBoardButton.container.position.set((w - btnW) / 2, h - 64);
+        center.planner.container.position.set(12, 38);
+        const plannerW = Math.max(260, w - 24);
+        const plannerH = Math.max(220, h - 50);
+        redrawTechPanel(center.planner.frame, plannerW, plannerH, { accent: 'cyan' });
+        center.planner.modeIdle.container.position.set(12, 46);
+        center.planner.modeManual.container.position.set(114, 46);
+        const rowW = Math.max(130, Math.floor((plannerW - 24 - (PLANNER_SECTION_GAP * 2)) / 3));
+        const usedW = rowW * 3 + PLANNER_SECTION_GAP * 2;
+        const listStartX = Math.round((plannerW - usedW) / 2);
+        center.planner.shipRowW = rowW;
+        center.planner.crewRowW = rowW;
+        center.planner.missionRowW = rowW;
+        center.planner.shipListX = listStartX;
+        center.planner.crewListX = listStartX + rowW + PLANNER_SECTION_GAP;
+        center.planner.missionListX = listStartX + (rowW + PLANNER_SECTION_GAP) * 2;
+        center.planner.listBaseY = 98;
+        center.planner.shipHeader.position.set(center.planner.shipListX, 78);
+        center.planner.crewHeader.position.set(center.planner.crewListX, 78);
+        center.planner.missionHeader.position.set(center.planner.missionListX, 78);
+
+        const outcomeY = Math.max(262, plannerH - 182);
+        center.planner.outcomeCard.position.set(10, outcomeY);
+        redrawTechPanel(center.planner.outcomeCard, Math.max(220, plannerW - 20), 96, { accent: 'green' });
+        center.planner.outcomeBody.style.wordWrapWidth = Math.max(170, plannerW - 40);
+        center.planner.capacityText.position.set(12, plannerH - 62);
+        center.planner.dispatch.container.position.set(
+            Math.round((plannerW - center.planner.dispatch.width) / 2),
+            plannerH - center.planner.dispatch.height - 10,
+        );
+        this._refreshMissionPlanner();
 
         // Fan out to any extracted tab scenes hosted in the center
         // panel. They lay out against the panel's inner surface (same
@@ -1226,24 +1953,39 @@ export class HubScene {
         }
     }
 
-    _layoutBottomNav(nav, w, y, h) {
-        nav.container.position.set(0, y);
+    _layoutBottomNav(nav, x, w, y, h) {
+        nav.container.position.set(x, y);
         redrawTechPanel(nav.frame, w, h, { accent: 'cyan' });
 
-        const tabCount = nav.tabs.length;
         const pad = HUB_GUTTER;
-        const totalInner = w - pad * 2;
-        const gap = 10;
-        const tabW = Math.floor((totalInner - gap * (tabCount - 1)) / tabCount);
+        const totalInner = Math.max(0, w - pad * 2);
+        const gap = 16;
         const tabH = h - 12;
+        const baseWidths = nav.tabs.map((t) => {
+            const raw = t?.bg?.width;
+            return (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) ? raw : 136;
+        });
+        const totalBaseW = baseWidths.reduce((sum, bw) => sum + bw, 0) + gap * Math.max(0, nav.tabs.length - 1);
+        const groupScale = totalBaseW > totalInner ? totalInner / totalBaseW : 1;
+        const contentW = totalBaseW * groupScale;
+        let cursorX = pad + Math.round((totalInner - contentW) / 2);
+        if (!Number.isFinite(cursorX)) cursorX = pad;
+
         nav.tabs.forEach((t, i) => {
-            const tx = pad + i * (tabW + gap);
-            t.container.position.set(tx, 6);
-            t.container.__width = tabW;
+            const btnW = baseWidths[i];
+            const rawH = t?.bg?.height;
+            const btnH = (typeof rawH === 'number' && Number.isFinite(rawH) && rawH > 0) ? rawH : 40;
+            const slotW = btnW * groupScale;
+            const s = Math.min(slotW / btnW, tabH / btnH);
+            t.container.scale.set(s);
+            const scaledW = btnW * s;
+            const scaledH = btnH * s;
+            t.container.position.set(cursorX + Math.round((slotW - scaledW) / 2), 6 + Math.round((tabH - scaledH) / 2));
+            t.container.__width = slotW;
             t.container.__height = tabH;
-            t.container.hitArea = new Rectangle(0, 0, tabW, tabH);
-            t.label.position.set(tabW / 2, tabH / 2 - 8);
-            t.sublabel.position.set(tabW / 2, tabH / 2 + 10);
+            t.container.hitArea = new Rectangle(0, 0, btnW, btnH);
+            t.sublabel.position.set(btnW / 2, btnH / 2 + 12);
+            cursorX += slotW + gap * groupScale;
         });
         // Re-apply the active-tab visual (depends on __width / __height).
         // Uses the highlight-only variant so a user-dismissed modal is
@@ -1253,7 +1995,7 @@ export class HubScene {
 
     _layoutModal(modal, w, h) {
         modal.dim.clear();
-        modal.dim.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.75 });
+        modal.dim.rect(0, 0, w, h).fill({ color: colors.bg.base, alpha: 0.75 });
         modal.dim.hitArea = new Rectangle(0, 0, w, h);
 
         const panelW = Math.min(700, Math.max(520, w - 80));

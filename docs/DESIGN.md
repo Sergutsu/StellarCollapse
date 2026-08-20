@@ -40,7 +40,9 @@ One screen per stage. No pauses inserted between them.
   `HIGHSCORE_TIERS` archetype (`gameConfig`) so the puzzle run stays the same
   9-tier matrix. Today's transitional screen still shows the raw tier
   archetype grid (3×3); the narrative re-skin lands with the P2 hub.
-- **Mission run** — the puzzle. Same game as before: match-4 / auto-match / block-drop, three complexities, three field sizes per complexity.
+- **Mission run** — one of two modes depending on the mission's type:
+  - *Puzzle run* (Mining / Exploration / Research / Salvage) — match-4 / auto-match / block-drop, three complexities, three field sizes per complexity.
+  - *Defense run* (Combat) — Space-Invaders / Breakout hybrid. Player controls a paddle; a bouncing ball destroys pixel-art invaders and a boss. Power-ups (MULTI, WIDE, LASER, LIFE, TOWER) drop every 10 pixel kills. Towers auto-shoot the nearest enemy. Win by destroying all invaders + boss; lose when health reaches 0 or invaders reach the bottom.
 - **Results** — asteroid name, final score, credits earned, ore breakdown, CONTINUE back to the board.
 
 ## Meta loop (across missions)
@@ -75,27 +77,33 @@ Xeno-archeology Dig, Trade Route Defense, Relic Recovery, …). Full
 element-by-element spec + narrative mission catalog live in
 [`UI-HUB.md`](UI-HUB.md).
 
-### Main menu — today (P2 hub shell)
+### Main menu — today (P2+ hub shell)
 
-The P2 hub shell is live (#41). The start screen is the viewport-filling
-5-zone hub from [`UI-HUB.md`](UI-HUB.md):
+The hub shell is live and has evolved through P2–P4 scaffolding. The start
+screen is the viewport-filling 5-zone hub from [`UI-HUB.md`](UI-HUB.md):
 
 - **Top bar** — STELLAR VENTURE brand, Chief Dispatcher callsign badge,
-  resource strip (O₂ / Fuel / Minerals / Credits / Warp Cells — static
-  placeholders until P3 meta-state), settings gear.
+  resource strip (Minerals / Credits / Warp Cells — backed
+  by persistent `MetaState` since P3), settings gear.
 - **Galactic News ticker** under the top bar, right→left scrolling flavor.
-- **Left column — ACTIVE MISSIONS** with an empty-state card. Real idle
-  ticking + mission progress bars land in P4.
-- **Center panel** — tab-swapped; MISSIONS opens the MISSION BOARD modal,
-  the other 5 tabs show an "Unlocks at Rep Tier N" stub.
+- **Left column — ACTIVE MISSIONS** with idle fleet dispatch panel.
+  Dispatched idle missions show progress, ETA, and ABORT/COMPLETE actions.
+  Real `IdleClock` ticking + completion-to-results flow still pending (P4).
+- **Center panel** — tab-swapped; MISSIONS opens the mission planner
+  (ship + crew assignment, IDLE/MANUAL dispatch toggle). Three additional
+  tabs are now shipped as extracted scene classes: **STAR MAP** (sector pins,
+  SYSTEM DATA panel), **BUILD/UPGRADE** (station diorama, stub build queue),
+  **RESEARCH** (tech tree, hex nodes, detail card). CREW and MARKET remain
+  locked stubs.
 - **MISSION BOARD modal** — 2×2 narrative mission cards over a dim overlay.
   Each card maps 1:1 to a `HIGHSCORE_TIERS` archetype under the hood, so
-  ACCEPT launches the existing puzzle gameplay with the tier's
+  DISPATCH launches the existing puzzle gameplay with the tier's
   `gameConfig` (ADR-0003 holds).
 - **Right column — FLEET & CREW STATUS** with 3 starter ships + 3 starter
-  crew (static placeholders until P3).
+  crew (persistent via `MetaState`; availability tracked per dispatch).
 - **Bottom nav** — 6 tab pills (STAR MAP, MISSIONS, BUILD/UPGRADE,
-  RESEARCH, CREW, MARKET). MISSIONS is active at boot; the rest are
+  RESEARCH, CREW, MARKET). MISSIONS is active at boot; STAR MAP,
+  BUILD/UPGRADE, and RESEARCH are now unlocked; CREW and MARKET are
   locked stubs.
 
 No player-name input. No BEGIN button. No mode/complexity/size toggles —
@@ -175,7 +183,10 @@ Canonical tier list lives in `constants.HIGHSCORE_TIERS`. Field-size defaults an
   briefs (`"Trade Route Defense—Outer Rim"`) that reskin tier archetypes, not
   branching stories. No VO, no dialogue trees, no scripted NPCs.
 - **Not a deckbuilder / roguelite.** Runs don't mutate rules mid-session; variety comes from mission choice + tier.
-- **Not mobile-first** (yet). Targeted at desktop browsers until the desktop loop is tight.
+- **Not mobile-first.** Desktop remains the primary design target, but
+  the shipped hub/game surfaces now scale to fit narrow mobile viewports
+  and gameplay has touch gestures (swipe to move/rotate/drop) so runs
+  remain playable on phones.
 
 ---
 

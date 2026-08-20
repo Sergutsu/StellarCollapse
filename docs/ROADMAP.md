@@ -2,7 +2,7 @@
 
 > Three buckets only: **Now**, **Next**, **Later**. Anything in Now has a branch or PR open. Anything in Later is an idea, not a commitment.
 >
-> Updated at phase boundaries — not every PR. Last bump: hub wireframe pivot (FLEET & CREW on the right, MISSION BOARD modal with narrative mission cards, rename to Stellar Venture). See [ADR-0006](adr/0006-rename-stellar-venture.md) + [ADR-0007](adr/0007-hub-wireframe-pivot.md).
+> Updated at phase boundaries — not every PR. Last bump: P4 complete — persistent idle dispatch loop (real `IdleClock` + MetaState-backed active missions, reload + offline survival, CLAIM/RETURN flow).
 
 ---
 
@@ -14,10 +14,10 @@
 | P1 | Resource ledger: ores tallied per run, credits awarded, results screen | **Shipped** |
 | P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSION BOARD modal with narrative mission cards (mapped 1:1 to the 9 tier archetypes), Galactic News ticker; replaces today's transitional mission-select entirely | **Shipped** |
 | P3 | Persistent meta-state (`MetaState`, `Persistence`) + rep-tier gates on narrative mission cards | **Shipped** (mutation hooks wired in P1) |
-| P4 | Active-missions idle tick (`IdleClock`, `MissionRegistry`): left column ticks ETAs, completion → results → hub with rewards; FLEET & CREW live updates (hull damage, crew injured) on return | Later |
-| P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue + available-upgrade list (moved from the earlier BASE COMMAND right-column concept per [ADR-0007](adr/0007-hub-wireframe-pivot.md)) | Later |
-| P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | Later |
-| P7 | STAR MAP tab: sector exploration, mission discovery tied to the map | Later |
+| P4 | Active-missions idle tick (`IdleClock`): persistent wall-time dispatches survive reload + offline; left column shows live ETAs + CLAIM/RETURN; assets free on completion/abort; rewards (credits + ores) granted via MetaState | **Shipped** (full persistent idle loop + pure clock + MetaState integration) |
+| P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue + available-upgrade list (moved from the earlier BASE COMMAND right-column concept per [ADR-0007](adr/0007-hub-wireframe-pivot.md)) | **Scaffolding shipped** (tab scene + static diorama + stub build queue; real `BuildQueue` MetaState integration later) |
+| P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | **RESEARCH improved** — multi-slot (2 default), cancel/resume with progress save, left-column active projects view, upgradable via BUILD tab. Real ticking + persistence working.
+| P7 | STAR MAP tab: sector exploration, mission discovery tied to the map | **Scaffolding shipped** (tab scene + sector pins + SYSTEM DATA panel; real warp-cell dispatch later) |
 
 Each phase is a handful of small PRs, not one giant PR. The boundary between
 phases is when the player-visible loop actually changes — "you can now open
@@ -106,8 +106,9 @@ Delivered in this PR:
 - Side effect: the remaining centering known-issue disappears (hub is
   viewport-filling by construction).
 
-Out of scope for P2: idle ticking, persistence, upgrades, research, crew,
-market, star map, station 3D.
+Out of scope for P2: idle ticking (partially landed in P4 scaffolding),
+upgrades (BUILD/UPGRADE tab scaffolding shipped), research (RESEARCH tab
+scaffolding shipped), crew, market, station 3D.
 
 ## Later (P3+)
 
@@ -115,15 +116,23 @@ Unsorted, not committed to — see phase table for rough ordering:
 
 - **Persistent meta (`stellar-save:v1`).** Versioned localStorage adapter.
   Replaces `HighScores`. Rep tier survives reloads. Gates some T8/T9 missions.
-- **Active-missions idle tick.** `IdleClock`, `MissionRegistry`. Missions
-  deployed from MISSIONS tab run on a timer; completion pushes a toast + the
-  left card flips to `Haul Ready` and opens the results screen on click.
-- **Upgrade tree.** BUILD/UPGRADE tab. Spend ores + credits on building levels.
-  Permanent effect on the hub's passive rates; per-run perks stay in research.
-- **Research tree.** Per-run perks (bigger bomb, longer snake, bonus ore %).
+- **Active-missions idle tick.** Real `IdleClock` + `MissionRegistry` ticking.
+  The idle dispatch UI is shipped (mission planner with IDLE/MANUAL toggle,
+  ship + crew assignment, idle fleet panel with progress/ABORT/COMPLETE). What
+  remains: background timer that advances idle missions, completion-to-results
+  flow, and MetaState reward integration.
+- **BUILD/UPGRADE MetaState integration.** The tab scene is shipped (station
+  diorama, callout pins, stub build queue + upgrade cards). Remaining: real
+  `BuildQueue` in MetaState, cost deduction, build-timer ticking, level-up
+  effects.
+- **Research MetaState integration.** The tab scene is shipped (tech tree,
+  hex nodes, detail card, INITIATE RESEARCH CTA). Remaining: `MetaState
+  .research` slice, cost deduction, tick-based research clock, upgrade-apply.
+- **STAR MAP warp dispatch.** The tab scene is shipped (sector pins, SYSTEM
+  DATA panel, PLOT COURSE stub). Remaining: warp-cell deduction, mission
+  spawn from sector selection.
 - **Crew.** Hired dispatchers / operators with per-archetype skills.
 - **Market.** Ore ↔ credits trader with daily drift.
-- **Star map.** Sector exploration; mission discovery tied to the map.
 - **Daily reroll.** `buildMissions({ seed })` already supports this; swap the
   session seed for `dayOfYear`. Optional reroll button costs credits.
 - ~~**Mobile / touch pass.** Right now the Pixi scene is mouse-first. Field

@@ -43,6 +43,31 @@ export const BUTTON_DEFAULT_HOVER = 0x1d4ed8;
 export const BUTTON_DEFAULT_STROKE = 0x22d3ee;
 export const BUTTON_DEFAULT_TEXT = 0xffffff;
 
+function _toRgb(hex) {
+    return {
+        r: (hex >> 16) & 0xff,
+        g: (hex >> 8) & 0xff,
+        b: hex & 0xff,
+    };
+}
+
+function _rgbToHex({ r, g, b }) {
+    return ((Math.max(0, Math.min(255, r)) << 16)
+        | (Math.max(0, Math.min(255, g)) << 8)
+        | Math.max(0, Math.min(255, b)));
+}
+
+function _mixColor(a, b, weight = 0.5) {
+    const w = Math.max(0, Math.min(1, weight));
+    const ca = _toRgb(a);
+    const cb = _toRgb(b);
+    return _rgbToHex({
+        r: Math.round(ca.r + (cb.r - ca.r) * w),
+        g: Math.round(ca.g + (cb.g - ca.g) * w),
+        b: Math.round(ca.b + (cb.b - ca.b) * w),
+    });
+}
+
 // -------------------------------------------------------------------
 // Panel chrome
 // -------------------------------------------------------------------
@@ -233,6 +258,63 @@ export function drawStarShape(r, color) {
  * mission-board ACCEPT card) can toggle the pressed-highlight state
  * without re-reading the Container internals.
  */
+/**
+ * Lightweight trimmed-edge action button for tight spaces. No glow,
+ * no screw-heads -- just a cut-corner frame with accent border, label,
+ * and hover state. Perfect for CLAIM, RETURN, ABORT, and similar
+ * inline actions where the full neon dispatch button would be too heavy.
+ */
+export function buildSimpleButton({
+    text,
+    width,
+    height = 28,
+    accent = 'cyan',
+    textColor = BUTTON_DEFAULT_TEXT,
+    onTap,
+}) {
+    const container = new Container();
+    container.eventMode = 'static';
+    container.cursor = 'pointer';
+
+    let accentColor = _resolveAccentColor(accent);
+    const bg = new Graphics();
+    const draw = (hover = false) => {
+        bg.clear();
+        const cut = Math.max(4, Math.floor(Math.min(width, height) * 0.22));
+        const pts = _angledPoints(0, 0, width, height, cut);
+        bg.poly(pts).fill({ color: hover ? 0x1e293b : 0x0f172a, alpha: 0.85 });
+        bg.poly(pts).stroke({ color: accentColor, width: 1.2, alpha: hover ? 0.8 : 0.5 });
+    };
+    draw(false);
+    container.addChild(bg);
+
+    const label = new Text({
+        text,
+        style: new TextStyle({
+            fontFamily: 'Inter, "Segoe UI", sans-serif',
+            fontSize: Math.max(9, Math.floor(height * 0.36)),
+            fontWeight: '700',
+            letterSpacing: 1.5,
+            fill: textColor,
+        }),
+    });
+    label.anchor.set(0.5);
+    label.x = width / 2;
+    label.y = height / 2;
+    container.addChild(label);
+
+    container.on('pointerover', () => draw(true));
+    container.on('pointerout', () => draw(false));
+    container.on('pointertap', () => onTap?.());
+    const self = { container, bg, label, width, height };
+    self.setAccent = (newAccent) => {
+        accent = newAccent;
+        accentColor = _resolveAccentColor(accent);
+        draw(false);
+    };
+    return self;
+}
+
 export function buildStartButton({
     text,
     width,
@@ -240,30 +322,140 @@ export function buildStartButton({
     fill = BUTTON_DEFAULT_FILL,
     hoverFill = BUTTON_DEFAULT_HOVER,
     textColor = BUTTON_DEFAULT_TEXT,
+    trimmed = false,
     onTap,
 }) {
     const container = new Container();
     container.eventMode = 'static';
     container.cursor = 'pointer';
-    const bg = new Graphics();
+    const glow = new Graphics();
+    const outerFrame = new Graphics();
+    const bezel = new Graphics();
+    const innerPlate = new Graphics();
+    const shine = new Graphics();
+    const cut = trimmed ? Math.max(6, Math.floor(Math.min(width, height) * 0.18)) : 0;
     const draw = (color, active = false) => {
-        bg.clear();
-        bg.roundRect(0, 0, width, height, 8).fill({ color, alpha: active ? 0.92 : 0.72 });
-        bg.roundRect(0, 0, width, height, 8).stroke({
-            color: BUTTON_DEFAULT_STROKE,
-            width: active ? 2 : 1,
-            alpha: active ? 0.9 : 0.35,
+        const neon = _mixColor(color, hoverFill, active ? 0.62 : 0.38);
+        const frameColor = _mixColor(neon, 0x9ca3af, 0.24);
+        const deepPlate = _mixColor(color, 0x040712, 0.48);
+        const brightPlate = _mixColor(neon, 0xffffff, active ? 0.24 : 0.12);
+        const innerStroke = _mixColor(neon, 0xb3f8ff, 0.35);
+        const corner = Math.max(5, Math.floor(height * 0.24));
+
+        glow.clear();
+        if (trimmed) {
+            glow.poly(_angledPoints(-2, -2, width + 4, height + 4, cut + 2)).stroke({
+                color: neon, width: active ? 5 : 4, alpha: active ? 0.7 : 0.52,
+            });
+            glow.poly(_angledPoints(-4, -4, width + 8, height + 8, cut + 4)).stroke({
+                color: neon, width: 9, alpha: active ? 0.26 : 0.18,
+            });
+        } else {
+            glow.roundRect(-2, -2, width + 4, height + 4, corner + 2).stroke({
+                color: neon, width: active ? 5 : 4, alpha: active ? 0.7 : 0.52,
+            });
+            glow.roundRect(-4, -4, width + 8, height + 8, corner + 4).stroke({
+                color: neon, width: 9, alpha: active ? 0.26 : 0.18,
+            });
+        }
+
+        outerFrame.clear();
+        if (trimmed) {
+            outerFrame.poly(_angledPoints(0, 0, width, height, cut)).fill({ color: 0x303749, alpha: 0.84 });
+            outerFrame.poly(_angledPoints(0, 0, width, height, cut)).stroke({
+                color: frameColor, width: 2, alpha: 0.86,
+            });
+        } else {
+            outerFrame.roundRect(0, 0, width, height, corner).fill({ color: 0x303749, alpha: 0.84 });
+            outerFrame.roundRect(0, 0, width, height, corner).stroke({
+                color: frameColor, width: 2, alpha: 0.86,
+            });
+        }
+        const screwR = Math.max(1.5, Math.min(3.2, height * 0.09));
+        const screwInset = Math.max(4, Math.min(8, height * 0.24));
+        const screwInsetX = trimmed ? screwInset + cut * 0.5 : screwInset;
+        const screwInsetY = trimmed ? screwInset + cut * 0.5 : screwInset;
+        [
+            [screwInsetX, screwInsetY],
+            [width - screwInsetX, screwInsetY],
+            [screwInsetX, height - screwInsetY],
+            [width - screwInsetX, height - screwInsetY],
+        ].forEach(([x, y]) => {
+            outerFrame.circle(x, y, screwR).fill({ color: 0x6b7280, alpha: 0.88 });
+            outerFrame.circle(x, y, screwR).stroke({ color: 0xd1d5db, width: 1, alpha: 0.35 });
         });
+
+        bezel.clear();
+        if (trimmed) {
+            const bCut = Math.max(4, cut - 2);
+            bezel.poly(_angledPoints(4, 4, width - 8, height - 8, bCut)).fill({ color: 0x121933, alpha: 0.9 });
+            bezel.poly(_angledPoints(4, 4, width - 8, height - 8, bCut)).stroke({
+                color: _mixColor(frameColor, neon, 0.42), width: 1.2, alpha: 0.7,
+            });
+        } else {
+            bezel.roundRect(4, 4, width - 8, height - 8, Math.max(4, corner - 2)).fill({ color: 0x121933, alpha: 0.9 });
+            bezel.roundRect(4, 4, width - 8, height - 8, Math.max(4, corner - 2)).stroke({
+                color: _mixColor(frameColor, neon, 0.42), width: 1.2, alpha: 0.7,
+            });
+        }
+
+        innerPlate.clear();
+        if (trimmed) {
+            const iCut = Math.max(3, cut - 4);
+            innerPlate.poly(_angledPoints(8, 8, width - 16, height - 16, iCut)).fill({
+                color: deepPlate, alpha: 0.98,
+            });
+            innerPlate.poly(_angledPoints(8, 8, width - 16, height - 16, iCut)).stroke({
+                color: innerStroke, width: active ? 2 : 1.4, alpha: active ? 0.92 : 0.7,
+            });
+            innerPlate.poly(_angledPoints(10, 10, width - 20, height - 20, Math.max(2, iCut - 2))).fill({
+                color: brightPlate, alpha: active ? 0.28 : 0.2,
+            });
+        } else {
+            innerPlate.roundRect(8, 8, width - 16, height - 16, Math.max(4, corner - 4)).fill({
+                color: deepPlate, alpha: 0.98,
+            });
+            innerPlate.roundRect(8, 8, width - 16, height - 16, Math.max(4, corner - 4)).stroke({
+                color: innerStroke, width: active ? 2 : 1.4, alpha: active ? 0.92 : 0.7,
+            });
+            innerPlate.roundRect(10, 10, width - 20, height - 20, Math.max(3, corner - 6)).fill({
+                color: brightPlate, alpha: active ? 0.28 : 0.2,
+            });
+        }
+
+        shine.clear();
+        if (trimmed) {
+            const sCut = Math.max(2, cut - 6);
+            shine.poly(_angledPoints(12, 10, width - 24, Math.max(4, Math.floor((height - 20) * 0.32)), sCut)).fill({
+                color: 0xffffff, alpha: active ? 0.2 : 0.13,
+            });
+        } else {
+            shine.roundRect(12, 10, width - 24, Math.max(4, Math.floor((height - 20) * 0.32)), Math.max(3, corner - 6)).fill({
+                color: 0xffffff, alpha: active ? 0.2 : 0.13,
+            });
+        }
     };
     draw(fill, false);
-    container.addChild(bg);
+    container.addChild(glow);
+    container.addChild(outerFrame);
+    container.addChild(bezel);
+    container.addChild(innerPlate);
+    container.addChild(shine);
     const label = new Text({
         text,
         style: new TextStyle({
-            fontFamily: 'Inter, sans-serif',
-            fontSize: 13,
+            fontFamily: '"Courier New", "Lucida Console", monospace',
+            fontSize: Math.max(11, Math.floor(height * 0.36)),
             fontWeight: '700',
             fill: textColor,
+            letterSpacing: 1.5,
+            dropShadow: {
+                color: _mixColor(hoverFill, 0xffffff, 0.32),
+                alpha: 0.9,
+                blur: 4,
+                distance: 0,
+                angle: 0,
+            },
         }),
     });
     label.anchor.set(0.5);
@@ -274,7 +466,7 @@ export function buildStartButton({
     container.on('pointerout', () => draw(container.__active ? hoverFill : fill, !!container.__active));
     container.on('pointertap', () => onTap?.());
     return {
-        container, bg, label, width, height, fill, hoverFill,
+        container, bg: innerPlate, label, width, height, fill, hoverFill,
         setActive: (active) => {
             container.__active = !!active;
             draw(active ? hoverFill : fill, active);
