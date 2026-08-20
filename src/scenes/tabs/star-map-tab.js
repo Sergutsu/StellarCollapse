@@ -22,7 +22,6 @@ import {
     redrawHologramPanel,
     panelLabel,
     buildStartButton,
-    drawStarShape,
 } from '../../pixi-ui-kit.js';
 import { generateStarSystem, calculateOrbitalPosition, getShipsOrbitingPoi } from '../../procedural-star-system.js';
 
@@ -114,7 +113,7 @@ function drawPinGlyph(g, color, poiType, size = 8) {
 }
 
 export class StarMapTab {
-    constructor({ parent }) {
+    constructor({ parent, seed = DEFAULT_SYSTEM_SEED }) {
         if (!parent) throw new Error('StarMapTab: parent container is required');
         this.parent = parent;
         this.root = new Container();
@@ -122,6 +121,10 @@ export class StarMapTab {
         this.parent.addChild(this.root);
         this._nodes = null;
         this._selectedId = null;
+        this._seed = seed;
+        this._system = generateStarSystem(seed);
+        this._timeMs = 0;
+        this._map = { mapX: 0, mapY: 0, mapW: 1, mapH: 1 };
     }
 
     // ----------------------------------------------------------------
@@ -151,12 +154,54 @@ export class StarMapTab {
         this._layout(w, h);
     }
 
+    tick(deltaMs) {
+        if (!this.root?.visible || !this._nodes) return;
+        this._timeMs += deltaMs;
+        this._updatePinPositions();
+        if (this._nodes.systemData.container.visible && this._selectedId && this._lastW && this._lastH) {
+            this._layoutSystemData(this._lastW, this._lastH);
+        }
+    }
+
     destroy() {
         if (this.root) {
             this.root.destroy({ children: true });
             this.root = null;
         }
         this._nodes = null;
+    }
+
+    _mapBodies() {
+        return [
+            { ...this._system.star, poiType: 'star' },
+            ...this._system.pois,
+            ...this._system.ships,
+        ];
+    }
+
+    _findBody(id) {
+        if (this._system.star.id === id) return { ...this._system.star, poiType: 'star' };
+        return this._system.pois.find((p) => p.id === id)
+            || this._system.ships.find((s) => s.id === id)
+            || null;
+    }
+
+    _parentFor(poi) {
+        if (!poi?.parentId) return null;
+        if (poi.parentId === this._system.star.id) return null;
+        return this._system.pois.find((p) => p.id === poi.parentId) || null;
+    }
+
+    _poiPosition(poi) {
+        if (!poi) return { x: 0.5, y: 0.5 };
+        if (poi.poiType === 'star' || (poi.x != null && poi.y != null && poi.orbitRadius == null && poi.poiType !== 'belt')) {
+            return { x: poi.x ?? 0.5, y: poi.y ?? 0.5 };
+        }
+        if (poi.poiType === 'belt') {
+            const r = ((poi.innerRadius || 0.2) + (poi.outerRadius || 0.3)) / 2;
+            return { x: 0.5 + r, y: 0.5 };
+        }
+        return calculateOrbitalPosition(poi, this._timeMs, this._parentFor(poi));
     }
 
     // ----------------------------------------------------------------
@@ -187,34 +232,38 @@ export class StarMapTab {
         const axisLabels = new Container();
         root.addChild(axisLabels);
 
-        // Sector pins.
-        const pins = SECTORS.map((sector) => {
+        const pins = this._mapBodies().map((poi) => {
             const container = new Container();
             container.eventMode = 'static';
             container.cursor = 'pointer';
 
             const glyph = new Graphics();
-            drawPinGlyph(glyph, pinColor(sector.kind));
+            const size = poi.poiType === 'star' ? 10 : poi.poiType === 'planet' ? 7 : 5;
+            drawPinGlyph(glyph, poi.color || pinColor(poi.poiType), poi.poiType, size);
             container.addChild(glyph);
 
-            const label = new Text({
-                text: sector.name,
-                style: new TextStyle({
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: 11,
-                    fontWeight: '600',
-                    fill: COLOR_SLATE_200,
-                    stroke: { color: 0x020617, width: 3, alpha: 0.85 },
-                }),
-            });
-            label.anchor.set(0.5, 0);
-            label.position.set(0, 14);
-            container.addChild(label);
+            const showLabel = poi.poiType === 'star' || poi.poiType === 'planet' || poi.poiType === 'station';
+            let label = null;
+            if (showLabel) {
+                label = new Text({
+                    text: poi.name,
+                    style: new TextStyle({
+                        fontFamily: 'Inter, sans-serif',
+                        fontSize: 10,
+                        fontWeight: '600',
+                        fill: COLOR_SLATE_200,
+                        stroke: { color: 0x020617, width: 3, alpha: 0.85 },
+                    }),
+                });
+                label.anchor.set(0.5, 0);
+                label.position.set(0, 12);
+                container.addChild(label);
+            }
 
-            container.on('pointertap', () => this._onPinTapped(sector));
+            container.on('pointertap', () => this._onPinTapped(poi));
             root.addChild(container);
 
-            return { sector, container, glyph, label };
+            return { poi, container, glyph, label };
         });
 
         // Map Legend card (bottom-left).
@@ -235,7 +284,7 @@ export class StarMapTab {
 
     _buildLegend() {
         const container = new Container();
-        const panel = drawHologramPanel(200, 108, { accent: COLOR_CYAN_500 });
+        const panel = drawHologramPanel(200, 168, { accent: COLOR_CYAN_500 });
         container.addChild(panel);
 
         const header = panelLabel('MAP LEGEND', COLOR_CYAN_300, { size: 11 });
@@ -262,7 +311,7 @@ export class StarMapTab {
             return { entry, dot, text };
         });
 
-        return { container, panel, header, rows, width: 200, height: 108 };
+        return { container, panel, header, rows, width: 200, height: 168 };
     }
 
     _buildThumb() {
@@ -400,18 +449,24 @@ export class StarMapTab {
     // Interactions
     // ----------------------------------------------------------------
 
-    _onPinTapped(sector) {
-        this._selectedId = sector.id;
+    _onPinTapped(poi) {
+        this._selectedId = poi.id;
+        const live = this._findBody(poi.id) || poi;
         const sd = this._nodes.systemData;
-        sd.name.text = sector.name;
-        sd.klass.text = `Class: ${sector.klass}`;
-        sd.planets.text = `Survey: ${sector.planets}`;
-        sd.threat.text = `Threat Level: ${sector.threat} / 5`;
-        sd.warp.text = sector.warpCost > 0
-            ? `Warp Cost: ${sector.warpCost} Warp Cell${sector.warpCost === 1 ? '' : 's'}`
-            : 'Warp Cost: --';
+        sd.name.text = live.name;
+        sd.klass.text = `Class: ${live.type || live.poiType || '--'}`;
+        const shipsHere = getShipsOrbitingPoi(this._system.ships, live.id);
+        sd.planets.text = live.description
+            || (live.services ? `Services: ${live.services.join(', ')}` : `Orbiters: ${shipsHere.length}`);
+        sd.threat.text = `Threat Level: ${live.threat ?? 0} / 5`;
+        if (live.resources) {
+            sd.warp.text = `Minerals ${live.resources.minerals}  Fuel ${live.resources.fuel}`;
+        } else if (live.faction) {
+            sd.warp.text = `Faction: ${live.faction}`;
+        } else {
+            sd.warp.text = live.temperature ? `Temp: ${live.temperature}` : '';
+        }
         sd.container.visible = true;
-        // Re-layout so the panel pins to the selected sector.
         if (this._lastW && this._lastH) this._layout(this._lastW, this._lastH);
     }
 
@@ -482,13 +537,8 @@ export class StarMapTab {
             n.axisLabels.addChild(lbl);
         }
 
-        // --- Sector pins.
-        n.pins.forEach(({ sector, container }) => {
-            const px = mapX + sector.nx * mapW;
-            const py = mapY + sector.ny * mapH;
-            container.position.set(px, py);
-            container.hitArea = new Rectangle(-14, -14, 28, 28);
-        });
+        this._map = { mapX, mapY, mapW, mapH };
+        this._updatePinPositions();
 
         // --- Map legend: bottom-left of map region.
         const legendW = n.legend.width;
@@ -504,25 +554,44 @@ export class StarMapTab {
 
         // --- System-data panel: pin to selected sector, nudged inside
         //     map bounds so it doesn't clip against panel edges.
-        if (n.systemData.container.visible && this._selectedId) {
-            const sel = SECTORS.find((s) => s.id === this._selectedId);
-            if (sel) {
-                const sw = n.systemData.width;
-                const sh = n.systemData.height;
-                const anchorX = mapX + sel.nx * mapW;
-                const anchorY = mapY + sel.ny * mapH;
-                let sx = anchorX + 18;
-                let sy = anchorY - sh / 2;
-                if (sx + sw > mapX + mapW - 8) sx = anchorX - sw - 18;
-                if (sy < mapY + 8) sy = mapY + 8;
-                if (sy + sh > mapY + mapH - 8) sy = mapY + mapH - sh - 8;
-                n.systemData.container.position.set(sx, sy);
-            }
-        }
+        this._layoutSystemData(w, h);
+    }
+
+    _updatePinPositions() {
+        const n = this._nodes;
+        if (!n) return;
+        const { mapX, mapY, mapW, mapH } = this._map;
+        n.pins.forEach(({ poi, container }) => {
+            const pos = this._poiPosition(this._findBody(poi.id) || poi);
+            const px = mapX + pos.x * mapW;
+            const py = mapY + pos.y * mapH;
+            container.position.set(px, py);
+            container.hitArea = new Rectangle(-14, -14, 28, 28);
+        });
+    }
+
+    _layoutSystemData(w, h) {
+        const n = this._nodes;
+        if (!n?.systemData.container.visible || !this._selectedId) return;
+        const { mapX, mapY, mapW, mapH } = this._map;
+        const sel = this._findBody(this._selectedId);
+        if (!sel) return;
+        const pos = this._poiPosition(sel);
+        const sw = n.systemData.width;
+        const sh = n.systemData.height;
+        const anchorX = mapX + pos.x * mapW;
+        const anchorY = mapY + pos.y * mapH;
+        let sx = anchorX + 18;
+        let sy = anchorY - sh / 2;
+        if (sx + sw > mapX + mapW - 8) sx = anchorX - sw - 18;
+        if (sy < mapY + 8) sy = mapY + 8;
+        if (sy + sh > mapY + mapH - 8) sy = mapY + mapH - sh - 8;
+        n.systemData.container.position.set(sx, sy);
     }
 }
 
-export { SECTORS as STAR_MAP_SECTORS, LEGEND as STAR_MAP_LEGEND };
+export const STAR_MAP_SECTORS = [];
+export { LEGEND as STAR_MAP_LEGEND };
 
 // Export the default seed constant for use in hub-scene.js
 export { DEFAULT_SYSTEM_SEED as STAR_MAP_DEFAULT_SEED };

@@ -13,8 +13,6 @@
 // All positions are in normalized system coordinates (0..1 range from
 // the system center), making it easy to scale to any viewport size.
 
-import { drawStarShape } from '../pixi-ui-kit.js';
-
 // Seeded random number generator (Mulberry32)
 function createRNG(seed) {
     let t = seed >>> 0;
