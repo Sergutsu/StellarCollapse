@@ -45,7 +45,7 @@ import {
     panelLabel,
     drawStarShape,
 } from '../pixi-ui-kit.js';
-import { StarMapTab } from './tabs/star-map-tab.js';
+import { StarMapTab, STAR_MAP_DEFAULT_SEED } from './tabs/star-map-tab.js';
 import { ResearchTab } from './tabs/research-tab.js';
 import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
 
@@ -251,7 +251,7 @@ export class HubScene {
         // shows the right one and hides the others. STAR MAP,
         // BUILD/UPGRADE, and RESEARCH are extracted scenes; the
         // remaining tabs still render a locked stub.
-        const starMapTab = new StarMapTab({ parent: centerPanel.panel });
+        const starMapTab = new StarMapTab({ parent: centerPanel.panel, seed: STAR_MAP_DEFAULT_SEED });
         const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel });
         const researchTab = new ResearchTab({ parent: centerPanel.panel });
         const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab };
