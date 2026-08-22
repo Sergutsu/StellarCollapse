@@ -186,48 +186,51 @@ move to its own `src/scenes/tabs/*.js` in a subsequent PR (see
 inline for now — its modal + mission planner are built into
 `HubScene`.
 
-### 5a. STAR MAP tab — galactic cartography
+### 5a. STAR MAP tab — planetary system view
 
 Reference mock: `assets/mock-star-map-tab.png`. Renders inside the
 hub's center panel when the **STAR MAP** bottom-nav tab is active.
-Owns these elements:
+Shows one procedurally generated planetary system
+(`src/procedural-star-system.js`, seeded) in a clipped central window:
 
-- **Title strip (top-left).** `STAR MAP · ORION CARTOGRAPHY` at
-  14px, uppercase, 2px tracking, cyan. Sits where the MISSIONS tab
-  would put `MISSIONS — MISSION BOARD`.
-- **Coordinate grid.** Dotted cyan grid on a 40px step. Tick labels
-  every other line show longitude (`42°`, `66°`, `90°`, …) on top
-  and latitude (`12°`, `28°`, `44°`, …) on the left. The grid is
-  framed by a single cyan rectangle stroke.
-- **8 sector pins.** Each is a ring-and-drop glyph (outer ring + inner
-  dot + tail) colored by `kind`:
-  - `star` (cyan): Sol, Trappist-1, Proxima Centauri, Barnard's Star
-  - `belt` (amber): Omega-4 Belt
-  - `station` (slate): ARES Waystation
-  - `hazard` (rose): Cygnus X-1, PSR B1257+12
-  Sector names render beneath the pin in 11px slate with a 3px dark
-  stroke so they stay legible over the grid.
+- **Title strip (top-left).** `STAR MAP · SYSTEM CHART` at 14px,
+  uppercase, 2px tracking, cyan.
+- **Clipped map window.** Cyan rectangle frame; content outside is
+  masked away. Deep-space tint + deterministic backdrop star speckle
+  with slight parallax on pan/zoom.
+- **Planetary system (world space).** Central star (glow + core,
+  colored by spectral class), orbit rings per planet, asteroid-belt
+  bands, planets as filled discs sized by radius and colored by type,
+  moons around larger planets, station diamonds, hazard triangles, and
+  ship arrows orbiting their parent POI. Body glyphs are
+  counter-scaled against zoom so they stay readable at every zoom
+  level; moons/ships fade in only when zoomed in past a threshold to
+  keep the zoomed-out view clean. Labels render beneath star/planet/
+  station glyphs (10px slate, dark stroke).
+- **Camera.** Wheel zooms toward the cursor (clamped relative to the
+  fit-all zoom), drag pans, `+` / `−` / reset buttons sit on the right
+  edge of the window. First layout auto-fits the outermost orbit.
 - **Map legend (bottom-left card).** ~200×108 hologram sub-panel
-  listing the four pin kinds with color swatches. Mirrors the
-  reference mock's `MAP LEGEND`.
-- **Galactic overview thumbnail (top-right card).** ~180×96 hologram
-  sub-panel with a miniature spiral of dots + amber crosshair
-  marking the current player position. Non-interactive for now.
-- **System-data panel (floating, hidden until a pin is tapped).**
-  ~240×168 hologram panel pinned next to the selected sector (auto-
-  flips to the left side and clamps inside the map bounds near
-  edges). Contents:
-  - Sector name (14px, slate)
-  - `Class: <stellar class>` (11px, slate dim)
-  - `Survey: <planets mapped>` (11px, slate dim)
+  listing body kinds with color swatches.
+- **Hint line (bottom-center).** `DRAG TO PAN · SCROLL TO ZOOM`.
+- **System-data panel (floating, hidden until a body is tapped).**
+  ~240×168 hologram panel anchored next to the selected body (auto-
+  flips sides and clamps inside the map bounds; follows the body as it
+  orbits). Contents:
+  - Body name (14px, slate)
+  - `Class: <type>` (11px, slate dim)
+  - Description / services / orbiter count (11px, slate dim)
   - `Threat Level: N / 5` (rose)
-  - `Warp Cost: N Warp Cells` (amber) or `--` when free
+  - Resources or faction or temperature (amber)
   - `PLOT COURSE` button (176×30, standard ui-kit button)
   - `×` dismiss button (top-right)
 
 Interactions:
 
-- **Click a pin →** SYSTEM DATA panel opens with that sector's data.
+- **Click a body →** SYSTEM DATA panel opens with that body's data.
+- **Drag →** pans the camera (taps with >5px travel do not select).
+- **Wheel →** zoom toward the pointer.
+- **Click empty space →** closes the SYSTEM DATA panel.
 - **Click PLOT COURSE →** stub for now (closes the panel). Real
   warp-cell deduction + dispatch to a mission lands in P7.
 - **Click × on the panel →** closes the SYSTEM DATA panel.

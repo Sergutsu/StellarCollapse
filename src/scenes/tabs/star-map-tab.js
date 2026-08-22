@@ -1,20 +1,17 @@
-// StarMapTab -- first extracted hub-tab scene. Mounts into the hub's
-// center panel when the user clicks the STAR MAP bottom-nav tab.
-//
+// StarMapTab -- hub center-panel scene for the STAR MAP bottom-nav tab.
 // Contract follows ADR-0010 (hub tab scenes):
-//   ctor({ parent }):          mount root under an existing Pixi
-//                              container (the hub's center panel).
-//   show():                    lazy _build on first show; visible=true.
-//   hide():                    visible=false; close any floating panel.
-//   layout({ width, height }): reposition grid / pins / legend / panel
-//                              when the center panel resizes.
+//   ctor({ parent }):          mount root under an existing Pixi container.
+//   show()/hide():             lazy _build; visibility + panel cleanup.
+//   layout({width,height}):    re-fit viewport / overlays on resize.
+//   tick(deltaMs):             advance orbital motion + keep panel anchored.
 //   destroy():                 drop all Pixi nodes.
-//   get visible():             duck-type flag for the tab manager.
 //
-// The scene now features a procedurally generated single star system
-// with 50-100 points of interest (planets, moons, stations, hazards).
-// Pan and zoom controls allow navigation around the system map.
-// Ship icons are displayed in orbits around their parent POIs.
+// Renders one procedurally generated planetary system inside a clipped
+// central window: central star, orbit rings, planets with moons, space
+// stations, hazards and ships. The camera supports wheel zoom (toward
+// the cursor), drag-to-pan, and +/- / reset buttons. Body glyphs are
+// counter-scaled against zoom so they stay readable at every zoom level
+// (no invisible-dot problem); moons and ships fade in as you dive in.
 
 import { Container, Graphics, Rectangle, Text, TextStyle } from 'pixi.js';
 import {
@@ -31,11 +28,30 @@ const COLOR_SLATE_400 = 0x94a3b8;
 const COLOR_SLATE_200 = 0xe2e8f0;
 const COLOR_AMBER_300 = 0xfcd34d;
 const COLOR_ROSE_300 = 0xfda4af;
+const COLOR_DEEP = 0x0b1120;
 
-// Default seed for starting game - can be overridden by game state
+// Default seed for starting game - can be overridden by game state.
 const DEFAULT_SYSTEM_SEED = 12345;
 
-// Pin colors by POI type
+// Normalized system coords (0..1 around the star) map to WORLD_SPAN px
+// of world space; the camera zoom/pan transform maps world -> screen.
+const WORLD_SPAN = 720;
+
+// Zoom limits expressed relative to the fit-all zoom computed at first
+// layout, so behaviour is resolution independent.
+const FIT_MARGIN = 0.86;   // fraction of min(mapW,mapH) used by outermost orbit
+const ZOOM_IN_MAX = 9;     // max multiple above fit zoom
+const ZOOM_OUT_MIN = 0.55; // min multiple below fit zoom
+const WHEEL_STEP = 1.15;
+const BUTTON_STEP = 1.3;
+
+// Moons / ships only add clutter when zoomed out -- reveal progressively.
+const MOON_ZOOM_REVEAL = 1.8; // x fit zoom
+const SHIP_ZOOM_REVEAL = 1.3;
+
+// Pointer movement (px) below which a down/up pair still counts as a tap.
+const DRAG_TAP_SLOP = 5;
+
 function pinColor(poiType) {
     switch (poiType) {
         case 'planet': return COLOR_CYAN_300;
@@ -48,7 +64,7 @@ function pinColor(poiType) {
     }
 }
 
-// Legend entries for POI types
+// Legend entries for POI types.
 const LEGEND = Object.freeze([
     { kind: 'star',    label: 'Central Star',  color: COLOR_AMBER_300 },
     { kind: 'planet',  label: 'Planet',        color: COLOR_CYAN_300 },
@@ -59,54 +75,47 @@ const LEGEND = Object.freeze([
     { kind: 'ship',    label: 'Spacecraft',    color: COLOR_CYAN_300 },
 ]);
 
-function drawPinGlyph(g, color, poiType, size = 8) {
+// Deterministic RNG for backdrop dressing (mulberry32).
+function createBackdropRNG(seed) {
+    let t = seed >>> 0;
+    return function () {
+        t += 0x6D2B79F5;
+        let r = Math.imul(t ^ (t >>> 15), 1 | t);
+        r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// Screen-space body glyphs. Drawn inside containers that are
+// counter-scaled against camera zoom, so these pixel sizes are what you
+// actually see regardless of zoom level.
+function drawBodyGlyph(g, color, poiType, size) {
     g.clear();
-    
+
     if (poiType === 'star') {
-        // Draw star shape
-        const spikes = 8;
-        const outerR = size * 1.5;
-        const innerR = size * 0.6;
-        let rot = -Math.PI / 2;
-        const step = Math.PI / spikes;
-        const pts = [];
-        for (let i = 0; i < spikes * 2; i++) {
-            const r = i % 2 === 0 ? outerR : innerR;
-            pts.push(Math.cos(rot) * r, Math.sin(rot) * r);
-            rot += step;
-        }
-        g.poly(pts).fill({ color, alpha: 0.9 });
-        // Glow effect
-        g.circle(0, 0, size * 2).stroke({ color, width: 1, alpha: 0.3 });
+        g.circle(0, 0, size * 2.1).fill({ color, alpha: 0.07 });
+        g.circle(0, 0, size * 1.45).fill({ color, alpha: 0.14 });
+        g.circle(0, 0, size).fill({ color, alpha: 1 });
+        g.circle(-size * 0.28, -size * 0.28, size * 0.32).fill({ color: 0xffffff, alpha: 0.35 });
     } else if (poiType === 'planet') {
-        // Outer ring
-        g.circle(0, 0, size).stroke({ color, width: 1.5, alpha: 0.85 });
-        // Inner dot
-        g.circle(0, 0, size * 0.4).fill({ color, alpha: 0.95 });
+        g.circle(0, 0, size).fill({ color, alpha: 0.95 });
+        g.circle(0, 0, size).stroke({ color: 0xffffff, width: 1, alpha: 0.18 });
+        g.circle(-size * 0.3, -size * 0.3, size * 0.3).fill({ color: 0xffffff, alpha: 0.22 });
     } else if (poiType === 'moon') {
-        g.circle(0, 0, size * 0.6).fill({ color, alpha: 0.9 });
+        g.circle(0, 0, size).fill({ color, alpha: 0.9 });
     } else if (poiType === 'station') {
-        // Diamond shape for stations
         g.moveTo(0, -size).lineTo(size, 0).lineTo(0, size).lineTo(-size, 0).closePath();
-        g.stroke({ color, width: 1.5, alpha: 0.85 });
-        g.circle(0, 0, size * 0.3).fill({ color, alpha: 0.9 });
-    } else if (poiType === 'belt') {
-        // Dashed circle for asteroid belt
-        g.circle(0, 0, size * 1.2).stroke({ color, width: 1, alpha: 0.6 });
-        g.circle(0, 0, size * 0.5).stroke({ color, width: 1, alpha: 0.4 });
+        g.stroke({ color, width: 1.5, alpha: 0.9 });
+        g.circle(0, 0, size * 0.3).fill({ color, alpha: 0.95 });
     } else if (poiType === 'hazard') {
-        // Warning triangle
         const s = size * 1.1;
         g.moveTo(0, -s).lineTo(s, s).lineTo(-s, s).closePath();
         g.stroke({ color, width: 1.5, alpha: 0.9 });
         g.circle(0, 0, size * 0.3).fill({ color, alpha: 0.9 });
     } else if (poiType === 'ship') {
-        // Ship icon - arrow/triangle pointing up
-        const shipSize = size * 0.7;
-        g.moveTo(0, -shipSize).lineTo(shipSize * 0.7, shipSize).lineTo(0, shipSize * 0.5).lineTo(-shipSize * 0.7, shipSize).closePath();
+        g.moveTo(0, -size).lineTo(size * 0.7, size).lineTo(0, size * 0.5).lineTo(-size * 0.7, size).closePath();
         g.fill({ color, alpha: 0.9 });
     } else {
-        // Generic pin
         g.circle(0, 0, size).stroke({ color, width: 1.5, alpha: 0.85 });
         g.circle(0, 0, size * 0.4).fill({ color, alpha: 0.95 });
     }
@@ -125,6 +134,13 @@ export class StarMapTab {
         this._system = generateStarSystem(seed);
         this._timeMs = 0;
         this._map = { mapX: 0, mapY: 0, mapW: 1, mapH: 1 };
+        this._fitZoom = 1;
+        this._cam = { x: 0, y: 0, zoom: 1 };
+        this._pan = null;      // active drag state
+        this._dragDist = 0;    // pointer travel during current/last drag
+        this._fitted = false;
+        this._lastW = 0;
+        this._lastH = 0;
     }
 
     // ----------------------------------------------------------------
@@ -142,6 +158,7 @@ export class StarMapTab {
 
     hide() {
         this.root.visible = false;
+        this._pan = null;
         if (this._nodes) this._nodes.systemData.container.visible = false;
         this._selectedId = null;
     }
@@ -157,9 +174,9 @@ export class StarMapTab {
     tick(deltaMs) {
         if (!this.root?.visible || !this._nodes) return;
         this._timeMs += deltaMs;
-        this._updatePinPositions();
-        if (this._nodes.systemData.container.visible && this._selectedId && this._lastW && this._lastH) {
-            this._layoutSystemData(this._lastW, this._lastH);
+        this._updateBodies();
+        if (this._nodes.systemData.container.visible && this._selectedId) {
+            this._layoutSystemData();
         }
     }
 
@@ -170,6 +187,10 @@ export class StarMapTab {
         }
         this._nodes = null;
     }
+
+    // ----------------------------------------------------------------
+    // System data helpers
+    // ----------------------------------------------------------------
 
     _mapBodies() {
         return [
@@ -194,12 +215,12 @@ export class StarMapTab {
 
     _poiPosition(poi) {
         if (!poi) return { x: 0.5, y: 0.5 };
-        if (poi.poiType === 'star' || (poi.x != null && poi.y != null && poi.orbitRadius == null && poi.poiType !== 'belt')) {
+        if (poi.poiType === 'star') {
             return { x: poi.x ?? 0.5, y: poi.y ?? 0.5 };
         }
         if (poi.poiType === 'belt') {
-            const r = ((poi.innerRadius || 0.2) + (poi.outerRadius || 0.3)) / 2;
-            return { x: 0.5 + r, y: 0.5 };
+            // Belts render as rings; no pin position needed.
+            return { x: 0.5, y: 0.5 };
         }
         return calculateOrbitalPosition(poi, this._timeMs, this._parentFor(poi));
     }
@@ -211,9 +232,8 @@ export class StarMapTab {
     _build() {
         const root = this.root;
 
-        // Title strip (top-left of center panel).
         const title = new Text({
-            text: 'STAR MAP  \u00B7  ORION CARTOGRAPHY',
+            text: 'STAR MAP  \u00B7  SYSTEM CHART',
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 14,
@@ -225,62 +245,281 @@ export class StarMapTab {
         title.position.set(16, 12);
         root.addChild(title);
 
-        // Map canvas: coordinate grid + axis tick labels.
-        const grid = new Graphics();
-        root.addChild(grid);
+        // Everything inside the clipped map window lives here.
+        const viewport = new Container();
+        root.addChild(viewport);
 
-        const axisLabels = new Container();
-        root.addChild(axisLabels);
+        // Mask node keeps world content from spilling past the window.
+        const maskG = new Graphics();
+        root.addChild(maskG);
+        viewport.mask = maskG;
 
-        const pins = this._mapBodies().map((poi) => {
-            const container = new Container();
-            container.eventMode = 'static';
-            container.cursor = 'pointer';
+        // Parallax backdrop stars (screen-space dressing).
+        const backdrop = new Graphics();
+        viewport.addChild(backdrop);
 
-            const glyph = new Graphics();
-            const size = poi.poiType === 'star' ? 10 : poi.poiType === 'planet' ? 7 : 5;
-            drawPinGlyph(glyph, poi.color || pinColor(poi.poiType), poi.poiType, size);
-            container.addChild(glyph);
+        // Input surface for pan + wheel. Added before the world so body
+        // pins (inside world) win pointer events where they overlap.
+        const input = new Container();
+        input.eventMode = 'static';
+        input.cursor = 'grab';
+        viewport.addChild(input);
 
-            const showLabel = poi.poiType === 'star' || poi.poiType === 'planet' || poi.poiType === 'station';
-            let label = null;
-            if (showLabel) {
-                label = new Text({
-                    text: poi.name,
-                    style: new TextStyle({
-                        fontFamily: 'Inter, sans-serif',
-                        fontSize: 10,
-                        fontWeight: '600',
-                        fill: COLOR_SLATE_200,
-                        stroke: { color: 0x020617, width: 3, alpha: 0.85 },
-                    }),
-                });
-                label.anchor.set(0.5, 0);
-                label.position.set(0, 12);
-                container.addChild(label);
-            }
+        // World space: orbit rings + body pins, driven by the camera.
+        const world = new Container();
+        viewport.addChild(world);
 
-            container.on('pointertap', () => this._onPinTapped(poi));
-            root.addChild(container);
+        const orbits = new Graphics();
+        world.addChild(orbits);
 
-            return { poi, container, glyph, label };
-        });
+        const pins = this._buildPins(world);
 
-        // Map Legend card (bottom-left).
+        // Window frame drawn above the clipped content (not masked).
+        const frame = new Graphics();
+        root.addChild(frame);
+
         const legend = this._buildLegend();
         root.addChild(legend.container);
 
-        // Galactic overview thumbnail (top-right).
-        const thumb = this._buildThumb();
-        root.addChild(thumb.container);
-
-        // Floating SYSTEM DATA panel (hidden until a pin is tapped).
         const systemData = this._buildSystemData();
         systemData.container.visible = false;
         root.addChild(systemData.container);
 
-        this._nodes = { title, grid, axisLabels, pins, legend, thumb, systemData };
+        const controls = this._buildControls();
+        root.addChild(controls.container);
+
+        const hint = new Text({
+            text: 'DRAG TO PAN  \u00B7  SCROLL TO ZOOM',
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 9,
+                letterSpacing: 1,
+                fill: COLOR_SLATE_400,
+            }),
+        });
+        root.addChild(hint);
+
+        this._nodes = { title, viewport, maskG, backdrop, input, world, orbits, frame, pins, legend, systemData, controls, hint };
+        this._drawOrbitRings();
+        this._attachInput();
     }
+
+    _buildPins(world) {
+        return this._mapBodies()
+            .filter((poi) => poi.poiType !== 'belt') // belts render as rings
+            .map((poi) => {
+                const container = new Container();
+                container.eventMode = 'static';
+                container.cursor = 'pointer';
+
+                const glyph = new Graphics();
+                const size = poi.poiType === 'star'
+                    ? 22
+                    : poi.poiType === 'planet'
+                        ? 6 + (poi.radius || 6)
+                        : poi.poiType === 'moon'
+                            ? 3.5
+                            : 6;
+                drawBodyGlyph(glyph, poi.color || pinColor(poi.poiType), poi.poiType, size);
+                container.addChild(glyph);
+
+                const showLabel = poi.poiType === 'star' || poi.poiType === 'planet' || poi.poiType === 'station';
+                if (showLabel) {
+                    const label = new Text({
+                        text: poi.name,
+                        style: new TextStyle({
+                            fontFamily: 'Inter, sans-serif',
+                            fontSize: 10,
+                            fontWeight: '600',
+                            fill: COLOR_SLATE_200,
+                            stroke: { color: 0x020617, width: 3, alpha: 0.85 },
+                        }),
+                    });
+                    label.anchor.set(0.5, 0);
+                    label.position.set(0, size + 4);
+                    container.addChild(label);
+                }
+
+                // Hit area in local px; counter-scaling keeps it a
+                // constant ~28px target on screen at any zoom.
+                const pad = Math.max(size, 12) + 2;
+                container.hitArea = new Rectangle(-pad, -pad, pad * 2, pad * 2);
+
+                world.addChild(container);
+                return { poi, container };
+            });
+    }
+
+    _drawOrbitRings() {
+        const g = this._nodes.orbits;
+        g.clear();
+        this._system.orbits.forEach((o) => {
+            const r = o.radius * WORLD_SPAN;
+            if (o.isBelt) {
+                // Wide faint band + thin edge lines to suggest rubble.
+                g.circle(0, 0, r).stroke({ color: o.color ?? 0xd4a574, width: Math.max(4, (o.width || 0.04) * WORLD_SPAN), alpha: 0.07 });
+                g.circle(0, 0, r).stroke({ color: o.color ?? 0xd4a574, width: 1, alpha: 0.18 });
+            } else {
+                g.circle(0, 0, r).stroke({ color: o.color ?? COLOR_CYAN_500, width: 1, alpha: 0.16 });
+            }
+        });
+    }
+
+    // ----------------------------------------------------------------
+    // Camera
+    // ----------------------------------------------------------------
+
+    _fitCamera() {
+        const { mapW, mapH } = this._map;
+        let maxR = 0.35;
+        this._system.orbits.forEach((o) => {
+            maxR = Math.max(maxR, o.isBelt ? (o.radius + (o.width || 0) / 2) : o.radius);
+        });
+        this._fitZoom = (Math.min(mapW, mapH) * FIT_MARGIN) / (maxR * 2 * WORLD_SPAN);
+        this._cam = { x: 0, y: 0, zoom: this._fitZoom };
+        this._fitted = true;
+    }
+
+    // Zoom keeping the world point under (sx, sy) pinned to the cursor.
+    _zoomAt(sx, sy, factor) {
+        if (!this._nodes || !this._fitted) return;
+        const z0 = this._cam.zoom;
+        const z1 = Math.min(
+            this._fitZoom * ZOOM_IN_MAX,
+            Math.max(this._fitZoom * ZOOM_OUT_MIN, z0 * factor),
+        );
+        if (z1 === z0) return;
+        const k = z1 / z0;
+        this._cam.x = sx - (sx - this._cam.x) * k;
+        this._cam.y = sy - (sy - this._cam.y) * k;
+        this._cam.zoom = z1;
+        this._applyCamera();
+    }
+
+    _resetCamera() {
+        if (!this._nodes || !this._fitted) return;
+        this._cam.x = 0;
+        this._cam.y = 0;
+        this._cam.zoom = this._fitZoom;
+        this._applyCamera();
+    }
+
+    _applyCamera() {
+        const n = this._nodes;
+        if (!n) return;
+        const { mapX, mapY, mapW, mapH } = this._map;
+        n.world.position.set(mapX + mapW / 2 + this._cam.x, mapY + mapH / 2 + this._cam.y);
+        n.world.scale.set(this._cam.zoom);
+        // Subtle parallax on the backdrop dressing.
+        n.backdrop.position.set(this._cam.x * 0.12, this._cam.y * 0.12);
+
+        // Progressive reveal of small bodies as you dive in.
+        const zr = this._cam.zoom / this._fitZoom;
+        n.pins.forEach(({ poi, container }) => {
+            if (poi.poiType === 'moon') container.visible = zr >= MOON_ZOOM_REVEAL;
+            else if (poi.poiType === 'ship') container.visible = zr >= SHIP_ZOOM_REVEAL;
+        });
+    }
+
+    _updateBodies() {
+        const n = this._nodes;
+        if (!n) return;
+        const invZ = 1 / this._cam.zoom;
+        n.pins.forEach(({ poi, container }) => {
+            const pos = this._poiPosition(poi);
+            container.position.set((pos.x - 0.5) * WORLD_SPAN, (pos.y - 0.5) * WORLD_SPAN);
+            container.scale.set(invZ); // constant on-screen glyph size
+        });
+    }
+    // ----------------------------------------------------------------
+    // Input (drag pan + wheel zoom)
+    // ----------------------------------------------------------------
+
+    _attachInput() {
+        const n = this._nodes;
+
+        n.input.on('pointerdown', (e) => {
+            this._pan = { startGlobal: e.global.clone(), startCam: { ...this._cam } };
+            this._dragDist = 0;
+            n.input.cursor = 'grabbing';
+        });
+        n.input.on('pointermove', (e) => {
+            if (!this._pan) return;
+            const dx = e.global.x - this._pan.startGlobal.x;
+            const dy = e.global.y - this._pan.startGlobal.y;
+            this._dragDist = Math.max(this._dragDist, Math.hypot(dx, dy));
+            this._cam.x = this._pan.startCam.x + dx;
+            this._cam.y = this._pan.startCam.y + dy;
+            this._applyCamera();
+        });
+        const endPan = () => {
+            this._pan = null;
+            n.input.cursor = 'grab';
+        };
+        n.input.on('pointerup', endPan);
+        n.input.on('pointerupoutside', endPan);
+        // Tap on empty space closes the detail panel.
+        n.input.on('pointertap', () => {
+            if (this._dragDist <= DRAG_TAP_SLOP) this._closeSystemData();
+        });
+
+        // Wheel zoom. Attached to the viewport so it also fires when the
+        // pointer is over a body pin (events bubble up from pins).
+        n.viewport.on('wheel', (e) => {
+            e.preventDefault();
+            const local = this.root.toLocal(e.global);
+            this._zoomAt(local.x, local.y, e.deltaY > 0 ? 1 / WHEEL_STEP : WHEEL_STEP);
+        });
+
+        // Body pins: tap selects (unless the tap was really a drag).
+        n.pins.forEach(({ poi, container }) => {
+            container.on('pointertap', () => {
+                if (this._dragDist > DRAG_TAP_SLOP) return;
+                this._onPinTapped(poi);
+            });
+        });
+
+        // Zoom buttons.
+        const cx = () => this._map.mapX + this._map.mapW / 2;
+        const cy = () => this._map.mapY + this._map.mapH / 2;
+        n.controls.plus.on('pointertap', () => this._zoomAt(cx(), cy(), BUTTON_STEP));
+        n.controls.minus.on('pointertap', () => this._zoomAt(cx(), cy(), 1 / BUTTON_STEP));
+        n.controls.reset.on('pointertap', () => this._resetCamera());
+    }
+    _buildControls() {
+        const container = new Container();
+        const mkButton = (label, x, y) => {
+            const btn = new Container();
+            btn.eventMode = 'static';
+            btn.cursor = 'pointer';
+            const bg = new Graphics();
+            bg.circle(0, 0, 13).fill({ color: 0x0f172a, alpha: 0.85 });
+            bg.circle(0, 0, 13).stroke({ color: COLOR_CYAN_300, width: 1, alpha: 0.5 });
+            btn.addChild(bg);
+            const t = new Text({
+                text: label,
+                style: new TextStyle({
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: 14,
+                    fontWeight: '700',
+                    fill: COLOR_SLATE_200,
+                }),
+            });
+            t.anchor.set(0.5);
+            btn.addChild(t);
+            btn.hitArea = new Rectangle(-13, -13, 26, 26);
+            btn.position.set(x, y);
+            container.addChild(btn);
+            return btn;
+        };
+        const plus = mkButton('+', 0, 0);
+        const minus = mkButton('\u2212', 0, 32);
+        const reset = mkButton('\u21BA', 0, 64);
+        return { container, plus, minus, reset, width: 26, height: 78 };
+    }
+    // ----------------------------------------------------------------
+    // Overlay builders
+    // ----------------------------------------------------------------
 
     _buildLegend() {
         const container = new Container();
@@ -313,42 +552,6 @@ export class StarMapTab {
 
         return { container, panel, header, rows, width: 200, height: 168 };
     }
-
-    _buildThumb() {
-        const container = new Container();
-        const panel = drawHologramPanel(180, 96, { accent: COLOR_CYAN_500 });
-        container.addChild(panel);
-
-        const header = panelLabel('GALACTIC OVERVIEW', COLOR_CYAN_300, { size: 10 });
-        header.position.set(10, 8);
-        panel.addChild(header);
-
-        // Miniature swirl of dots evocative of a galaxy disc.
-        const g = new Graphics();
-        g.position.set(90, 56);
-        // Central bulge.
-        g.circle(0, 0, 6).fill({ color: COLOR_AMBER_300, alpha: 0.9 });
-        g.circle(0, 0, 10).stroke({ color: COLOR_CYAN_300, width: 1, alpha: 0.3 });
-        // Spiral-ish scatter.
-        for (let i = 0; i < 48; i++) {
-            const theta = i * 0.35;
-            const r = 8 + i * 0.6;
-            const x = Math.cos(theta) * r;
-            const y = Math.sin(theta) * r * 0.55;
-            const alpha = Math.max(0.15, 0.85 - i * 0.015);
-            g.circle(x, y, 1).fill({ color: COLOR_CYAN_300, alpha });
-        }
-        // Current-position crosshair.
-        const cross = new Graphics();
-        cross.position.set(90, 56);
-        cross.moveTo(-6, 0).lineTo(6, 0).stroke({ color: COLOR_AMBER_300, width: 1, alpha: 0.9 });
-        cross.moveTo(0, -6).lineTo(0, 6).stroke({ color: COLOR_AMBER_300, width: 1, alpha: 0.9 });
-        panel.addChild(g);
-        panel.addChild(cross);
-
-        return { container, panel, header, width: 180, height: 96 };
-    }
-
     _buildSystemData() {
         const container = new Container();
         const panel = drawHologramPanel(240, 168, { accent: COLOR_CYAN_500 });
@@ -358,59 +561,33 @@ export class StarMapTab {
         header.position.set(12, 10);
         panel.addChild(header);
 
-        const name = new Text({
+        const mkText = (fontSize, fill) => new Text({
             text: '',
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
-                fontSize: 14,
-                fontWeight: '700',
-                fill: COLOR_SLATE_200,
+                fontSize,
+                fontWeight: fontSize >= 14 ? '700' : '400',
+                fill,
             }),
         });
+
+        const name = mkText(14, COLOR_SLATE_200);
         name.position.set(12, 28);
         panel.addChild(name);
 
-        const klass = new Text({
-            text: '',
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 11,
-                fill: COLOR_SLATE_400,
-            }),
-        });
+        const klass = mkText(11, COLOR_SLATE_400);
         klass.position.set(12, 48);
         panel.addChild(klass);
 
-        const planets = new Text({
-            text: '',
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 11,
-                fill: COLOR_SLATE_400,
-            }),
-        });
+        const planets = mkText(11, COLOR_SLATE_400);
         planets.position.set(12, 64);
         panel.addChild(planets);
 
-        const threat = new Text({
-            text: '',
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 11,
-                fill: COLOR_ROSE_300,
-            }),
-        });
+        const threat = mkText(11, COLOR_ROSE_300);
         threat.position.set(12, 82);
         panel.addChild(threat);
 
-        const warp = new Text({
-            text: '',
-            style: new TextStyle({
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 11,
-                fill: COLOR_AMBER_300,
-            }),
-        });
+        const warp = mkText(11, COLOR_AMBER_300);
         warp.position.set(12, 100);
         panel.addChild(warp);
 
@@ -444,7 +621,6 @@ export class StarMapTab {
 
         return { container, panel, header, name, klass, planets, threat, warp, plot, width: 240, height: 168 };
     }
-
     // ----------------------------------------------------------------
     // Interactions
     // ----------------------------------------------------------------
@@ -467,7 +643,7 @@ export class StarMapTab {
             sd.warp.text = live.temperature ? `Temp: ${live.temperature}` : '';
         }
         sd.container.visible = true;
-        if (this._lastW && this._lastH) this._layout(this._lastW, this._lastH);
+        this._layoutSystemData();
     }
 
     _onPlotCourse() {
@@ -491,99 +667,75 @@ export class StarMapTab {
         this._lastW = w;
         this._lastH = h;
 
-        // Map region: everything below the title strip, inset from the
-        // panel edges so pins don't clip.
+        // Map window: everything below the title strip, inset from the
+        // panel edges.
         const pad = 20;
         const mapX = pad;
         const mapY = 40;
         const mapW = Math.max(240, w - pad * 2);
         const mapH = Math.max(200, h - mapY - pad);
-
-        // --- Coordinate grid.
-        n.grid.clear();
-        const step = 40;
-        for (let gx = mapX; gx <= mapX + mapW; gx += step) {
-            n.grid.moveTo(gx, mapY).lineTo(gx, mapY + mapH).stroke({ color: COLOR_CYAN_500, width: 1, alpha: 0.08 });
-        }
-        for (let gy = mapY; gy <= mapY + mapH; gy += step) {
-            n.grid.moveTo(mapX, gy).lineTo(mapX + mapW, gy).stroke({ color: COLOR_CYAN_500, width: 1, alpha: 0.08 });
-        }
-        // Map frame.
-        n.grid.rect(mapX, mapY, mapW, mapH).stroke({ color: COLOR_CYAN_300, width: 1, alpha: 0.35 });
-
-        // --- Axis tick labels (sparse, every other grid line).
-        // Destroy the previous Text children (not just detach) so the
-        // underlying style + GPU textures are released. removeChildren
-        // alone would leak ~12-13 Text objects per resize.
-        while (n.axisLabels.children.length > 0) {
-            const old = n.axisLabels.children[0];
-            n.axisLabels.removeChild(old);
-            old.destroy({ children: true });
-        }
-        const mkLabel = (text) => new Text({
-            text,
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 9, fill: COLOR_SLATE_400 }),
-        });
-        const longitudeBase = 42;
-        for (let gx = mapX, i = 0; gx <= mapX + mapW; gx += step * 2, i++) {
-            const lbl = mkLabel(`${longitudeBase + i * 12}\u00b0`);
-            lbl.position.set(gx + 2, mapY - 12);
-            n.axisLabels.addChild(lbl);
-        }
-        const latitudeBase = 12;
-        for (let gy = mapY, i = 0; gy <= mapY + mapH; gy += step * 2, i++) {
-            const lbl = mkLabel(`${latitudeBase + i * 8}\u00b0`);
-            lbl.position.set(mapX - 22, gy - 5);
-            n.axisLabels.addChild(lbl);
-        }
-
         this._map = { mapX, mapY, mapW, mapH };
-        this._updatePinPositions();
 
-        // --- Map legend: bottom-left of map region.
+        // --- Clip mask + window frame.
+        n.maskG.clear();
+        n.maskG.rect(mapX, mapY, mapW, mapH).fill({ color: 0xffffff });
+        n.frame.clear();
+        n.frame.rect(mapX, mapY, mapW, mapH).stroke({ color: COLOR_CYAN_300, width: 1, alpha: 0.35 });
+
+        // --- Input hit area covers the whole window.
+        n.input.hitArea = new Rectangle(mapX, mapY, mapW, mapH);
+
+        // --- Backdrop: deep-space tint + deterministic star speckle,
+        //     drawn past the window edge so panning never reveals gaps.
+        n.backdrop.clear();
+        const m = 260;
+        n.backdrop.rect(mapX - m, mapY - m, mapW + m * 2, mapH + m * 2).fill({ color: COLOR_DEEP, alpha: 0.6 });
+        const rng = createBackdropRNG((this._seed ^ 0x5f3759df) >>> 0);
+        for (let i = 0; i < 160; i++) {
+            const sx = mapX - m + rng() * (mapW + m * 2);
+            const sy = mapY - m + rng() * (mapH + m * 2);
+            const r = 0.6 + rng() * 1.1;
+            n.backdrop.circle(sx, sy, r).fill({ color: COLOR_SLATE_200, alpha: 0.12 + rng() * 0.25 });
+        }
+
+        // --- First layout: fit the whole system into the window.
+        if (!this._fitted) this._fitCamera();
+        this._applyCamera();
+
+        // --- Hint: bottom-center of the window.
+        n.hint.position.set(mapX + mapW / 2 - n.hint.width / 2, mapY + mapH - 18);
+
+        // --- Legend: bottom-left of the window.
         const legendW = n.legend.width;
         const legendH = n.legend.height;
         redrawHologramPanel(n.legend.panel, legendW, legendH, COLOR_CYAN_500);
         n.legend.container.position.set(mapX + 8, mapY + mapH - legendH - 8);
 
-        // --- Thumb: top-right of map region.
-        const thumbW = n.thumb.width;
-        const thumbH = n.thumb.height;
-        redrawHologramPanel(n.thumb.panel, thumbW, thumbH, COLOR_CYAN_500);
-        n.thumb.container.position.set(mapX + mapW - thumbW - 8, mapY + 8);
+        // --- Zoom controls: right edge of the window.
+        n.controls.container.position.set(mapX + mapW - 34, mapY + mapH - n.controls.height - 30);
 
-        // --- System-data panel: pin to selected sector, nudged inside
-        //     map bounds so it doesn't clip against panel edges.
-        this._layoutSystemData(w, h);
+        this._updateBodies();
+        this._layoutSystemData();
     }
 
-    _updatePinPositions() {
-        const n = this._nodes;
-        if (!n) return;
-        const { mapX, mapY, mapW, mapH } = this._map;
-        n.pins.forEach(({ poi, container }) => {
-            const pos = this._poiPosition(this._findBody(poi.id) || poi);
-            const px = mapX + pos.x * mapW;
-            const py = mapY + pos.y * mapH;
-            container.position.set(px, py);
-            container.hitArea = new Rectangle(-14, -14, 28, 28);
-        });
-    }
-
-    _layoutSystemData(w, h) {
+    // Anchor the floating SYSTEM DATA panel next to the selected body's
+    // current screen position, clamped inside the map window.
+    _layoutSystemData() {
         const n = this._nodes;
         if (!n?.systemData.container.visible || !this._selectedId) return;
-        const { mapX, mapY, mapW, mapH } = this._map;
         const sel = this._findBody(this._selectedId);
         if (!sel) return;
         const pos = this._poiPosition(sel);
+        const wx = (pos.x - 0.5) * WORLD_SPAN;
+        const wy = (pos.y - 0.5) * WORLD_SPAN;
+        const { mapX, mapY, mapW, mapH } = this._map;
+        const anchorX = mapX + mapW / 2 + this._cam.x + wx * this._cam.zoom;
+        const anchorY = mapY + mapH / 2 + this._cam.y + wy * this._cam.zoom;
         const sw = n.systemData.width;
         const sh = n.systemData.height;
-        const anchorX = mapX + pos.x * mapW;
-        const anchorY = mapY + pos.y * mapH;
         let sx = anchorX + 18;
         let sy = anchorY - sh / 2;
-        if (sx + sw > mapX + mapW - 8) sx = anchorX - sw - 18;
+        if (sx + sw > mapX + mapW - 8) sx = Math.max(mapX + 8, anchorX - sw - 18);
         if (sy < mapY + 8) sy = mapY + 8;
         if (sy + sh > mapY + mapH - 8) sy = mapY + mapH - sh - 8;
         n.systemData.container.position.set(sx, sy);
@@ -595,3 +747,12 @@ export { LEGEND as STAR_MAP_LEGEND };
 
 // Export the default seed constant for use in hub-scene.js
 export { DEFAULT_SYSTEM_SEED as STAR_MAP_DEFAULT_SEED };
+
+
+
+
+
+
+
+
+
