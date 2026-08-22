@@ -186,7 +186,11 @@ export class HubScene {
         this._idleMissions = [];
         this._idleMissionSeq = 1;
         this._selectedMissionDispatch = 'idle';
-        this._selectedMissionTierId = this._missions[0]?.tierId || null;
+        // Miner (blocks tiers) is the default sandbox: preselect the first
+        // blocks-tier mission so a fresh boot points at the miner board.
+        const defaultMission =
+            this._missions.find((m) => m.tierId === 'blocks-classic') || this._missions[0];
+        this._selectedMissionTierId = defaultMission?.tierId || null;
         this._selectedShipId = null;
         this._selectedCrewId = null;
         this._lastIdleUiRefreshAt = 0;
@@ -194,10 +198,10 @@ export class HubScene {
         // Mirrors whichever mission is currently selected. HUD tier
         // color + size multiplier readouts read this via getStartState.
         this._startState = {
-            mode: this._missions[0].gameConfig.mode,
-            complexity: this._missions[0].gameConfig.complexity,
-            fieldSizeId: this._missions[0].gameConfig.fieldSizeId,
-            selectedMissionId: this._missions[0].id,
+            mode: defaultMission.gameConfig.mode,
+            complexity: defaultMission.gameConfig.complexity,
+            fieldSizeId: defaultMission.gameConfig.fieldSizeId,
+            selectedMissionId: defaultMission.id,
         };
 
         this._hubBoardSeed = 0;

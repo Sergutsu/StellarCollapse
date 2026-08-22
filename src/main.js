@@ -20,10 +20,10 @@ import {
 
 const el = (id) => document.getElementById(id);
 
-// Default selections the first time the UI opens. Mode/complexity
-// default to tier 1 (Stellar/Classic) which is the mission the player
-// starts highlighted on the board.
-const DEFAULT_MODE = GAME_MODES.STELLAR;
+// Default selections the first time the UI opens. The Miner minigame is
+// the sandbox default; Stellar/Classic remains the first mission card on
+// the board for the match-4 game.
+const DEFAULT_MODE = GAME_MODES.BLOCKS;
 const DEFAULT_COMPLEXITY = PIECE_COMPLEXITY.CLASSIC;
 const DEFAULT_SIZE_ID = DEFAULT_FIELD_SIZE_ID;
 
