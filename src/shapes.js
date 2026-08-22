@@ -114,6 +114,34 @@ export const MUTATED_SHAPES = [
 // the pool is a single source of truth and tests can reason about it.
 export const COLLAPSED_SHAPES = MUTATED_SHAPES;
 
+// Miner-mode flavor: mineral formation names indexed by pool type. The
+// classic seven keep short "vein" names; the eight mutated additions get
+// crystal-formation names. Purely cosmetic -- the HUD next-piece panel and
+// previews read these for flavor text.
+export const MINERAL_NAMES = [
+    // Classic seven
+    'Stellar Vein',   // I
+    'Jasper Hook',    // J
+    'Opal Hook',      // L
+    'Pyrite Cube',    // O
+    'Malachite S',    // S
+    'Amethyst T',     // T
+    'Cinnabar Z',     // Z
+    // Mutated eight
+    'Geode Cross',    // + (cross)
+    'Beryl Elbow',    // Big L
+    'Calcite Zigzag', // Zigzag
+    'Onyx Cluster',   // X shape
+    'Garnet Corner',  // Corner
+    'Rhodo Diamond',  // Diamond
+    'Tourmaline Mill',// Windmill
+    'Azurite Temple', // Temple
+];
+
+export function getMineralName(type) {
+    return MINERAL_NAMES[type] || 'Ore Cluster';
+}
+
 // Backward-compat export: the game-state module used to import SHAPES
 // directly. Keep it pointing at the full mutated pool so any code path we
 // didn't migrate still works.

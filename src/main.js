@@ -99,12 +99,12 @@ async function boot() {
             'Fill below, not above -- a tall stack kills your spawn zone.',
         ],
         blocks: [
-            'Only full horizontal lines score. Colors do not matter.',
-            'Flat stacks beat fancy ones -- leave one column for line clears.',
-            'Use soft-drop to thread pieces into tight gaps.',
-            'Four-line clears still exist -- bank a tall well for the bonus.',
-            'Hard drop when you\'re confident; you can\'t undo it.',
-            'The field grows taller on Mutated and Collapsed -- pace yourself.',
+            'Minerals fall in from all four edges -- toward the core.',
+            'Fill a solid 6x6 square around the center to collapse it.',
+            'Bigger cores collapse for more -- build 7x7 or 8x8 when you can.',
+            'Arrow keys move relative to the screen; soft drop follows the fall.',
+            'Collapses leave holes behind -- no gravity here, plan around them.',
+            'Never seal an edge shut: a blocked spawn ends the run.',
         ],
     };
     function pickTip(mode, level) {

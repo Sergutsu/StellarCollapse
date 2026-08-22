@@ -33,7 +33,7 @@ The repo is moving toward a hybrid casual / idle space-exploration game. Deep de
 
 ## Highlights
 
-- **3 gameplay modes** — Stellar click-match, Auto-Match (4+ runs clear on lock), Blocks (line clears only).
+- **3 gameplay modes** — Stellar click-match, Auto-Match (4+ runs clear on lock), Miner (minerals fall in from 4 edges; a solid ≥6×6 core at the center collapses).
 - **3 piece-complexity tiers** — Classic (7 standard shapes, monochrome), Mutated (15 shapes, multicolor), Totally Collapsed (adds bomb cells + chaos).
 - **3 field sizes per complexity** — pick Small / Medium / Large on the start screen; the grid resizes and the block scale adapts so the board still fits the viewport.
 - **6-tier leaderboard** — each (mode × complexity) combo has its own top-5, with a green → red difficulty gradient.

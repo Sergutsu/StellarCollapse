@@ -10,7 +10,7 @@
 // with `move`, `rotate`, `hardDrop`, `clickCell`, and `tick`.
 
 import { Emitter } from './emitter.js';
-import { getShapePool, rotateMatrix } from './shapes.js';
+import { getShapePool, rotateMatrix, getMineralName } from './shapes.js';
 import {
     NORMAL_COLORS,
     LINE_POINTS,
@@ -29,7 +29,10 @@ import {
     PIECE_COMPLEXITY,
     COLLAPSED_BOMB_CHANCE,
     SPECIAL_ARM_MS,
-    resolveFieldSize,
+    MINER_COLLAPSE_SIZE,
+    MINER_CELL_POINTS,
+    MINER_SPAWN_JITTER,
+    resolveFieldSizeForMode,
     DEFAULT_FIELD_SIZE_ID,
     getSizeMultiplier,
 } from './constants.js';
@@ -73,7 +76,7 @@ export class GameState extends Emitter {
             this.rows = rows;
             this.fieldSizeId = fieldSizeId;
         } else {
-            const resolved = resolveFieldSize(complexity, fieldSizeId);
+            const resolved = resolveFieldSizeForMode(mode, complexity, fieldSizeId);
             this.cols = resolved.cols;
             this.rows = resolved.rows;
             this.fieldSizeId = resolved.id;
@@ -119,8 +122,9 @@ export class GameState extends Emitter {
         if (mode) this.mode = mode;
         if (complexity) this.complexity = complexity;
         if (fieldSizeId) this.fieldSizeId = fieldSizeId;
-        // Resolve grid size off whatever complexity + size we now have.
-        const resolved = resolveFieldSize(this.complexity, this.fieldSizeId);
+        // Resolve grid size off whatever mode + complexity + size we now
+        // have (Miner mode uses its own square table).
+        const resolved = resolveFieldSizeForMode(this.mode, this.complexity, this.fieldSizeId);
         this.cols = resolved.cols;
         this.rows = resolved.rows;
         this.fieldSizeId = resolved.id;
@@ -202,12 +206,54 @@ export class GameState extends Emitter {
             }
         }
         return {
-            x: Math.floor(this.cols / 2) - Math.floor(shape[0].length / 2),
-            y: 0,
+            ...this._spawnPosition(type, shape),
             shape,
             colorMatrix,
             type,
+            mineral: getMineralName(type),
         };
+    }
+
+    // Miner mode: pieces are mineral formations falling inward from one of
+    // the four edges. The entry side is rolled from the injected RNG and
+    // the piece spawns flush INSIDE that edge (always visible, never
+    // straddling the boundary -- a blocked lane is a clean spawn-collision
+    // game over instead of a mid-entry lock outside the field).
+    _spawnPosition(type, shape) {
+        const w = shape[0].length;
+        const h = shape.length;
+        if (!this._isMiner()) {
+            return {
+                x: Math.floor(this.cols / 2) - Math.floor(w / 2),
+                y: 0,
+                dir: { dx: 0, dy: 1 },
+                entered: true,
+            };
+        }
+        const dirs = [
+            { dx: 0, dy: 1 },   // falls down   -> enters from the top edge
+            { dx: 0, dy: -1 },  // falls up     -> enters from the bottom edge
+            { dx: 1, dy: 0 },   // falls right  -> enters from the left edge
+            { dx: -1, dy: 0 },  // falls left   -> enters from the right edge
+        ];
+        const dir = dirs[Math.floor(this.rng() * dirs.length)];
+        // Center the piece on the entry edge, then apply a small lateral
+        // jitter so entry lanes aren't always dead-center.
+        const jitter = Math.floor(this.rng() * (MINER_SPAWN_JITTER * 2 + 1)) - MINER_SPAWN_JITTER;
+        let x;
+        let y;
+        if (dir.dy !== 0) {
+            x = Math.max(0, Math.min(this.cols - w, Math.floor((this.cols - w) / 2) + jitter));
+            y = dir.dy > 0 ? 0 : this.rows - h;
+        } else {
+            x = dir.dx > 0 ? 0 : this.cols - w;
+            y = Math.max(0, Math.min(this.rows - h, Math.floor((this.rows - h) / 2) + jitter));
+        }
+        return { x, y, dir, entered: true };
+    }
+
+    _isMiner() {
+        return this.mode === GAME_MODES.BLOCKS;
     }
 
     _shiftPiece() {
@@ -239,22 +285,64 @@ export class GameState extends Emitter {
     // Movement and collision
     // -------------------------------------------------------------------
 
+    // Which board edge a piece entered from (the only out-of-bounds area
+    // it may legally occupy while still partially outside). Legacy modes
+    // always enter from the top.
+    _entrySide(piece) {
+        const d = piece?.dir || { dx: 0, dy: 1 };
+        if (d.dy > 0) return 'top';
+        if (d.dy < 0) return 'bottom';
+        if (d.dx > 0) return 'left';
+        return 'right';
+    }
+
     _collides(piece, dx = 0, dy = 0, shape = piece.shape) {
+        const entry = this._isMiner() ? this._entrySide(piece) : 'top';
+        // The entry-edge allowance expires once the piece has fully entered
+        // the field -- otherwise it could drift back out through its own
+        // entrance and lock outside the board.
+        const mayUseEntry = this._isMiner() && !piece?.entered;
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[y].length; x++) {
                 if (!shape[y][x]) continue;
                 const bx = piece.x + x + dx;
                 const by = piece.y + y + dy;
-                if (bx < 0 || bx >= this.cols || by >= this.rows) return true;
-                if (by >= 0 && this.board[by] && this.board[by][bx]) return true;
+                const outside =
+                    bx < 0 ? 'left'
+                    : bx >= this.cols ? 'right'
+                    : by < 0 ? 'top'
+                    : by >= this.rows ? 'bottom'
+                    : null;
+                if (outside) {
+                    // Out-of-bounds cells are legal only on the entry edge
+                    // while the piece is still sliding in; every other wall
+                    // (and the entry edge after full entry) is solid.
+                    if (mayUseEntry && outside === entry) continue;
+                    return true;
+                }
+                if (this.board[by][bx]) return true;
             }
         }
         return false;
     }
 
+    // True when every filled cell of the piece sits inside the board.
+    _fullyInside(piece) {
+        for (let y = 0; y < piece.shape.length; y++) {
+            for (let x = 0; x < piece.shape[y].length; x++) {
+                if (!piece.shape[y][x]) continue;
+                const bx = piece.x + x;
+                const by = piece.y + y;
+                if (bx < 0 || bx >= this.cols || by < 0 || by >= this.rows) return false;
+            }
+        }
+        return true;
+    }
+
     // Attempt to shift the active piece by (dx, dy). Returns a result
-    // object describing what happened. If a downward move collides, the
-    // piece is locked in place. Callers (view, input) react to events.
+    // object describing what happened. If a move along the fall axis
+    // collides, the piece is locked in place. Callers (view, input)
+    // react to events.
     move(dx, dy = 0) {
         if (!this.currentPiece || this.gameOver) return { moved: false, locked: false };
         const piece = this.currentPiece;
@@ -264,11 +352,21 @@ export class GameState extends Emitter {
         if (this._collides(piece)) {
             piece.x = before.x;
             piece.y = before.y;
-            if (dy > 0) {
+            // A blocked move along the fall axis locks the piece. In Miner
+            // mode the fall axis follows the piece's entry direction.
+            const fallStep = this._isMiner()
+                ? (piece.dir || { dx: 0, dy: 1 })
+                : { dx: 0, dy: 1 };
+            if (dx === fallStep.dx && dy === fallStep.dy && (dx !== 0 || dy !== 0)) {
                 this._lockPiece();
                 return { moved: false, locked: true };
             }
             return { moved: false, locked: false };
+        }
+        // Miner pieces lose their entry-edge allowance the moment they are
+        // fully inside the field.
+        if (this._isMiner() && !piece.entered && this._fullyInside(piece)) {
+            piece.entered = true;
         }
         this.emit('piece-moved', { piece, direction: { dx, dy } });
         return { moved: true, locked: false };
@@ -280,6 +378,7 @@ export class GameState extends Emitter {
         const originalShape = piece.shape;
         const originalColors = piece.colorMatrix;
         const originalX = piece.x;
+        const originalY = piece.y;
 
         const newShape = rotateMatrix(originalShape);
         const newColors = rotateMatrix(originalColors);
@@ -288,37 +387,61 @@ export class GameState extends Emitter {
         piece.colorMatrix = newColors;
 
         if (!this._collides(piece)) {
+            if (this._isMiner() && !piece.entered && this._fullyInside(piece)) {
+                piece.entered = true;
+            }
             this.emit('piece-rotated', { piece });
             return { rotated: true };
         }
 
-        // Wall-kick: try small horizontal offsets before giving up.
+        // Wall-kick: try small offsets along the lateral axis before
+        // giving up. Legacy modes fall downward so the lateral axis is
+        // horizontal; Miner pieces fall along their entry axis, so the
+        // useful kick direction is whatever axis they slide along.
+        const lateral = this._isMiner() && piece.dir && piece.dir.dx !== 0 ? 'y' : 'x';
         for (let offset = 1; offset <= 2; offset++) {
-            piece.x = originalX - offset;
+            piece[lateral] = (lateral === 'x' ? originalX : originalY) - offset;
             if (!this._collides(piece)) {
                 this.emit('piece-rotated', { piece });
                 return { rotated: true };
             }
-            piece.x = originalX + offset;
+            piece[lateral] = (lateral === 'x' ? originalX : originalY) + offset;
             if (!this._collides(piece)) {
                 this.emit('piece-rotated', { piece });
                 return { rotated: true };
             }
-            piece.x = originalX;
+            piece[lateral] = lateral === 'x' ? originalX : originalY;
         }
 
         piece.shape = originalShape;
         piece.colorMatrix = originalColors;
         piece.x = originalX;
+        piece.y = originalY;
         return { rotated: false };
+    }
+
+    // Advance one cell along the current fall axis without waiting for
+    // the gravity timer. Locks the piece if the way is blocked.
+    softDrop() {
+        const step = this._fallStep();
+        return this.move(step.dx, step.dy);
+    }
+
+    _fallStep() {
+        if (this._isMiner() && this.currentPiece?.dir) {
+            return this.currentPiece.dir;
+        }
+        return { dx: 0, dy: 1 };
     }
 
     hardDrop() {
         if (!this.currentPiece || this.gameOver) return { cellsDropped: 0 };
         const piece = this.currentPiece;
+        const step = this._fallStep();
         let cellsDropped = 0;
-        while (!this._collides(piece, 0, 1)) {
-            piece.y++;
+        while (!this._collides(piece, step.dx, step.dy)) {
+            piece.x += step.dx;
+            piece.y += step.dy;
             cellsDropped++;
         }
         this.emit('piece-hard-dropped', { piece, cellsDropped });
@@ -328,12 +451,13 @@ export class GameState extends Emitter {
 
     // Advance the internal drop timer; callers pass elapsed ms each tick.
     // When the timer crosses the current drop interval, the piece drops
-    // one cell (locking if it can't).
+    // one cell along its fall axis (locking if it can't).
     tick(deltaMs) {
         if (this.gameOver || !this.currentPiece) return;
         this.dropCounter += deltaMs;
         if (this.dropCounter > this.dropInterval) {
-            this.move(0, 1);
+            const step = this._fallStep();
+            this.move(step.dx, step.dy);
             this.dropCounter = 0;
         }
     }
@@ -353,9 +477,11 @@ export class GameState extends Emitter {
                 if (!shape[y][x]) continue;
                 const bx = piece.x + x;
                 const by = piece.y + y;
-                if (by < 0) {
-                    // Piece locked above the top row -> game over.
-                    this._endGame('piece-above-top');
+                // Miner mode: locking any cell outside the field means an
+                // entry edge is breached -> game over. Legacy modes only
+                // treat "above the top row" as fatal.
+                if (bx < 0 || bx >= this.cols || by < 0 || by >= this.rows) {
+                    this._endGame(this._isMiner() ? 'core-breached' : 'piece-above-top');
                     return;
                 }
                 const color = colors[y][x];
@@ -369,6 +495,15 @@ export class GameState extends Emitter {
             }
         }
         this.emit('piece-locked', { cells: lockedCells });
+
+        if (this._isMiner()) {
+            // Core collapse replaces line clears. No gravity afterwards --
+            // minerals stay suspended where they locked.
+            this._checkCollapse();
+            if (this.gameOver) return;
+            this._spawnNextPiece();
+            return;
+        }
 
         if (this._isBoardFull()) {
             this._endGame('board-full');
@@ -702,6 +837,102 @@ export class GameState extends Emitter {
             if (leveledUp) this.emit('level-up', { level: this.level });
         }
         return linesCleared;
+    }
+
+    // -------------------------------------------------------------------
+    // Miner mode: center-core collapse
+    //
+    // The collapse condition replaces line clears. A collapse triggers
+    // when the board contains a fully-filled square of side >=
+    // MINER_COLLAPSE_SIZE whose area covers the board's center cell. The
+    // largest such square collapses: every mineral in it is mined out,
+    // scored, and counted as one "line" for level progression. Overlapping
+    // qualifying squares chain within the same lock until none remain.
+    // -------------------------------------------------------------------
+
+    _checkCollapse() {
+        let totalCells = 0;
+        // Chained collapses are bounded by board area / MINER_COLLAPSE_SIZE^2;
+        // the guard just makes termination obvious.
+        let guard = 0;
+        while (guard++ < 64) {
+            const square = this._largestCenterSquare();
+            if (!square) break;
+
+            const cells = [];
+            const colors = [];
+            for (let y = square.y; y < square.y + square.size; y++) {
+                for (let x = square.x; x < square.x + square.size; x++) {
+                    colors.push(this.board[y][x]);
+                    cells.push({ x, y, color: this.board[y][x] });
+                    this._disarmSpecialAt(x, y);
+                    this.board[y][x] = null;
+                }
+            }
+
+            const points = Math.round(
+                cells.length * MINER_CELL_POINTS * this.level * this.sizeMultiplier,
+            );
+            this.score += points;
+            this.lines += 1;
+            const newLevel = Math.floor(this.lines / LINES_PER_LEVEL) + 1;
+            const leveledUp = newLevel > this.level;
+            this.level = newLevel;
+            this.dropInterval = Math.max(
+                DROP_INTERVAL_MIN_MS,
+                DROP_INTERVAL_START_MS - (this.level - 1) * DROP_INTERVAL_STEP_MS,
+            );
+
+            totalCells += cells.length;
+            // `collapse-cleared` carries the full geometry for view FX; the
+            // legacy `lines-cleared` event keeps RunLedger ore tallies, the
+            // audio hooks and HUD refreshes working without special cases.
+            this.emit('collapse-cleared', {
+                cells,
+                colors,
+                points,
+                size: square.size,
+                square,
+            });
+            this.emit('lines-cleared', { count: 1, points, colors });
+            this.emit('score-changed', { score: this.score, level: this.level, lines: this.lines });
+            if (leveledUp) this.emit('level-up', { level: this.level });
+        }
+        return totalCells;
+    }
+
+    // Largest fully-occupied axis-aligned square that contains the board's
+    // center cell. Scanned from the biggest possible size downwards so the
+    // first hit is the largest; returns null when nothing >=
+    // MINER_COLLAPSE_SIZE qualifies.
+    _largestCenterSquare() {
+        const cx = Math.floor(this.cols / 2);
+        const cy = Math.floor(this.rows / 2);
+        const maxSize = Math.min(this.cols, this.rows);
+        for (let size = maxSize; size >= MINER_COLLAPSE_SIZE; size--) {
+            // Top-left candidates whose s x s window still covers (cx, cy).
+            const minX = Math.max(0, cx - size + 1);
+            const maxX = Math.min(cx, this.cols - size);
+            const minY = Math.max(0, cy - size + 1);
+            const maxY = Math.min(cy, this.rows - size);
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    if (this._isSolidSquare(x, y, size)) {
+                        return { x, y, size };
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    _isSolidSquare(x0, y0, size) {
+        for (let y = y0; y < y0 + size; y++) {
+            for (let x = x0; x < x0 + size; x++) {
+                if (!this.board[y][x]) return false;
+            }
+        }
+        return true;
     }
 
     // Compact each column to the bottom in a single O(ROWS) pass, then

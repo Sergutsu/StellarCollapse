@@ -16,7 +16,9 @@ export function bindInput({ state, elements }) {
                 break;
             case 'ArrowDown':
                 event.preventDefault();
-                state.move(0, 1);
+                // Soft drop follows the active piece's fall axis: straight
+                // down in legacy modes, toward the board center in Miner.
+                state.softDrop();
                 break;
             case 'ArrowUp':
                 event.preventDefault();
@@ -75,7 +77,7 @@ export function bindInput({ state, elements }) {
         }
         if (dy > SWIPE_PX) {
             if (dy > 88 || dt <= FAST_SWIPE_MS) state.hardDrop();
-            else state.move(0, 1);
+            else state.softDrop();
         }
     });
 }

@@ -35,8 +35,11 @@ import {
 import {
     PIECE_COMPLEXITY,
     BLOCK_SIZE_FOR,
+    MAX_BLOCK_SIZE,
     LINES_PER_LEVEL,
     LOW_FX_CELL_THRESHOLD,
+    GAME_MODES,
+    MINER_COLLAPSE_SIZE,
 } from '../constants.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
@@ -67,6 +70,14 @@ const EFFECT_COLORS = {
 };
 
 const PULSE_PERIOD_MS = { bomb: 1000, snake: 1500 };
+
+// Miner mode: square fields must fit the fixed 400px-wide board slot
+// horizontally, so cells may shrink below the global MIN_BLOCK_SIZE floor.
+// 16px keeps a 23-column field at ~368px while staying readable.
+const MINER_MIN_BLOCK_PX = 16;
+
+// Miner mode: color of the center-core guide overlay + direction chevrons.
+const MINER_CORE_COLOR = 0x22d3ee;
 
 // HUD layout. Canvas is a fixed 860x820 rectangle regardless of field
 // size; the board slot is always 400x720 centered, the three columns
@@ -209,6 +220,7 @@ export class GameScene {
         this._clockMs += deltaMs;
         this._tickScanner(deltaMs);
         this._tickPulse();
+        this._tickCoreZone();
         this._tickStar(deltaMs);
         this._tickTweens(deltaMs);
     }
@@ -221,6 +233,8 @@ export class GameScene {
         if (this.boardRoot) {
             this.boardRoot.destroy({ children: true });
             this.boardRoot = null;
+            this.coreZone = null;
+            this.dirIndicator = null;
         }
         if (this._topControls) {
             this._topControls.destroy({ children: true });
@@ -245,14 +259,16 @@ export class GameScene {
         this.boardRoot = new Container();
         this.sceneRoot.addChild(this.boardRoot);
 
-        // Z-order inside boardRoot: board (locked) -> active ->
-        // effects -> overlay (countdown rings).
+        // Z-order inside boardRoot: board (locked) -> core zone guide ->
+        // active -> effects -> overlay (countdown rings).
         this.layers.board = new Container();
+        this.coreZone = new Graphics();
         this.layers.active = new Container();
         this.layers.effects = new Container();
         this.layers.overlay = new Container();
         this.boardRoot.addChild(
             this.layers.board,
+            this.coreZone,
             this.layers.active,
             this.layers.effects,
             this.layers.overlay,
@@ -303,7 +319,12 @@ export class GameScene {
         if (!this._built) this._build();
         const cols = this.state.cols;
         const rows = this.state.rows;
-        this.blockPx = BLOCK_SIZE_FOR(rows);
+        // Miner fields are square and must fit the fixed board slot
+        // horizontally, so cell size derives from the width budget instead
+        // of the 720px portrait height target.
+        this.blockPx = this._isMinerMode()
+            ? Math.max(MINER_MIN_BLOCK_PX, Math.min(MAX_BLOCK_SIZE, Math.floor(BOARD_SLOT_W / cols)))
+            : BLOCK_SIZE_FOR(rows);
         this._lowFx = cols * rows >= LOW_FX_CELL_THRESHOLD;
 
         const w = cols * this.blockPx;
@@ -327,6 +348,13 @@ export class GameScene {
         this._tweens.clear();
         this._pulsingCells.clear();
         this._particlePool.length = 0;
+
+        // Direction chevrons live on the effects layer; recreate after the
+        // teardown above wiped it.
+        this.dirIndicator = new Graphics();
+        this.dirIndicator.eventMode = 'none';
+        this.layers.effects.addChild(this.dirIndicator);
+        this._drawCoreZone();
 
         this.boardCells = [];
         this.activeCells = [];
@@ -357,6 +385,109 @@ export class GameScene {
     // a no-op so main.js's contract is unchanged.
     createPreviews() {
         /* preview cells are built during _buildHud(); nothing to do. */
+    }
+
+    // ------------------------------------------------------------------
+    // Miner-mode visuals: center-core guide + fall-direction chevrons.
+    // ------------------------------------------------------------------
+
+    _isMinerMode() {
+        return this.state.mode === GAME_MODES.BLOCKS;
+    }
+
+    // Draw the 6x6 target window centered on the board's center cell. Any
+    // solid square >= MINER_COLLAPSE_SIZE covering the center collapses;
+    // this overlay shows the player the smallest such region.
+    _drawCoreZone() {
+        if (!this.coreZone) return;
+        this.coreZone.clear();
+        if (!this._isMinerMode()) return;
+        const bp = this.blockPx;
+        const cols = this.state.cols;
+        const rows = this.state.rows;
+        const size = MINER_COLLAPSE_SIZE * bp;
+        const x0 = Math.round(cols / 2 - MINER_COLLAPSE_SIZE / 2) * bp;
+        const y0 = Math.round(rows / 2 - MINER_COLLAPSE_SIZE / 2) * bp;
+
+        this.coreZone.rect(x0, y0, size, size)
+            .fill({ color: MINER_CORE_COLOR, alpha: 0.05 });
+        // Dashed border.
+        const dash = Math.max(4, Math.floor(bp * 0.5));
+        for (let ex = x0; ex < x0 + size; ex += dash * 2) {
+            const w1 = Math.min(dash, x0 + size - ex);
+            this.coreZone.moveTo(ex, y0).lineTo(ex + w1, y0);
+            this.coreZone.moveTo(ex, y0 + size).lineTo(ex + w1, y0 + size);
+        }
+        for (let ey = y0; ey < y0 + size; ey += dash * 2) {
+            const h1 = Math.min(dash, y0 + size - ey);
+            this.coreZone.moveTo(x0, ey).lineTo(x0, ey + h1);
+            this.coreZone.moveTo(x0 + size, ey).lineTo(x0 + size, ey + h1);
+        }
+        this.coreZone.stroke({ color: MINER_CORE_COLOR, width: 1.5, alpha: 0.55 });
+        // Corner ticks for a "targeting reticle" read.
+        const tick = Math.max(6, Math.floor(bp * 0.7));
+        this.coreZone.moveTo(x0, y0 + tick).lineTo(x0, y0).lineTo(x0 + tick, y0);
+        this.coreZone.moveTo(x0 + size - tick, y0).lineTo(x0 + size, y0).lineTo(x0 + size, y0 + tick);
+        this.coreZone.moveTo(x0 + size, y0 + size - tick).lineTo(x0 + size, y0 + size).lineTo(x0 + size - tick, y0 + size);
+        this.coreZone.moveTo(x0 + tick, y0 + size).lineTo(x0, y0 + size).lineTo(x0, y0 + size - tick);
+        this.coreZone.stroke({ color: MINER_CORE_COLOR, width: 2, alpha: 0.9 });
+    }
+
+    // Slow breathing pulse on the core zone so it reads as "the objective"
+    // without stealing attention from falling pieces.
+    _tickCoreZone() {
+        if (!this.coreZone || !this._isMinerMode()) return;
+        const phase = (this._clockMs % 2400) / 2400;
+        const s = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
+        // Cheap re-tint: redraw only the soft fill at the pulsing alpha
+        // (strokes stay as drawn by _drawCoreZone).
+        const bp = this.blockPx;
+        const cols = this.state.cols;
+        const rows = this.state.rows;
+        const size = MINER_COLLAPSE_SIZE * bp;
+        const x0 = Math.round(cols / 2 - MINER_COLLAPSE_SIZE / 2) * bp;
+        const y0 = Math.round(rows / 2 - MINER_COLLAPSE_SIZE / 2) * bp;
+        this.coreZone.rect(x0, y0, size, size)
+            .fill({ color: MINER_CORE_COLOR, alpha: 0.03 + 0.06 * s });
+    }
+
+    // Chevrons at the midpoint of the active piece's entry edge, pointing
+    // inward -- tells the player which way this mineral formation falls.
+    _updateDirIndicator(piece) {
+        if (!this.dirIndicator) return;
+        this.dirIndicator.clear();
+        if (!piece || !this._isMinerMode()) return;
+        const d = piece.dir || { dx: 0, dy: 1 };
+        const bp = this.blockPx;
+        const w = this.state.cols * bp;
+        const h = this.state.rows * bp;
+        let cx;
+        let cy;
+        let angle;
+        if (d.dy > 0) { cx = w / 2; cy = 8; angle = Math.PI / 2; }
+        else if (d.dy < 0) { cx = w / 2; cy = h - 8; angle = -Math.PI / 2; }
+        else if (d.dx > 0) { cx = 8; cy = h / 2; angle = 0; }
+        else { cx = w - 8; cy = h / 2; angle = Math.PI; }
+
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const drawChevron = (dist, alpha) => {
+            // Chevron pointing along +x in local space, then rotated.
+            const pts = [
+                [dist + 7, 0],
+                [dist, -5],
+                [dist + 7, 0],
+                [dist, 5],
+            ];
+            this.dirIndicator.moveTo(cx + pts[0][0] * cos - pts[0][1] * sin, cy + pts[0][0] * sin + pts[0][1] * cos)
+                .lineTo(cx + pts[1][0] * cos - pts[1][1] * sin, cy + pts[1][0] * sin + pts[1][1] * cos)
+                .lineTo(cx + pts[2][0] * cos - pts[2][1] * sin, cy + pts[2][0] * sin + pts[2][1] * cos)
+                .lineTo(cx + pts[3][0] * cos - pts[3][1] * sin, cy + pts[3][0] * sin + pts[3][1] * cos)
+                .stroke({ color: MINER_CORE_COLOR, width: 2, alpha });
+        };
+        drawChevron(0, 0.95);
+        drawChevron(11, 0.6);
+        drawChevron(22, 0.3);
     }
 
     // ------------------------------------------------------------------
@@ -425,18 +556,41 @@ export class GameScene {
             .fill(grad)
             .stroke({ color: pal.shadow, width: 1, alpha: 0.7, alignment: 1 });
 
-        accent.circle(size * 0.3, size * 0.3, size * 0.38)
-            .fill({ color: pal.highlight, alpha: 0.45 });
-        accent.circle(size * 0.72, size * 0.78, size * 0.34)
-            .fill({ color: pal.shadow, alpha: 0.55 });
-        accent.circle(size * 0.26, size * 0.24, size * 0.1)
-            .fill({ color: 0xffffff, alpha: 0.3 });
-        accent.circle(size * 0.58, size * 0.35, size * 0.07)
-            .fill({ color: pal.highlight, alpha: 0.25 });
+        // Miner mode normal cells get a faceted crystal treatment instead
+        // of the round blob highlights -- minerals, not toy blocks.
+        const mineral = this._isMinerMode()
+            && color !== 'bomb' && color !== 'snake';
+        if (mineral) {
+            const c = size / 2;
+            // Four triangular facets meeting at the center; light from
+            // top-left, body shading bottom-right.
+            accent.moveTo(1, 1).lineTo(c, c).lineTo(size - 1, 1)
+                .closePath().fill({ color: pal.highlight, alpha: 0.4 });
+            accent.moveTo(size - 1, 1).lineTo(c, c).lineTo(size - 1, size - 1)
+                .closePath().fill({ color: pal.shadow, alpha: 0.5 });
+            accent.moveTo(1, size - 1).lineTo(c, c).lineTo(size - 1, size - 1)
+                .closePath().fill({ color: pal.linearEnd, alpha: 0.55 });
+            accent.moveTo(1, 1).lineTo(c, c).lineTo(1, size - 1)
+                .closePath().fill({ color: pal.shadow, alpha: 0.35 });
+            // Specular sparkle.
+            accent.circle(c - size * 0.16, c - size * 0.18, Math.max(1.2, size * 0.07))
+                .fill({ color: 0xffffff, alpha: 0.85 });
+        } else {
+            accent.circle(size * 0.3, size * 0.3, size * 0.38)
+                .fill({ color: pal.highlight, alpha: 0.45 });
+            accent.circle(size * 0.72, size * 0.78, size * 0.34)
+                .fill({ color: pal.shadow, alpha: 0.55 });
+            accent.circle(size * 0.26, size * 0.24, size * 0.1)
+                .fill({ color: 0xffffff, alpha: 0.3 });
+            accent.circle(size * 0.58, size * 0.35, size * 0.07)
+                .fill({ color: pal.highlight, alpha: 0.25 });
+        }
         accent.roundRect(3, 3, size - 6, 2, 1)
-            .fill({ color: 0xffffff, alpha: 0.2 });
+            .fill({ color: 0xffffff, alpha: mineral ? 0.45 : 0.2 });
 
-        const emoji = ICON_EMOJI[color];
+        // Mineral cells skip the emoji icons entirely -- the facet styling
+        // carries the theme, and emojis read "toy blocks" at small sizes.
+        const emoji = mineral ? null : ICON_EMOJI[color];
         if (emoji && size >= 20) {
             icon.text = emoji;
             icon.style.fontSize = Math.max(10, Math.floor(size * 0.58));
@@ -537,12 +691,14 @@ export class GameScene {
             node.icon.visible = false;
         }
         this.activePaintedCells.length = 0;
+        this._updateDirIndicator(null);
     }
 
     _paintActivePiece() {
         if (!this.activeCells.length) return;
         this._clearActiveLayer();
         const piece = this.state.currentPiece;
+        this._updateDirIndicator(piece);
         if (!piece) return;
         const shape = piece.shape;
         const colors = piece.colorMatrix;
@@ -925,9 +1081,13 @@ export class GameScene {
             const total = this.state.level * (this.state.sizeMultiplier || 1);
             this.hud.multiplierValue.text = `x${total.toFixed(1)}`;
         }
+        if (this.hud.linesLabel)
+            this.hud.linesLabel.text = this._isMinerMode() ? 'CORE' : 'LINES';
         if (this.hud.levelProgress) {
             const into = this.state.lines % LINES_PER_LEVEL;
-            this.hud.levelProgress.text = `${into} / ${LINES_PER_LEVEL} lines`;
+            this.hud.levelProgress.text = this._isMinerMode()
+                ? `${into} / ${LINES_PER_LEVEL} cores`
+                : `${into} / ${LINES_PER_LEVEL} lines`;
         }
         if (this.hud.levelInfo && typeof this._levelInfoFor === 'function') {
             this.hud.levelInfo.text = this._levelInfoFor(this.state.level);
@@ -1038,6 +1198,14 @@ export class GameScene {
             this._updateHUD();
             this._reactStar('line');
         });
+        s.on('collapse-cleared', ({ cells }) => {
+            // Core collapse FX: every mined-out mineral pops.
+            for (let i = 0; i < cells.length; i++) {
+                const c = cells[i];
+                if (c.color) this._addExplosionEffect(c.x, c.y, c.color);
+            }
+            this._reactStar('bomb');
+        });
         s.on('score-changed', () => this._updateHUD());
         s.on('level-up', () => this._reactStar('levelup'));
         s.on('game-over', () => this._reactStar('gameover'));
@@ -1117,6 +1285,7 @@ export class GameScene {
             previewComing: previewPanel.coming,
             scoreValue: scorePanel.score,
             linesValue: scorePanel.lines,
+            linesLabel: scorePanel.linesLabel,
             multiplierValue: scorePanel.multiplier,
             tipText: tipsPanel.text,
             matchControlHintText: controlsPanel.matchHint,
@@ -1392,6 +1561,8 @@ export class GameScene {
         const w = COL_W;
         const h = 210;
         const container = drawHologramPanel(w, h);
+        // Miner mode counts core collapses, not lines.
+        const linesLabelText = this._isMinerMode() ? 'CORE' : 'LINES';
 
         let yCursor = 10;
         const labelScore = panelLabel('SCORE', COLOR_YELLOW_300);
@@ -1411,7 +1582,7 @@ export class GameScene {
         container.addChild(div1);
         yCursor += 6;
 
-        const labelLines = panelLabel('LINES', COLOR_GREEN_300);
+        const labelLines = panelLabel(linesLabelText, COLOR_GREEN_300);
         labelLines.anchor.set(0.5, 0);
         labelLines.x = w / 2;
         labelLines.y = yCursor;
@@ -1440,7 +1611,7 @@ export class GameScene {
         multiplier.y = yCursor;
         container.addChild(multiplier);
 
-        return { container, score, lines, multiplier, height: h };
+        return { container, score, lines, linesLabel: labelLines, multiplier: multiplier, height: h };
     }
 
     _buildTipsPanel() {
@@ -1633,7 +1804,7 @@ export class GameScene {
         const t = this.hud?.matchControlHintText;
         if (!t) return;
         const mode = this.state.mode;
-        if (mode === 'blocks') t.text = 'Match disabled';
+        if (mode === 'blocks') t.text = 'Mine the Center · 6x6 Collapses';
         else if (mode === 'auto-match') t.text = 'Auto-Match 4+ Colors';
         else t.text = 'Match 4+ Colors';
     }

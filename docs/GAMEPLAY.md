@@ -22,12 +22,15 @@
 - In Collapsed complexity, the longest run among the ones cleared in that sweep still seeds a specials tile — ≥5 cells → bomb at the run's middle, exactly 4 cells → snake at a random position in the run.
 - After the sweep, gravity settles, and the next piece spawns. Chain reactions from subsequent locks score each sweep independently.
 
-### Blocks (Tetris-like)
+### Miner (formerly "Blocks" — the Tetris-like is gone)
 
-- Pieces drop and lock into lines.
-- **Full rows clear on lock**, not on colour match.
-- Same piece pool and controls as Stellar.
-- Scoring per line, with a bonus multiplier for simultaneous 2/3/4-line clears (Tetris-style).
+- **Pieces are mineral formations falling inward from all four edges** (top / bottom / left / right, rolled per piece). Each piece carries its fall axis; soft drop, hard drop, and gravity ticks advance it along that axis. Left/right/up arrows and rotation stay screen-relative.
+- Collision is direction-aware: pieces spawn **flush inside their entry edge** (always visible), and a blocked entry lane is a clean game over.
+- **Core collapse replaces line clears.** When a fully-filled square of side ≥ `MINER_COLLAPSE_SIZE` (6) covers the board's center cell, the largest such square collapses: every mineral in it is mined out, scored (`cells × MINER_CELL_POINTS × level × sizeMultiplier`), and counted once toward level progression. Overlapping qualifying squares chain on the same lock until none remain.
+- **No gravity after collapse** — minerals stay suspended where they locked; plan around the holes.
+- Square fields per complexity/size (13×13 up to 23×23) so the center core is equidistant from every entry edge. Cell sizes derive from the board-slot width instead of the portrait height target.
+- Click-to-match is disabled in this mode. Game over when a spawn is blocked or a piece locks outside the field ("core breached").
+- Visuals: faceted crystal cell styling, a pulsing 6×6 core reticle at the center, entry-edge direction chevrons, `CORE` HUD counter, and mineral formation names per shape.
 
 ### Defense (Combat missions)
 
@@ -108,7 +111,7 @@ All score values fire on the `score-changed` event from `GameState`. The view re
 | Normal match (4+ cells) | `MATCH_POINTS = 10` per cleared cell |
 | Auto-Match sweep | 10 per cleared cell (same `MATCH_POINTS`) |
 | Bomb explosion | 25 per destroyed cell |
-| Line clear in Blocks | `LINE_POINTS = [0, 40, 100, 300, 1200]` for 0/1/2/3/4-line clears (Tetris-style bonus on simultaneous lines) |
+| Core collapse in Miner | `cells × MINER_CELL_POINTS (20) × level × sizeMultiplier` per collapsed square |
 
 ### Multipliers
 
@@ -134,7 +137,7 @@ This ramp must be perceptible — a player who reaches level 5 should feel a ~60
 ### Scoring invariants (tested)
 
 - Clearing the same 4-cell block twice with the same level + size scores identically.
-- A single line clear at level 3 on a large board scores `40 × 3 × 0.75 = 90`.
+- A single core collapse (36 cells) at level 1 on a medium board scores `36 × 20 × 1 × 1.0 = 720`.
 - Bomb points use the bomb base, not the per-cell-colour base.
 - Auto-match scoring uses each cell's own colour, not the clicked cell's colour. (See PR #5.)
 
@@ -171,7 +174,7 @@ run and rolls them up into a single summary the results scene renders.
 |---|---|
 | `match-cleared` | `matchesCleared++`; each cell in `payload.cells` credits `cell.color` (falls back to `payload.color` for the click-match shape). |
 | `bomb-exploded` | `bombsExploded++`; each cell in `payload.cells` credits `cell.color`. |
-| `lines-cleared` | `linesCleared += payload.count`; each colour in `payload.colors` credits +1 ore. (Payload colour array is snapshotted in `_checkLines` *before* gravity shifts, so Blocks mode tallies correctly.) |
+| `lines-cleared` | `linesCleared += payload.count`; each colour in `payload.colors` credits +1 ore. (Emitted by both `_checkLines` and the Miner core collapse, so Miner ore tallies through the same path.) |
 
 A cell can only be credited once per clear event — `_creditOre` silently
 ignores unknown colours (any id not in `ORE_IDS`) to keep future mode
@@ -274,10 +277,18 @@ Per-complexity triplets in `FIELD_SIZES`:
 
 None use 10×20 (deliberate — that was the old default and we want the sizes to feel distinct).
 
+Miner mode uses its own square triplets in `MINER_FIELD_SIZES`:
+
+| Complexity | Small | Medium | Large |
+|---|---|---|---|
+| Classic | 13×13 | 15×15 | 19×19 |
+| Mutated | 14×14 | 17×17 | 21×21 |
+| Collapsed | 15×15 | 19×19 | 23×23 |
+
 ### Visual sizing
 
 - Target board slot: 400×720 px at base scale.
-- `BLOCK_SIZE_FOR(cols, rows)` picks a per-cell pixel size that fills the slot vertically.
+- `BLOCK_SIZE_FOR(cols, rows)` picks a per-cell pixel size that fills the slot vertically. Miner fields instead size cells from the **width** budget so the square board fits the slot horizontally (floor 16 px).
 - **Low-fx threshold:** `LOW_FX_CELL_THRESHOLD` (currently 240 cells). Past this count, expensive per-cell animations (floating dashed outline, bomb/snake idle pulse, hover filter) are skipped. Pixi perf holds at 60 fps on 15×28 because per-frame cost is constant, not per-cell.
 
 ---
