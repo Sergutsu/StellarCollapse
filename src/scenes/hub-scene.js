@@ -185,7 +185,10 @@ export class HubScene {
         this._missions = buildMissions({ seed: Math.floor(Math.random() * 0xffffffff) });
         this._idleMissions = [];
         this._idleMissionSeq = 1;
-        this._selectedMissionDispatch = 'idle';
+        // MANUAL is the default dispatch mode: pressing DISPATCH immediately
+        // launches the selected mission's playable minigame. IDLE is opt-in.
+        this._selectedMissionDispatch = 'manual';
+        this._onResetGame = null;
         // Miner (blocks tiers) is the default sandbox: preselect the first
         // blocks-tier mission so a fresh boot points at the miner board.
         const defaultMission =
@@ -296,6 +299,10 @@ export class HubScene {
 
     setStartGameCallback(fn) {
         this._onStartGame = typeof fn === 'function' ? fn : null;
+    }
+
+    setResetGameCallback(fn) {
+        this._onResetGame = typeof fn === 'function' ? fn : null;
     }
 
     getStartState() {
@@ -452,8 +459,26 @@ export class HubScene {
         gear.cursor = 'pointer';
         container.addChild(gear);
 
+        // Reset Game: wipes the saved profile and reloads so the player can
+        // always start a fresh run, even if dispatch state wedged itself.
+        const reset = new Text({
+            text: '\u21BA RESET',
+            style: new TextStyle({
+                fontFamily: '"Courier New", monospace',
+                fontSize: 11,
+                fontWeight: '700',
+                letterSpacing: 1,
+                fill: colors.status.warning,
+            }),
+        });
+        reset.anchor.set(0.5);
+        reset.eventMode = 'static';
+        reset.cursor = 'pointer';
+        reset.on('pointertap', () => this._onResetGame?.());
+        container.addChild(reset);
+
         return {
-            container, frame, star, brand, dispatcherBadge, chips, gear,
+            container, frame, star, brand, dispatcherBadge, chips, gear, reset,
         };
     }
 
@@ -668,7 +693,7 @@ export class HubScene {
         frame.addChild(modeManual.container);
 
         const hint = new Text({
-            text: 'Manual gameplay currently available for RESOURCE missions only.',
+            text: 'MANUAL launches the mission minigame now. IDLE runs it in the background.',
             style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted }),
         });
         hint.position.set(232, 40);
@@ -1424,6 +1449,26 @@ export class HubScene {
         this._refreshFleetCrewPanel();
     }
 
+    // Called by main.js when a manually-dispatched mission run ends (the
+    // player hit CONTINUE on the results screen). Frees the ship + crew
+    // that were locked by _dispatchSelectedMission and drops the local
+    // job row so they are immediately available for the next dispatch.
+    // Without this, a manual run permanently consumed its assets.
+    completeManualMission(missionId) {
+        if (!missionId) return;
+        const idx = this._idleMissions.findIndex(
+            (j) => j.missionId === missionId && j.dispatchMode === 'manual' && !j.claimed,
+        );
+        if (idx === -1) return;
+        const job = this._idleMissions[idx];
+        this._idleMissions.splice(idx, 1);
+        if (job.shipId) this.meta?.setShipStatus(job.shipId, 'Standby');
+        if (job.crewId) this.meta?.setCrewStatus(job.crewId, 'Available');
+        this._refreshActiveIdleMissions();
+        this._refreshMissionPlanner();
+        this._refreshFleetCrewPanel();
+    }
+
     _resolveMissionForDispatch(mission, ship, crew) {
         const missionType = String(mission.type || '').toLowerCase();
         const shipTypeMatch = String(ship.className || '').toLowerCase().includes(missionType);
@@ -1828,15 +1873,16 @@ export class HubScene {
         // Dispatcher badge sits just under the brand, left-aligned.
         topBar.dispatcherBadge.position.set(starX + 22, h / 2 + topBar.brand.height / 2 - 2);
 
-        // Gear sits at the far right edge.
+        // Gear sits at the far right edge; the reset control sits left of it.
         topBar.gear.position.set(w - 24, h / 2);
+        topBar.reset.position.set(w - 78, h / 2);
 
-        // Resource chips flex between the dispatcher badge and the gear.
+        // Resource chips flex between the dispatcher badge and the controls.
         const chipCount = topBar.chips.length;
         const chipGap = 14;
         const chipW = 88;
         const stripW = chipCount * chipW + (chipCount - 1) * chipGap;
-        const stripRight = w - 52;
+        const stripRight = w - 116;
         const stripLeft = stripRight - stripW;
         topBar.chips.forEach((chip, i) => {
             const cx = stripLeft + i * (chipW + chipGap);

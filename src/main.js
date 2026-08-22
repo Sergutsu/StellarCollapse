@@ -143,6 +143,9 @@ async function boot() {
         view.showResultsScreen(summary, {
             onContinue: () => {
                 meta.applyMissionReward(envelope);
+                // Free the ship + crew this manual run consumed so the
+                // next DISPATCH is available immediately.
+                if (run.mission) view.completeManualMission(run.mission.id);
                 view.hideResultsScreen();
                 view.showStartScreen();
                 currentRun = null;
@@ -193,6 +196,8 @@ async function boot() {
             view.showResultsScreen(summary, {
                 onContinue: () => {
                     meta.applyMissionReward(envelope);
+                    // Free the ship + crew this manual defense run consumed.
+                    if (mission) view.completeManualMission(mission.id);
                     view.hideResultsScreen();
                     view.showStartScreen();
                     defenseState = null;
@@ -226,6 +231,12 @@ async function boot() {
         }
         defenseRaf = requestAnimationFrame(defenseLoop);
     }
+
+    // Reset Game: wipe the persisted profile and reload for a fresh run.
+    view.onResetGame(() => {
+        persistence.clear();
+        window.location.reload();
+    });
 
     view.onStartGame(({ mode, complexity, fieldSizeId, mission }) => {
         // Route Combat / defense missions to the defense game mode.
