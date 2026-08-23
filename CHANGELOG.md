@@ -8,6 +8,17 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Missions could brick themselves.** A manually-dispatched run permanently consumed its ship + crew ("On Mission" forever); after a reload they came back only as slow "recovery placeholder" jobs, eventually leaving zero free assets so DISPATCH stayed greyed out. Manual runs now free their ship + crew the moment you press CONTINUE on the results screen (`completeManualMission`), so the next DISPATCH is always available.
+
+### Changed
+
+- **Miner is reachable by default.** Dispatch mode now defaults to MANUAL (IDLE is opt-in), so pressing DISPATCH on a Mining mission instantly launches its minigame — the default-selected mission is `blocks-classic` "Core Drilling: Ironspan Flats", i.e. the Miner board. Stale planner hint text replaced.
+- **RESET GAME button** in the hub top bar (left of the gear). Wipes the saved profile and reloads the page so a fresh run/mission board is one click away, even if save state wedged itself.
+
+- **Blocks minigame reimagined as "Miner"** — no longer Tetris-like. Mineral formations now fall inward **from all four edges toward the board center** (per-piece entry side, seeded RNG). Soft/hard drop and gravity follow each piece's fall axis; arrows stay screen-relative. Line clears are replaced by the **center-core collapse**: a fully-filled square of ≥6×6 covering the board's center cell collapses, scores `cells × 20 × level × sizeMultiplier`, counts once toward level-up, and leaves holes behind (no gravity after collapse; overlapping squares chain on the same lock). Miner plays on dedicated square fields (13×13 → 23×23 per complexity/size) sized to fit the board slot horizontally. Visuals: faceted crystal cells (emoji icons dropped for normal minerals), pulsing 6×6 core reticle, entry-edge direction chevrons, `CORE` HUD counter with "cores" level progress, miner-flavored mission tips, and mineral formation names per shape (`MINERAL_NAMES` in shapes.js). Internal mode id stays `'blocks'` and tier ids stay `blocks-*` so saves/leaderboards keep working; tier labels are now "Miner / …". Direction-aware collision + locking, lateral wall-kicks for horizontal fallers, and `core-breached` game-over added to GameState; RunLedger/Audio keep working via the legacy `lines-cleared` event alongside the new `collapse-cleared`. 9 new unit tests (176 total).
+
 ### Added
 
 - **P4 complete — persistent idle dispatch loop.** Dispatched idle missions now survive full reloads and offline time. New pure `src/idle-clock.js` (computeJobState, partial credits, partition) + MetaState `activeMissions` / `addActiveMission` / `abortActiveMission` / `claimActiveMission` (with automatic asset status flips). Hub left column, planner, and CLAIM/RETURN flows are now backed by persisted state; rewards (credits + ores) granted on claim. 2 new test files + 22+ new assertions. Player-visible: send a ship, close the tab for minutes, reopen — the mission is READY with full payout.

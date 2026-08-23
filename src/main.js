@@ -20,10 +20,10 @@ import {
 
 const el = (id) => document.getElementById(id);
 
-// Default selections the first time the UI opens. Mode/complexity
-// default to tier 1 (Stellar/Classic) which is the mission the player
-// starts highlighted on the board.
-const DEFAULT_MODE = GAME_MODES.STELLAR;
+// Default selections the first time the UI opens. The Miner minigame is
+// the sandbox default; Stellar/Classic remains the first mission card on
+// the board for the match-4 game.
+const DEFAULT_MODE = GAME_MODES.BLOCKS;
 const DEFAULT_COMPLEXITY = PIECE_COMPLEXITY.CLASSIC;
 const DEFAULT_SIZE_ID = DEFAULT_FIELD_SIZE_ID;
 
@@ -99,12 +99,12 @@ async function boot() {
             'Fill below, not above -- a tall stack kills your spawn zone.',
         ],
         blocks: [
-            'Only full horizontal lines score. Colors do not matter.',
-            'Flat stacks beat fancy ones -- leave one column for line clears.',
-            'Use soft-drop to thread pieces into tight gaps.',
-            'Four-line clears still exist -- bank a tall well for the bonus.',
-            'Hard drop when you\'re confident; you can\'t undo it.',
-            'The field grows taller on Mutated and Collapsed -- pace yourself.',
+            'Minerals fall in from all four edges -- toward the core.',
+            'Fill a solid 6x6 square around the center to collapse it.',
+            'Bigger cores collapse for more -- build 7x7 or 8x8 when you can.',
+            'Arrow keys move relative to the screen; soft drop follows the fall.',
+            'Collapses leave holes behind -- no gravity here, plan around them.',
+            'Never seal an edge shut: a blocked spawn ends the run.',
         ],
     };
     function pickTip(mode, level) {
@@ -143,6 +143,9 @@ async function boot() {
         view.showResultsScreen(summary, {
             onContinue: () => {
                 meta.applyMissionReward(envelope);
+                // Free the ship + crew this manual run consumed so the
+                // next DISPATCH is available immediately.
+                if (run.mission) view.completeManualMission(run.mission.id);
                 view.hideResultsScreen();
                 view.showStartScreen();
                 currentRun = null;
@@ -193,6 +196,8 @@ async function boot() {
             view.showResultsScreen(summary, {
                 onContinue: () => {
                     meta.applyMissionReward(envelope);
+                    // Free the ship + crew this manual defense run consumed.
+                    if (mission) view.completeManualMission(mission.id);
                     view.hideResultsScreen();
                     view.showStartScreen();
                     defenseState = null;
@@ -226,6 +231,12 @@ async function boot() {
         }
         defenseRaf = requestAnimationFrame(defenseLoop);
     }
+
+    // Reset Game: wipe the persisted profile and reload for a fresh run.
+    view.onResetGame(() => {
+        persistence.clear();
+        window.location.reload();
+    });
 
     view.onStartGame(({ mode, complexity, fieldSizeId, mission }) => {
         // Route Combat / defense missions to the defense game mode.

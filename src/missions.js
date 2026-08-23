@@ -154,23 +154,23 @@ const NARRATIVE_BY_TIER_ID = {
         etaLabel: '20h',
     },
     'blocks-classic': {
-        narrativeName: 'Trade Route Defense: Outer Rim',
-        type: 'Combat',
-        sector: 'Outer Rim Lanes',
+        narrativeName: 'Core Drilling: Ironspan Flats',
+        type: 'Mining',
+        sector: 'Ironspan Flats',
         risk: 4,
         etaLabel: '18h',
     },
     'blocks-mutated': {
         narrativeName: 'Deep Core Survey: Seismic Rift',
-        type: 'Exploration',
+        type: 'Mining',
         sector: 'Seismic Rift',
         risk: 5,
         etaLabel: '22h',
     },
     'blocks-collapsed': {
-        narrativeName: 'Core Breach: Terminus Protocol',
-        type: 'Combat',
-        sector: 'Terminus Core',
+        narrativeName: 'Collapse Protocol: Terminus Deep',
+        type: 'Mining',
+        sector: 'Terminus Deep',
         risk: 5,
         etaLabel: '24h 2m',
     },
@@ -203,9 +203,9 @@ const TIER_BRIEF_BY_ID = {
     'auto-match-mutated':   'Mixed ore surge. Watch the ceiling.',
     'stellar-collapsed':    'Zero-g clears -- ore floats until a sweep.',
     'auto-match-collapsed': 'Auto-clears in zero-g. High variance.',
-    'blocks-classic':       'Block-stack only. No colour match credit.',
-    'blocks-mutated':       'Jagged shape pool. Stack or scrap.',
-    'blocks-collapsed':     'Critical hauler. Everything fights you.',
+    'blocks-classic':       'Minerals fall from all sides -- mine the core.',
+    'blocks-mutated':       'Jagged formations. Build the 6x6 core.',
+    'blocks-collapsed':     'Critical haul. Bombs ride in with the ore.',
 };
 
 // Build a mission object from a HIGHSCORE_TIERS entry. The returned

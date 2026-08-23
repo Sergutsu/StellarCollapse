@@ -1055,3 +1055,192 @@ function sameMatrix(a, b) {
     }
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// Miner mode (GAME_MODES.BLOCKS): 4-direction inward fall + center-core
+// collapse. Square fields are pinned explicitly so geometry is exact.
+// ---------------------------------------------------------------------------
+
+const M = 13; // miner test board is 13x13; center cell = (6,6)
+
+function makeMinerState(seed = 1, opts = {}) {
+    return makeState(seed, {
+        mode: GAME_MODES.BLOCKS,
+        cols: M,
+        rows: M,
+        ...opts,
+    });
+}
+
+// A hand-rolled 2x2 "Pyrite Cube" placed exactly where the test wants it.
+// `entered` mirrors GameState's entry-edge allowance: in-bounds placements
+// are fully entered; pieces parked outside their entry edge are not.
+function injectPiece(state, x, y, dx, dy, entered = true) {
+    state.currentPiece = {
+        x,
+        y,
+        dir: { dx, dy },
+        type: 3,
+        mineral: 'Pyrite Cube',
+        shape: [[1, 1], [1, 1]],
+        colorMatrix: [['red', 'red'], ['red', 'red']],
+        entered,
+    };
+}
+
+test('miner mode resolves square field sizes from the dedicated table', () => {
+    const state = new GameState({
+        rng: mulberry32(7),
+        schedule: (fn) => fn(),
+        specialArmMs: 0,
+        mode: GAME_MODES.BLOCKS,
+        complexity: PIECE_COMPLEXITY.CLASSIC,
+    });
+    assert.equal(state.cols, state.rows, 'miner fields must be square');
+    assert.equal(state.cols, 15, 'classic/medium miner field is 15x15');
+});
+
+test('miner pieces spawn from all four edges (dirs seen across seeds)', () => {
+    const seen = new Set();
+    for (let seed = 1; seed <= 60; seed++) {
+        const s = makeMinerState(seed);
+        s.start();
+        const p = s.currentPiece;
+        seen.add(`${p.dir.dx},${p.dir.dy}`);
+        // Spawn sits flush INSIDE its entry edge (fully visible).
+        const w = p.shape[0].length;
+        const h = p.shape.length;
+        if (p.dir.dy > 0) assert.equal(p.y, 0, 'top entry spawns flush against row 0');
+        else if (p.dir.dy < 0) assert.equal(p.y, s.rows - h, 'bottom entry spawns flush against last row');
+        else if (p.dir.dx > 0) assert.equal(p.x, 0, 'left entry spawns flush against col 0');
+        else assert.equal(p.x, s.cols - w, 'right entry spawns flush against last col');
+    }
+    for (const key of ['0,1', '0,-1', '1,0', '-1,0']) {
+        assert.ok(seen.has(key), `entry direction ${key} never spawned across 60 seeds`);
+    }
+});
+
+test('stellar mode still spawns top-center (no miner regression)', () => {
+    const s = makeState(11, { mode: GAME_MODES.STELLAR });
+    s.start();
+    assert.deepEqual(s.currentPiece.dir, { dx: 0, dy: 1 });
+    assert.equal(s.currentPiece.y, 0);
+});
+
+test('soft drop and gravity follow the fall axis (left-entry piece)', () => {
+    const s = makeMinerState(13);
+    s.start();
+    // Enters from the right edge, falling leftward.
+    injectPiece(s, M - 2, 5, -1, 0);
+    const r = s.softDrop();
+    assert.equal(r.moved, true);
+    assert.equal(s.currentPiece.x, M - 3, 'soft drop advanced one cell left');
+    s.hardDrop();
+    // Locks flush against the left wall: cols 0-1 filled at rows 5-6.
+    for (let y = 5; y <= 6; y++) {
+        for (let x = 0; x <= 1; x++) {
+            assert.equal(s.board[y][x], 'red', `cell (${x},${y}) locked after leftward hard drop`);
+        }
+    }
+    assert.ok(!s.gameOver);
+});
+
+test('upward-falling piece locks against the top wall', () => {
+    const s = makeMinerState(17);
+    s.start();
+    injectPiece(s, 5, 2, 0, -1);
+    s.hardDrop();
+    for (let y = 0; y <= 1; y++) {
+        for (let x = 5; x <= 6; x++) {
+            assert.equal(s.board[y][x], 'red');
+        }
+    }
+});
+
+test('a solid 6x6 square containing the center collapses on lock', () => {
+    const s = makeMinerState(19);
+    s.start();
+    const events = [];
+    s.on('collapse-cleared', (p) => events.push(p));
+    // Fill the centered 6x6 window (cells 4..9 in both axes covers center 6).
+    for (let y = 4; y <= 9; y++) {
+        for (let x = 4; x <= 9; x++) s.board[y][x] = 'blue';
+    }
+    injectPiece(s, 2, -2, 0, 1, false);
+    s.hardDrop(); // locks harmlessly near the top, then collapse runs
+    assert.equal(events.length, 1, 'exactly one collapse fired');
+    assert.equal(events[0].cells.length, 36);
+    assert.equal(events[0].size, 6);
+    assert.equal(events[0].points, Math.round(36 * 20 * s.level * s.sizeMultiplier));
+    // All collapsed cells mined out.
+    for (let y = 4; y <= 9; y++) {
+        for (let x = 4; x <= 9; x++) assert.equal(s.board[y][x], null);
+    }
+    assert.equal(s.lines, 1, 'collapse counts once toward level progression');
+    assert.ok(s.score > 0);
+    assert.ok(!s.gameOver, 'run continues after a collapse');
+});
+
+test('a solid square that misses the center does NOT collapse', () => {
+    const s = makeMinerState(23);
+    s.start();
+    const events = [];
+    s.on('collapse-cleared', (p) => events.push(p));
+    // 6x6 block hugging the top-left corner: center cell (6,6) not covered.
+    for (let y = 0; y <= 5; y++) {
+        for (let x = 0; x <= 5; x++) s.board[y][x] = 'green';
+    }
+    injectPiece(s, 8, -2, 0, 1, false);
+    s.hardDrop();
+    assert.equal(events.length, 0, 'off-center square must not collapse');
+    assert.equal(s.score, 0);
+    for (let y = 0; y <= 5; y++) {
+        for (let x = 0; x <= 5; x++) assert.equal(s.board[y][x], 'green', 'minerals stay put');
+    }
+});
+
+test('larger core squares collapse whole (7x7 clears 49 cells)', () => {
+    const s = makeMinerState(29);
+    s.start();
+    const events = [];
+    s.on('collapse-cleared', (p) => events.push(p));
+    // 7x7 from (3,3) to (9,9): contains center (6,6).
+    for (let y = 3; y <= 9; y++) {
+        for (let x = 3; x <= 9; x++) s.board[y][x] = 'yellow';
+    }
+    injectPiece(s, 10, -2, 0, 1, false);
+    s.hardDrop();
+    assert.equal(events.length, 1);
+    assert.equal(events[0].size, 7);
+    assert.equal(events[0].cells.length, 49);
+});
+
+test('collapse does NOT apply gravity -- survivors stay suspended', () => {
+    const s = makeMinerState(31);
+    s.start();
+    for (let y = 4; y <= 9; y++) {
+        for (let x = 4; x <= 9; x++) s.board[y][x] = 'red';
+    }
+    // A lone cell floating far from the core zone.
+    s.board[1][1] = 'blue';
+    injectPiece(s, 2, -2, 0, 1, false);
+    s.hardDrop();
+    assert.equal(s.board[1][1], 'blue', 'floating survivor did not fall');
+});
+
+test('fully-entered pieces cannot retreat back out of their entry edge', () => {
+    const s = makeMinerState(37);
+    s.start();
+    // Downward-falling piece pushed laterally against the left wall.
+    injectPiece(s, 0, 5, 0, 1);
+    const r = s.move(-1, 0);
+    assert.equal(r.moved, false, 'entry edge is a wall after full entry');
+    assert.equal(r.locked, false, 'lateral push into the wall must not lock');
+    assert.equal(s.currentPiece.x, 0);
+    assert.ok(!s.gameOver);
+
+    // A spawned miner piece is already fully inside its entry edge.
+    const t = makeMinerState(39);
+    t.start();
+    assert.equal(t.currentPiece.entered, true);
+});

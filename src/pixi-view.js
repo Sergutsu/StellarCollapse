@@ -202,6 +202,16 @@ export class PixiView {
         this._hub?.setStartGameCallback(callback);
     }
 
+    onResetGame(callback) {
+        this._hub?.setResetGameCallback(callback);
+    }
+
+    // Forwarded so main.js can free a manual run's ship/crew when the
+    // results screen CONTINUE is pressed.
+    completeManualMission(missionId) {
+        this._hub?.completeManualMission?.(missionId);
+    }
+
     // Legacy accessor: main.js sets `view._levelInfoFor = ...` to
     // customize the LEVEL panel subtitle. Forward the setter into
     // GameScene so the old call-site keeps working.

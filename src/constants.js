@@ -80,13 +80,30 @@ export const SNAKE_MIN_STEP_MS = 50;
 // Gameplay mode: how color matches are triggered.
 //  - STELLAR   : player must click a 4+ run to clear (the original flow).
 //  - AUTO_MATCH: every 4+ run is auto-cleared when a piece locks.
-//  - BLOCKS    : click-to-match is disabled entirely; only full horizontal
-//                line clears score. Pure block-stacking gameplay.
+//  - BLOCKS    : the "Miner" minigame. Click-to-match is disabled; mineral
+//                pieces fall inward from all four edges and a solid >=6x6
+//                core at the board center collapses to score. The internal
+//                id stays 'blocks' so saved profiles + tier ids keep working.
 export const GAME_MODES = Object.freeze({
     STELLAR: 'stellar',
     AUTO_MATCH: 'auto-match',
     BLOCKS: 'blocks',
 });
+
+// Miner mode (GAME_MODES.BLOCKS): side length of the smallest solid
+// mineral square -- containing the board's center cell -- that triggers a
+// core collapse. 6x6 is big enough to demand deliberate building from all
+// four directions while staying reachable on the small field.
+export const MINER_COLLAPSE_SIZE = 6;
+
+// Miner mode: score per collapsed cell, multiplied by level and the field
+// size multiplier (same shape as MATCH_POINTS scoring).
+export const MINER_CELL_POINTS = 20;
+
+// Miner mode: lateral spawn jitter. A piece entering from an edge is
+// centered on that edge plus/minus this many cells (rolled with the
+// injected RNG) so entry columns aren't always dead-center.
+export const MINER_SPAWN_JITTER = 2;
 
 // Piece complexity: which shape pool the RNG draws from, and whether each
 // cell of a piece gets its own random color.
@@ -123,8 +140,8 @@ export const SPECIAL_ARM_MS = 5000;
 //  - Auto-Match removes match agency (good and bad -- cleared runs on
 //    lock but also surprise clears in the spawn zone), so it slots
 //    above each Stellar counterpart of the same complexity.
-//  - Blocks disables click-matching entirely; only line clears score
-//    and only line clears level you up. Hardest mode end-to-end.
+//  - Blocks (Miner) disables click-matching entirely; only core collapses
+//    score and only collapses level you up. Hardest mode end-to-end.
 //  - Within each mode we use Classic < Mutated < Collapsed because
 //    Collapsed freezes gravity on matches/bombs, which is the harshest
 //    single modifier in the game.
@@ -181,7 +198,7 @@ export const HIGHSCORE_TIERS = Object.freeze([
         id: 'blocks-classic',
         mode: GAME_MODES.BLOCKS,
         complexity: PIECE_COMPLEXITY.CLASSIC,
-        label: 'Blocks / Classic',
+        label: 'Miner / Classic',
         short: 'B·C',
         color: '#f97316', // orange-500
     },
@@ -189,7 +206,7 @@ export const HIGHSCORE_TIERS = Object.freeze([
         id: 'blocks-mutated',
         mode: GAME_MODES.BLOCKS,
         complexity: PIECE_COMPLEXITY.MUTATED,
-        label: 'Blocks / Mutated',
+        label: 'Miner / Mutated',
         short: 'B·M',
         color: '#f87171', // red-400
     },
@@ -197,7 +214,7 @@ export const HIGHSCORE_TIERS = Object.freeze([
         id: 'blocks-collapsed',
         mode: GAME_MODES.BLOCKS,
         complexity: PIECE_COMPLEXITY.COLLAPSED,
-        label: 'Blocks / Collapsed',
+        label: 'Miner / Collapsed',
         short: 'B·X',
         color: '#dc2626', // red-600
     },
@@ -253,7 +270,29 @@ export const LOW_FX_CELL_THRESHOLD = 240;
 // starting point.
 export const DEFAULT_FIELD_SIZE_ID = 'medium';
 
+// Miner mode (GAME_MODES.BLOCKS) field sizes: square-ish boards so the
+// center core zone is equidistant from all four entry edges. Odd dims give
+// a single exact center cell. Each entry: { id, cols, rows, label }.
+export const MINER_FIELD_SIZES = Object.freeze({
+    [PIECE_COMPLEXITY.CLASSIC]: Object.freeze([
+        { id: 'small',  cols: 13, rows: 13, label: 'Small  13x13' },
+        { id: 'medium', cols: 15, rows: 15, label: 'Medium 15x15' },
+        { id: 'large',  cols: 19, rows: 19, label: 'Large  19x19' },
+    ]),
+    [PIECE_COMPLEXITY.MUTATED]: Object.freeze([
+        { id: 'small',  cols: 14, rows: 14, label: 'Small  14x14' },
+        { id: 'medium', cols: 17, rows: 17, label: 'Medium 17x17' },
+        { id: 'large',  cols: 21, rows: 21, label: 'Large  21x21' },
+    ]),
+    [PIECE_COMPLEXITY.COLLAPSED]: Object.freeze([
+        { id: 'small',  cols: 15, rows: 15, label: 'Small  15x15' },
+        { id: 'medium', cols: 19, rows: 19, label: 'Medium 19x19' },
+        { id: 'large',  cols: 23, rows: 23, label: 'Large  23x23' },
+    ]),
+});
+
 // Score multiplier for a given field-size id. Unknown ids fall back to
+
 // the medium multiplier so a bad id never zeros out a run.
 export function getSizeMultiplier(sizeId) {
     const m = FIELD_SIZE_MULTIPLIERS[sizeId];
@@ -264,6 +303,21 @@ export function getSizeMultiplier(sizeId) {
 // the medium entry if anything is out of range.
 export function resolveFieldSize(complexity, sizeId) {
     const list = FIELD_SIZES[complexity] || FIELD_SIZES[PIECE_COMPLEXITY.CLASSIC];
+    const pick = list.find((s) => s.id === sizeId) || list.find((s) => s.id === DEFAULT_FIELD_SIZE_ID) || list[0];
+    return { cols: pick.cols, rows: pick.rows, id: pick.id, label: pick.label };
+}
+
+// Mode-aware wrapper. The Miner mode (BLOCKS) uses its own square field
+// table; every other mode shares the classic portrait table.
+export function resolveFieldSizeForMode(mode, complexity, sizeId) {
+    if (mode === GAME_MODES.BLOCKS) {
+        return resolveFieldSizeFrom(MINER_FIELD_SIZES, complexity, sizeId);
+    }
+    return resolveFieldSize(complexity, sizeId);
+}
+
+function resolveFieldSizeFrom(table, complexity, sizeId) {
+    const list = table[complexity] || table[PIECE_COMPLEXITY.CLASSIC];
     const pick = list.find((s) => s.id === sizeId) || list.find((s) => s.id === DEFAULT_FIELD_SIZE_ID) || list[0];
     return { cols: pick.cols, rows: pick.rows, id: pick.id, label: pick.label };
 }
