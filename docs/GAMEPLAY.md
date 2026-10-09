@@ -303,9 +303,48 @@ not a standalone storage module.
 
 ---
 
+## Meta systems (P8)
+
+Everything that happens **between** runs — reputation, the daily board, the
+market + refinery, the sector network, crew progression, hull wear, warp cells
+and idle/offline dispatch — is specified in
+[`META-SYSTEMS.md`](META-SYSTEMS.md), with the rationale in
+[ADR-0011](adr/0011-meta-economy-single-source.md). The short version, for
+anyone tuning a run-side number:
+
+- **One reward path.** A finished run produces a `summary` (`RunLedger` or
+  `DefenseLedger`); `settleMission()` turns summary + mission + ship + crew +
+  effects into one settlement; MetaState applies it in a single `change` event.
+  Nothing else grants credits, ore, REP, XP or warp.
+- **Run-side numbers that feed it:** `mission.baseCredits` (100 × tierIndex),
+  `mission.risk` (T1–T2 = 1 … T8–T9 = 5), `gameConfig.complexity` (→
+  environment level 1/2/3), and the run `score` (`credits += floor(score / 10)`).
+  Changing any of those moves the meta economy, so re-check the settlement tests.
+- **Combat runs bank ore.** Destroyed formations pay 3 ore each by invader type
+  (squid → Pyrite, crab → Cryonite, octopus → Verdanite), power-ups pay 2
+  Helium-3, and the boss pays 4 Volatiles + 3 Biomass.
+- **The market has a chart, not a table.** MARKET's center panel plots
+  `economy.priceHistory()` — 24 hourly points of the selected good, derived from
+  the same drift hash as the live quote and pinned to it at the right edge, so
+  the line can never disagree with the BUY/SELL buttons. Nothing about the series
+  is saved; it is recomputed from `nowMs`. The goods list itself moved to the hub's
+  left panel and doubles as the watchlist (tap a row to chart it).
+- **The STAR MAP is a system, not a starfield.** Planets render as shaded spheres
+  dressed by type (Ocean / Terrestrial / Desert / Gas Giant / Ice Giant), with a
+  night side facing the star, orbit rings, moons, belts, stations and hazards —
+  and they move at a quarter of the old speed so the chart can be read while it
+  animates. The selected body's survey data lives in the left panel next to a
+  `SYSTEM INDEX` of everything in the system.
+- **Idle contracts** pay the credit figure quoted at dispatch time
+  (`resolveDispatch()`), `risk × 2` ore stacks, 60 % of the rep, half the crew
+  XP and 60 % of the hull wear. RETURNing early pays the elapsed fraction at
+  15 % rep with no ore or XP.
+
+---
+
 ## Persistence (MetaState profile)
 
-Shipped in P3. The hub's resource strip, fleet roster, and crew roster
+Shipped in P3; **save v2 in P8**. The hub's resource strip, fleet roster, and crew roster
 are now backed by a persistent player profile saved to
 `localStorage` under `stellarVentureSaveV1`. See
 `adr/0008-meta-state-persistence.md`.
@@ -314,22 +353,29 @@ are now backed by a persistent player profile saved to
 
 | Field | Type | Starter | Notes |
 |---|---|---|---|
-| `version` | int | `1` | Schema version. Mismatches are refused on load. |
+| `version` | int | `2` | Schema version. `META_SAVE_VERSIONS_SUPPORTED = [1, 2]`; a v1 blob is lifted in place by `migrateSave()` and stamped `migratedFrom: 1`. Unknown / future / malformed versions fall back to the starter profile. |
 | `credits` | int | `4800` | Soft currency. Awarded by mission rewards (P1+). |
 | `hubResources.minerals` | int | `1200` | Aggregate ore count. Used for building ships and trading. |
 | `hubResources.warp` | int | `3` | Warp-cell charges. |
 | `ores.{red, blue, green, yellow, bomb, snake}` | int | `0` each | Per-tile-colour ore counts, matching the actual gameplay palette (four normal colours + the two hazard tiles). Granular; used for crafting / upgrades (P5+). |
 | `fleet[]` | `{id, name, className, hull (0–100), status}` | 3 starter ships | Ids are stable; only `hull` and `status` persist — cosmetic fields fall back to the starter roster. |
-| `crew[]` | `{id, name, role, level, status}` | 3 starter crew | Same merge rule as fleet: ids are stable, only `level`/`status` persist. |
-| `reputationTier` | int | `1` | Gates hub tabs (STAR MAP / BUILD / RESEARCH / CREW / MARKET). |
-| `completedMissionIds` | `string[]` | `[]` | Deduped on `applyMissionReward(... missionId)`. |
+| `crew[]` | `{id, name, role, level, xp, status}` | 3 starter crew | Same merge rule as fleet: ids are stable, only `level`/`xp`/`status` persist. Migration backfills `xp = xpForLevel(level)` so a legacy member is never demoted. |
+| `reputation` | int | `0` | **P8.** Banked REP. `reputationTier` is *derived* from it and is never stored. |
+| `discoveredSectors` | `string[]` | `[]` | **P8.** Charted sector ids; drive the permanent sector / station bonuses. |
+| `board` | `{dayKey, rerollsToday}` | today / 0 | **P8.** Daily board state. A stale `dayKey` resets the counter (free refresh at the UTC boundary). |
+| `activeMissions[]` | dispatch jobs | `[]` | Absolute `startedAt` / `endsAt`, so an offline stretch needs no simulation. |
+| `research` | `{completed[], activeResearches[], maxConcurrent}` | `{[], [], 2}` | Completed ids feed `resolveEffects()`. |
+| `stats` | lifetime counters | all `0` | **P8.** `missionsCompleted, missionsFailed, combatWins, idleClaims, idleAborts, creditsEarned, oresMined, mineralsRefined, repEarned, sectorsCharted, warpSpent, warpFound, hullRepairs, crewLevelsGained, bestScore`. |
+| `lastTickAt` | int (ms) | boot | Heartbeat for the offline report; stamped on boot, every 30 s and on `pagehide` / hidden. |
+| `completedMissionIds` | `string[]` | `[]` | Deduped on settlement / `applyMissionReward`. |
 
 ### Storage contract
 
 - Single key: `stellarVentureSaveV1`.
-- Saves fire on every `MetaState.emit('change')`. In P3 only the
-  constructor-time merge + manual test hooks produce mutations; P1
-  wires the results-screen into `applyMissionReward`.
+- Saves fire on every `MetaState` `change` event, and every player action
+  emits **exactly one** — composite actions (`settleActiveMission`,
+  `chartSector`) mutate through non-emitting `_raw*` helpers so a claim can
+  never persist half-applied or double-save.
 - Missing / unparseable / wrong-version blobs all fall back to the
   starter profile. No "nuke your save" instructions — the next save
   overwrites the bad blob.
@@ -346,7 +392,18 @@ are now backed by a persistent player profile saved to
 | `applyMissionReward({credits, ores, missionId})` | `mission-reward` | One event for a full reward envelope. `completedMissionIds` dedupes by id. |
 | `setShipHull(id, n)` / `setShipStatus(id, s)` | `ship-hull` / `ship-status` | Hull clamps to 0–100. |
 | `setCrewLevel(id, n)` / `setCrewStatus(id, s)` | `crew-level` / `crew-status` | Level clamps ≥ 1. |
-| `setReputationTier(n)` | `rep` | Clamps ≥ 1. |
+| `setReputationTier(n)` | `rep` | Clamps ≥ 1. Test/migration hook only — the tier is derived from banked REP. |
+| `applySettlement(s)` | `settlement` | **P8.** Banks one settlement: credits, ores, REP, crew XP + levels, hull wear, warp, `completedMissionIds`, lifetime stats. |
+| `settleActiveMission(jobId, s)` | `settlement` | **P8.** Settlement **and** job retirement (ship + crew released) in one event. |
+| `applyTrade({goodId, side, amount, credits})` | `trade` | **P8.** Applies a `tradeQuote()`; refuses (returns `false`) on overspend / oversell. |
+| `applyRefine(plan)` / `refineAllOres(effects)` | `refine` | **P8.** Burns ore, banks minerals. |
+| `chartSector(id)` | `sector-discovered` | **P8.** `plotCourse()` + warp cost + grant + REP, atomically. Returns the plan (with `reason` on refusal). |
+| `spendWarp(n)` / `addWarp(n)` | `hub-resource` | **P8.** Warp is found, never bought; `addWarp` clamps to `warpCapacity()`. |
+| `addReputation(n)` / `addCrewXp(id, n)` | `rep` / `crew-xp` | **P8.** Return the result (`{rep, tier, promoted}` / `{level, xp, levelsGained}`). |
+| `buyBoardReroll(nowMs)` | `board-reroll` | **P8.** Charges the escalating price, persists the day's counter. |
+| `noteHullRepair(points)` | `ship-hull` | **P8.** Lifetime stat for the shipyard sink. |
+| `touch(nowMs)` | — | **P8.** Heartbeat for the offline report; does not emit. |
+| Reads: `getEffects()`, `getRepInfo()`, `getBoardState()`, `crewSlots()`, `warpCapacity()`, `discoveredSectorIds()`, `oreCounts()`, `getStats()`, `activeMissionsSnapshot()` | — | **P8.** The scenes' only view onto the meta layer. |
 
 ---
 
@@ -370,3 +427,20 @@ When you need to tune any of these, update the constant **and** this file in the
 | `HIGHSCORE_TIERS` | constants.js | 9 tiers |
 | Mission base credits | missions.js `baseCreditsFor` | 100 × tierIndex |
 | Per-tier asteroid name pool | missions.js `ASTEROID_NAMES` | 3 per tier |
+| `REP_TIERS` / `REP_GAIN` | reputation.js | 6 ranks (0/400/1200/2800/5600/10000) · base 20 + 10/risk + 4/tier |
+| `REROLL_BASE_COST` / `MAX_REROLLS_PER_DAY` | daily.js | 150 × (n+1) · 6 (+`effects.riskRerolls`) |
+| `MARKET_SPREAD` / `MARKET_DRIFT` / `TRADE_LOTS` | economy.js | 0.28 · 0.22 · [10, 50] |
+| `REFINE_RATIO_COMMON` / `REFINE_RATIO_RARE` | economy.js | 4:1 · 2:1 |
+| `PRICE_HISTORY_POINTS` / `PRICE_INTRADAY_WOBBLE` | economy.js | 24 hourly points · ±0.06 (right edge pinned to the live quote) |
+| `WARP_FIND_RULES` | economy.js | Exploration ≥2 · Salvage ≥3 · Combat ≥1 (idle ≥4) |
+| Sector warp costs / threats / grants | star-map.js `SECTORS` | 13 sectors, warp 1–5 |
+| `xpForLevel` / `MAX_CREW_LEVEL` / `BASE_CREW_SLOTS` | crew.js | `60(n²+2n)` · 20 · 6 |
+| `CREW_XP_GAIN` | crew.js | base 18 + 12/risk + 3/tier · role match ×1.25 |
+| `HIRE_BASE_COST` / `HIRE_COST_GROWTH` / `DISMISS_RETURN` | crew.js | 800 · 1.35 past 5 heads · 0.3 |
+| `SHIP_MATCH_FACTOR` / `SHIP_MISMATCH_FACTOR` | crew.js | 1.12 / 0.94 |
+| `HULL_WEAR` | settlement.js | 2/risk · +6 on a loss · ×0.6 idle · 4 absorbed per shield charge |
+| `DEFENSE_ORE_PER_INVADER` / `DEFENSE_HELIUM_PER_POWERUP` / `DEFENSE_BOSS_HAUL` | run-ledger.js | 3 · 2 · `{bomb 4, snake 3}` |
+| `BASE_WARP_CAPACITY` | meta-state.js | 5 (starter holds 3) |
+| Repair / disassemble | tabs/build-upgrade-tab.js | 3 minerals per hull point · 40% of build cost |
+| `ORBIT_TIME_SCALE` | tabs/star-map-tab.js | 0.25 — celestial motion at quarter speed |
+| `MOON_ZOOM_REVEAL` / `SHIP_ZOOM_REVEAL` | tabs/star-map-tab.js | 1.0 / 0.85 × fit-zoom |

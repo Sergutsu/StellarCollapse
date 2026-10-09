@@ -2,7 +2,7 @@
 
 > Three buckets only: **Now**, **Next**, **Later**. Anything in Now has a branch or PR open. Anything in Later is an idea, not a commitment.
 >
-> Updated at phase boundaries — not every PR. Last bump: P4 complete — persistent idle dispatch loop (real `IdleClock` + MetaState-backed active missions, reload + offline survival, CLAIM/RETURN flow).
+> Updated at phase boundaries — not every PR. Last bump: P9 complete — hub readability pass (tab-owned left panel, a real planetary system on the STAR MAP, MARKET watchlist + price chart, idle-dispatch fix). See [`UI-HUB.md`](UI-HUB.md) §3a and [`META-SYSTEMS.md`](META-SYSTEMS.md) §4.6.
 
 ---
 
@@ -15,9 +15,11 @@
 | P2 | **Hub scaffolding** — viewport-filling 5-zone layout, tab nav, MISSION BOARD modal with narrative mission cards (mapped 1:1 to the 9 tier archetypes), Galactic News ticker; replaces today's transitional mission-select entirely | **Shipped** |
 | P3 | Persistent meta-state (`MetaState`, `Persistence`) + rep-tier gates on narrative mission cards | **Shipped** (mutation hooks wired in P1) |
 | P4 | Active-missions idle tick (`IdleClock`): persistent wall-time dispatches survive reload + offline; left column shows live ETAs + CLAIM/RETURN; assets free on completion/abort; rewards (credits + ores) granted via MetaState | **Shipped** (full persistent idle loop + pure clock + MetaState integration) |
-| P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue + available-upgrade list (moved from the earlier BASE COMMAND right-column concept per [ADR-0007](adr/0007-hub-wireframe-pivot.md)) | **Scaffolding shipped** (tab scene + static diorama + stub build queue; real `BuildQueue` MetaState integration later) |
-| P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | **RESEARCH improved** — multi-slot (2 default), cancel/resume with progress save, left-column active projects view, upgradable via BUILD tab. Real ticking + persistence working.
-| P7 | STAR MAP tab: sector exploration, mission discovery tied to the map | **Scaffolding shipped** (tab scene + sector pins + SYSTEM DATA panel; real warp-cell dispatch later) |
+| P5 | BUILD/UPGRADE tab: station diorama, per-building levels, build queue + available-upgrade list (moved from the earlier BASE COMMAND right-column concept per [ADR-0007](adr/0007-hub-wireframe-pivot.md)) | **Shipped** (P8: berths from the research effect bundle, blueprint specialties, mineral-sink repairs reporting to lifetime stats, yard status line) |
+| P6 | RESEARCH + CREW + MARKET tabs: tech tree, hired operators, ore↔credits trader | **Shipped** (research: multi-slot + cancel/resume + ACTIVE BONUSES card; P8: crew XP/levels/berths/hiring costs, market rewritten around `economy.js` with daily drift + refinery) |
+| P7 | STAR MAP tab: sector exploration, mission discovery tied to the map | **Shipped** (P8: SECTOR NETWORK rail with all 13 sectors, warp-costed PLOT COURSE through `meta.chartSector()`, discovery grants + permanent bonuses) |
+| P8 | **Meta loop completion** — reputation ladder + gates, daily seeded board with paid rerolls, one settlement path for every dispatch (credits, ore, REP, crew XP, hull wear, warp), market + refinery, sector network, crew progression, offline WELCOME BACK flow, save v2 | **Shipped** ([`META-SYSTEMS.md`](META-SYSTEMS.md), [ADR-0011](adr/0011-meta-economy-single-source.md); 177 → 361 tests) |
+| P9 | **Hub readability** — the left column becomes contextual per tab (`usesSidePanel` / `layoutSide`), STAR MAP renders a shaded planetary system at readable speed with its SYSTEM DATA board + SYSTEM INDEX on the left, the shipyard moves left, MARKET becomes watchlist (left) + TradingView-style price chart (center) driven by `economy.priceHistory()`, and idle dispatch is fixed | **Shipped** ([`UI-HUB.md`](UI-HUB.md) §3a/§5a/§5c/§5d; 361 → 390 tests, incl. a hub smoke suite that executes the scene graph) |
 
 Each phase is a handful of small PRs, not one giant PR. The boundary between
 phases is when the player-visible loop actually changes — "you can now open
@@ -59,6 +61,91 @@ reload.
 Out of scope for P1 (kept deferred): idle tick on ACTIVE MISSIONS (P4),
 rep-tier gates on cards (uses the `MetaState` plumbing landing now but the UI
 ships in P2's follow-up), and the station diorama tabs (P5+).
+
+## Shipped (P8 — Meta loop completion)
+
+Goal: make the station the game. Every tab had scaffolding; none of them had a
+reason to exist. P8 gives the meta layer rules, one reward path, and readers for
+every modifier the tech tree hands out.
+
+- [x] **Six pure modules** — `reputation.js`, `daily.js`, `economy.js`,
+      `star-map.js`, `crew.js`, `settlement.js`. Framework-free; `nowMs` /
+      `dayKey` / `rng` are always arguments.
+- [x] **One settlement path.** `settleMission()` prices manual runs, idle claims
+      and early returns alike (credits + itemised breakdown, ores, REP, crew XP,
+      hull wear, warp). `MetaState.applySettlement()` /
+      `settleActiveMission()` apply it in a single `change` event, so one action
+      is one save.
+- [x] **Reputation.** Six ranks, banked REP with a derived tier, T8/T9 gates on
+      cards, a top-bar REP chip, and promotion headlines in the news ticker.
+- [x] **Daily board.** Per-UTC-day seed (stable across reloads, free refresh at
+      the boundary), paid rerolls at 150 × (n+1) with a cap of 6 (+1 from
+      Countermeasures), and a reroll that rebuilds the whole catalog so Combat
+      variants move too.
+- [x] **Economy.** Seven-good market with daily drift and a 28% spread, quoted
+      BUY/SELL lots, and the refinery (4:1 common, 2:1 rare) — the mineral faucet
+      the research + shipyard sinks were missing.
+- [x] **Sector network.** 13 sectors named 1:1 with `mission.sector`, warp-costed
+      jumps, threat gates, discovery grants, and permanent per-sector /
+      station-wide bonuses folded into the effect bundle.
+- [x] **Crew.** XP curve to level 20, role + hull-class affinity (fixing the dead
+      P4 fit modifier), berth cap, escalating hire cost, severance.
+- [x] **Hull wear.** Risk-scaled damage on the hull that actually flew, softened
+      by plating / shields / Driftyard 9, repaired at 3 minerals per point.
+- [x] **Combat rewards.** `DefenseLedger` banks ore from formations, power-ups and
+      the boss, and the report relabels its rows for a defense run.
+- [x] **Offline.** `summarizeOffline()` + WELCOME BACK banner with CLAIM ALL,
+      30 s heartbeat and `pagehide`/`visibilitychange` stamping.
+- [x] **Save v2** with in-place migration; the storage key is unchanged.
+- [x] **Tests** 177 → 361, plus a new static check that every named local import
+      is really exported (view code never runs under `node --test`).
+
+Out of scope for P8: timed build queues, sector-specific contract spawning,
+multiple profiles / cloud saves, and a station-log surface for the lifetime stats
+(they are recorded, not yet displayed).
+
+## Shipped (P9 — Hub readability)
+
+Goal: P8 gave every tab rules; P9 makes them legible. Four player-reported
+problems, all in the hub: the STAR MAP looked like a starfield and moved too fast
+to read, idle dispatch was silently broken, the shipyard was squeezed into the
+center panel's leftovers, and the market was a dense table with no sense of price
+movement.
+
+- [x] **Idle dispatch fixed.** `hub-scene.js` called `buildIdleMissions()` without
+      importing it, so every IDLE dispatch threw a `ReferenceError`. Guarded by a
+      new static check: `tests/module-imports.test.js` now fails if any file calls
+      a sibling module's export it did not import.
+- [x] **Tab-owned left panel.** `_buildSidePanel()` + the
+      `usesSidePanel` / `sidePanelTitle` / `layoutSide({width,height})` contract,
+      asserted by `tests/side-panel-contract.test.js`. MISSIONS and RESEARCH keep
+      their own left-column content; CREW keeps the bay empty.
+- [x] **STAR MAP is a system.** `drawBodyGlyph()` renders shaded planets dressed
+      by `PLANET_TYPE_STYLE` (halo, latitude bands clipped to the disc, continents,
+      ice caps, ring systems, limb light) plus a night side rotated toward the star;
+      moons are cratered discs; classification sub-labels, a selection reticle and a
+      highlighted orbit ring mark the picked body. `ORBIT_TIME_SCALE = 0.25` slows
+      the motion (planets 64 s – 3.4 min per orbit on screen, moons 17 – 36 s) and
+      the reveal thresholds drop with it; `orbitPeriodLabel()` prints the period the
+      player actually watches on the SYSTEM DATA board.
+- [x] **SYSTEM DATA on the left**, with a `SYSTEM INDEX` of every body; the floating
+      panel that chased the selected body around the map is deleted.
+- [x] **Shipyard on the left** (BUILD/UPGRADE): blueprints, berth capacity and the
+      yard status line, laid out to the panel width so blurbs wrap; the center keeps
+      the fleet list + selected-hull card.
+- [x] **MARKET split like a terminal.** Goods list → left panel (watchlist: tap a row
+      to chart it); center → `priceHistory()` chart with grid, area + line series,
+      price/hour axes, last-price tag, UTC-midnight drift markers and a pointer
+      crosshair.
+- [x] **`economy.priceHistory()`** — deterministic, derived (never saved), and pinned
+      to the live quote at its right edge. 5 new tests in `tests/economy.test.js`.
+- [x] **Docs** — [`UI-HUB.md`](UI-HUB.md) §3a + §5a/§5c/§5d rewritten,
+      [`META-SYSTEMS.md`](META-SYSTEMS.md) §4.6, [`ARCHITECTURE.md`](ARCHITECTURE.md)
+      tab-scene sections, [`GAMEPLAY.md`](GAMEPLAY.md) tunables.
+
+Out of scope for P9: scrolling in the left bay (everything still fits by shrinking
+rows), bodies as dispatch targets (PLOT COURSE still acts on sectors), candlestick
+or multi-good overlay charts, and a station-log surface for the lifetime stats.
 
 ## Known issues (carry across phases)
 
@@ -114,27 +201,27 @@ scaffolding shipped), crew, market, station 3D.
 
 Unsorted, not committed to — see phase table for rough ordering:
 
-- **Persistent meta (`stellar-save:v1`).** Versioned localStorage adapter.
-  Replaces `HighScores`. Rep tier survives reloads. Gates some T8/T9 missions.
-- **Active-missions idle tick.** Real `IdleClock` + `MissionRegistry` ticking.
-  The idle dispatch UI is shipped (mission planner with IDLE/MANUAL toggle,
-  ship + crew assignment, idle fleet panel with progress/ABORT/COMPLETE). What
-  remains: background timer that advances idle missions, completion-to-results
-  flow, and MetaState reward integration.
-- **BUILD/UPGRADE MetaState integration.** The tab scene is shipped (station
-  diorama, callout pins, stub build queue + upgrade cards). Remaining: real
-  `BuildQueue` in MetaState, cost deduction, build-timer ticking, level-up
-  effects.
-- **Research MetaState integration.** The tab scene is shipped (tech tree,
-  hex nodes, detail card, INITIATE RESEARCH CTA). Remaining: `MetaState
-  .research` slice, cost deduction, tick-based research clock, upgrade-apply.
-- **STAR MAP warp dispatch.** The tab scene is shipped (sector pins, SYSTEM
-  DATA panel, PLOT COURSE stub). Remaining: warp-cell deduction, mission
-  spawn from sector selection.
-- **Crew.** Hired dispatchers / operators with per-archetype skills.
-- **Market.** Ore ↔ credits trader with daily drift.
-- **Daily reroll.** `buildMissions({ seed })` already supports this; swap the
-  session seed for `dayOfYear`. Optional reroll button costs credits.
+- ~~**Persistent meta (`stellar-save:v1`).**~~ Shipped in P3, bumped to save v2 in
+  P8 (banked REP, crew XP, charted sectors, board state, lifetime stats) with an
+  in-place `migrateSave()`; T8/T9 gates are live.
+- ~~**Active-missions idle tick.**~~ Shipped in P4; P8 added the offline half
+  (`summarizeOffline()` + WELCOME BACK banner with CLAIM ALL) and moved claims
+  onto the settlement path.
+- ~~**BUILD/UPGRADE MetaState integration.**~~ Shipped: costs deduct minerals,
+  berths come from `crew.fleetSlotLimit()` (10 base + `effects.fleetSlots` extras),
+  repairs cost 3 minerals/point and report
+  to `noteHullRepair()`. Remaining idea: timed build queue (today a hull is
+  instant).
+- ~~**Research MetaState integration.**~~ Shipped, and P8 gave the effect bundle
+  real consumers plus an ACTIVE BONUSES card so the tree states what it does.
+- ~~**STAR MAP warp dispatch.**~~ Shipped: PLOT COURSE spends warp through
+  `meta.chartSector()` and banks the discovery grant. Remaining idea: spawn a
+  sector-specific contract from a charted sector instead of only buffing one.
+- ~~**Crew.**~~ Shipped: XP, levels, role + hull affinity, berth cap, escalating
+  hire cost, severance.
+- ~~**Market.**~~ Shipped: seven goods, per-UTC-day drift, quoted lots, refinery.
+- ~~**Daily reroll.**~~ Shipped: `daily.js` seeds the board per UTC day and the
+  reroll button charges an escalating credit price with a daily cap.
 - ~~**Mobile / touch pass.** Right now the Pixi scene is mouse-first. Field
   sizes already scale; input bindings + tab nav don't.~~
 
