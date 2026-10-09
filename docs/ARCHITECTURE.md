@@ -10,7 +10,7 @@
 2. **One renderer.** Pixi.js v8, full stop. No DOM board, no `<canvas>` fallback, no `?engine=*` flag, no legacy renderer "just in case". See `adr/0001-pixi-only-renderer.md`.
 3. **No build step.** ESM import map in `index.html` pulls Pixi from jsdelivr. GitHub Pages serves the repo as-is. Vite / bundler / `dist/` would be an architecture change requiring an ADR.
 4. **No feature flags left behind.** When a migration / port completes, the fallback path is deleted in the next cleanup PR. Dead code is a liability, not a safety net.
-5. **Tests are pure.** `node --test` only. Zero runtime deps for testing. `GameState` and `missions.js` both have test suites. View is intentionally not unit-tested — it's the only place we accept visual/manual verification.
+5. **Tests are pure.** `node --test` only. Zero runtime deps for testing. `GameState` and `missions.js` both have test suites. View *behaviour* is tested too — `tests/hub-scene-smoke.test.js` boots the real `HubScene` against a headless Pixi stand-in and drives the lifecycle (see "Testing"). What is still manual is *appearance*: no test asserts that anything looks right.
 6. **localStorage is versioned.** Any new persisted state gets a versioned schema and an auto-migration path on load. No silent data loss, no manual "nuke your save" instructions.
 
 ---
@@ -54,12 +54,33 @@
    │  MetaState   │ ───────────▶ │ Persistence  │
    │  (pure)      │              │ (localStorage)│
    └──────▲───────┘              └──────────────┘
-          │ hydrate / read
-          │
+          │ hydrate / read                ▲ migrateSave (v1 → v2)
+          │                               │
    ┌──────────────┐                     ┌──────────────┐
    │  missions    │                     │  audio       │
    │  (pure)      │                     │              │
    └──────────────┘                     └──────────────┘
+
+   The P8 meta layer — six pure modules, read by scenes AND by MetaState.
+   Clocks and entropy are arguments, never globals:
+
+   ┌────────────┐ ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌───────┐
+   │ reputation │ │  daily  │ │ economy  │ │ star-map │ │ crew  │
+   └─────┬──────┘ └────┬────┘ └────┬─────┘ └────┬─────┘ └───┬───┘
+         │             │           │            │           │
+         └─────────────┴─────┬─────┴────────────┴───────────┘
+                             ▼
+                     ┌───────────────┐        one immutable
+                     │  settlement   │ ──────▶ settlement object
+                     │  (pure)       │        per finished dispatch
+                     └───────┬───────┘
+                             │ applySettlement / settleActiveMission
+                             ▼
+                        MetaState ──▶ one `change` ──▶ one save
+
+   research.js owns the effect bundle (`resolveEffects`) that settlement,
+   economy, star-map and crew all read; idle-clock.js owns the job/offline
+   maths; run-ledger.js owns the per-run summaries that feed settlement.
 
    ┌──────────────────────────────────────────────────┐
    │              main.js (orchestrator)              │
@@ -119,19 +140,49 @@ WebAudio tone generators. Wired to state events from `main.js`.
 
 ### `src/meta-state.js` — pure
 
-Persistent player profile. Owns **credits**, **hub resources** (minerals, warp), **per-color ore counts** (6 ores, one per tile color), **fleet roster** (ship id / name / class / hull % / status), **crew roster** (id / name / role / level / status), **reputation tier**, and **completed mission ids**. Supports `addShip`/`removeShip` and `addCrew`/`removeCrew` for shipyard and crew hire flows. Emits a `change` event with `{ kind, detail }` on every mutation so `Persistence` saves and `PixiView` re-syncs the top-bar chips without a full rebuild.
+Persistent player profile (save **v2** since P8). Owns **credits**, **hub resources** (minerals, warp), **per-color ore counts** (6 ores, one per tile color), **fleet roster** (ship id / name / class / hull % / status), **crew roster** (id / name / role / level / **xp** / status), **banked reputation** (the tier is *derived*, never stored), **charted sectors**, **daily board state** (`{dayKey, rerollsToday}`), **research** (`completed[]`, `activeResearches[]`, `maxConcurrent`), **active missions** (absolute timestamps), **lifetime stats** and a **`lastTickAt` heartbeat**. Emits a `change` event with `{ kind, detail }` on every mutation so `Persistence` saves and `PixiView` re-syncs the top-bar chips without a full rebuild.
 
-Exposes reads (`credits`, `getHubResource(id)`, `getOre(color)`, `fleetSnapshot()`, `crewSnapshot()`, `snapshot()`) and writes (`setCredits`, `addCredits`, `addOre`, `applyMissionReward`, `setShipHull`, `setShipStatus`, `setCrewLevel`, `setCrewStatus`, `setReputationTier`). Constructor takes an optional hydrated blob and shallow-merges it onto the starter profile so malformed saves fall back to defaults instead of breaking the game.
+**One action, one event, one save.** All arithmetic happens in non-emitting `_raw*` helpers (`_rawAddCredits`, `_rawAddOre`, `_rawAddRep`, `_rawAddCrewXp`, `_rawSetShipStatus`, `_rawDiscoverSector`, `_rawApplySettlement`, …), and the public method announces once. Deltas may be negative (market sells, refunds); only the resulting *balance* clamps at zero. Composite actions get their own method rather than two calls from a scene: `settleActiveMission(jobId, settlement)` (reward + job retirement) and `chartSector(id)` (warp cost + discovery grant + rep).
+
+Reads: `credits`, `reputation`, `reputationTier`, `getRepInfo()`, `getHubResource(id)`, `getOre(color)`, `oreCounts()`, `fleetSnapshot()`, `crewSnapshot()`, `getEffects()`, `getBoardState(nowMs)`, `crewSlots()`, `warpCapacity()`, `discoveredSectorIds()`, `getStats()`, `activeMissionsSnapshot()`, `snapshot()`. Writes: `applySettlement`, `settleActiveMission`, `applyTrade`, `applyRefine` / `refineAllOres`, `chartSector` / `discoverSector`, `spendWarp` / `addWarp`, `addReputation`, `addCrewXp`, `buyBoardReroll`, `noteHullRepair`, `touch`, plus the P1–P4 set (`setCredits`, `addCredits`, `addOre`, `applyMissionReward`, `setShipHull/Status`, `setCrewLevel/Status`, `addShip/removeShip`, `addCrew/removeCrew`, research lifecycle). Constructor takes an optional hydrated blob and shallow-merges it onto the starter profile so malformed saves fall back to defaults instead of breaking the game.
 
 ### `src/persistence.js`
 
-Versioned localStorage wrapper for the `MetaState` snapshot. One key — `stellarVentureSaveV1` (exported as `STORAGE_KEY`). Every method (`load`, `save`, `clear`) is non-throwing: SSR / private-mode Safari / quota-exceeded / unparseable blobs all return a safe default so the game keeps booting. Refuses to hydrate a blob with a mismatched `version` — the caller falls back to the starter profile and the next save overwrites the bad blob. Storage is dependency-injected (`new Persistence({ storage })`) so tests pass a `createMemoryStorage()` fake.
+Versioned localStorage wrapper for the `MetaState` snapshot. One key — `stellarVentureSaveV1` (exported as `STORAGE_KEY`; the key did **not** change with save v2). Every method (`load`, `save`, `clear`) is non-throwing: SSR / private-mode Safari / quota-exceeded / unparseable blobs all return a safe default so the game keeps booting. `migrateSave(blob)` lifts a v1 profile in place (banked REP, crew XP backfilled as `xpForLevel(level)`, empty sector/board/stats slices) and stamps `migratedFrom: 1`; unknown, future or malformed versions are refused and the caller falls back to the starter profile, with the next save overwriting the bad blob. Storage is dependency-injected (`new Persistence({ storage })`) so tests pass a `createMemoryStorage()` fake.
 
 ### `src/run-ledger.js` — pure
 
 Per-run tally. `new RunLedger({ state, mission })` subscribes to `match-cleared`, `bomb-exploded`, and `lines-cleared` on a `GameState`, maps each cleared cell through the tile-colour → ore-id identity (`ORE_IDS` from `meta-state.js`), and accumulates counters for matches / bombs / lines / cells + the 6 ore buckets. `summary(state)` rolls up mission metadata + a `credits = baseCredits + floor(score/10)` payout. `rewardEnvelope(summary)` returns the exact shape `MetaState.applyMissionReward(...)` consumes. `detach()` unsubscribes safely.
 
 Zero Pixi / DOM imports — the ledger is pure data, same contract as `GameState`. `src/main.js` owns the ledger's lifecycle: create on start, summarise on game-over, hand the summary to `PixiView.showResultsScreen`, and call `detach()` before awaiting the player's CONTINUE tap. See [`GAMEPLAY.md`](GAMEPLAY.md) for the credits formula + event-to-ore table.
+
+**`DefenseLedger`** (P8) is the Combat counterpart: it subscribes to `DefenseState` events (`invader-destroyed`, `powerup-collected`, `boss-destroyed`, `ball-lost`, `game-over`) and maps them onto the same six-ore identity — squid → Pyrite, crab → Cryonite, octopus → Verdanite (3 ore per formation), +2 Helium-3 per power-up, and the boss pays 4 Volatiles + 3 Biomass. Its `summary()` carries `won`, `minigame: 'defense'` and `statLabels` so `ResultsScene` relabels its rows (WAVE / BALLS LOST / PIXELS / WRECKS / PICKUPS) instead of claiming a combat pilot cleared "lines". `rewardEnvelope()` is legacy: since P8 both ledgers feed `settleMission()`, which is the only path into the profile.
+
+### The P8 meta layer — six pure modules
+
+`src/reputation.js`, `src/daily.js`, `src/economy.js`, `src/star-map.js`,
+`src/crew.js`, `src/settlement.js`. Same contract as `GameState` and `missions`:
+**zero Pixi / DOM imports, frozen exports, and every clock or entropy source is
+an argument** (`nowMs`, `dayKey`, `rng`). No module in this layer holds mutable
+state — they are functions over plain data, which is why the whole economy is
+testable under `node --test` and why a scene cannot drift from the math it
+displays. Full specification: [`META-SYSTEMS.md`](META-SYSTEMS.md).
+
+| Module | Owns | Read by |
+|---|---|---|
+| `reputation.js` | REP ladder (6 ranks), per-dispatch gain, T8/T9 + threat-5 gates | hub (REP chip, card locks, planner), settlement, star-map, MetaState |
+| `daily.js` | UTC day keys, per-day board seeds, reroll pricing + cap | hub (board modal), MetaState (`getBoardState`, `buyBoardReroll`), economy (headline countdown) |
+| `economy.js` | 7-good market with daily drift + spread, quoted trades, refinery ratios, warp-find rules, derived price history for the chart | MARKET tab (list + chart), settlement, MetaState (`applyTrade`, `applyRefine`) |
+| `star-map.js` | 13 sectors (warp cost, threat, bonus, grant), `plotCourse`, station bonuses | STAR MAP tab, settlement (sector bonus), MetaState (`chartSector`), research (`applyStationBonuses`) |
+| `crew.js` | XP curve + levels, role/hull affinity, hire cost, roster slots | CREW tab, settlement, BUILD tab (specialties), MetaState (`crewSlots`) |
+| `settlement.js` | `resolveDispatch()` (pricing) and `settleMission()` (the single reward path) | main.js (both minigames), hub (planner preview, idle claim/abort), MetaState |
+
+`src/research.js` grew the **effect layer** alongside them: `BASE_EFFECTS`,
+`EFFECTS_BY_NODE`, `resolveEffects(completedIds)` (multipliers multiply,
+numerics add, booleans OR, ids dedupe, output frozen) and
+`activeEffectSummaries()` — the strings the RESEARCH tab prints, so the tree can
+never advertise a bonus nothing reads. `src/idle-clock.js` gained
+`summarizeOffline()` / `formatAway()` for the offline report.
 
 ### `src/pixi-view.js`
 
@@ -215,15 +266,22 @@ All hub constants (`HUB_TABS`, `HUB_RESOURCES`, `HUB_NEWS_POOL`, `HUB_RISK_PRESE
 
 Each hub bottom-nav tab with bespoke content is its own scene class, hosted by `HubScene` inside the center panel (see [ADR-0010](adr/0010-hub-tab-scenes.md)). Tab scenes follow the same duck-typed `show / hide / layout / destroy` contract as top-level scenes, but they register on `HubScene._nodes.tabs` (not the top-level `SceneManager`) because they depend on the hub's center-panel Pixi container.
 
-- `_setActiveTab(tabId)` hides every extracted tab scene, then shows the one matching `tabId` (if any). After `scene.show()` lazy-builds the tab's Pixi nodes on first call, `_setActiveTab` immediately invokes `scene.layout({ width, height })` with the center panel's last-known inner dims (stashed on `center._w / center._h` by `_layoutCenterPanel`) so the newly-built content renders in the right positions on first show — not at the (0, 0) default that the hub-build-time fan-out would leave behind. Tabs still using the shared inline stub (locked tabs: `BUILD/UPGRADE`, `CREW`, `MARKET`) fall through to the default branch that sets `stub.text`.
+- `_setActiveTab(tabId)` hides every extracted tab scene, then shows the one matching `tabId` (if any). After `scene.show()` lazy-builds the tab's Pixi nodes on first call, `_setActiveTab` immediately invokes `scene.layout({ width, height })` with the center panel's last-known inner dims (stashed on `center._w / center._h` by `_layoutCenterPanel`) so the newly-built content renders in the right positions on first show — not at the (0, 0) default that the hub-build-time fan-out would leave behind. A `tabId` with no scene class falls through to the default branch that sets the hub's own title + planner visibility.
 - `_layoutCenterPanel(...)` fans out `tab.layout({ width, height })` to every tab scene (visible or not) after the hologram frame is redrawn, so a hidden tab does not flash at the old size on re-show.
+- **The left column can belong to a tab (P9).** `_buildSidePanel()` creates a second 276 px frame — `drawTechPanel` surface, header label, empty `list` container — and injects it into the STAR MAP, BUILD/UPGRADE and MARKET constructors as `{ side: sidePanel }`. A tab opts in with `usesSidePanel = true` + `sidePanelTitle`, and implements `layoutSide({ width, height })`; `_setActiveTab` shows the bay only when the active tab opts in *and* neither the idle-mission list (MISSIONS) nor the research list (RESEARCH) owns it, stamps `sidePanel.ownerId`, and calls `_layoutSidePanel()`, which forwards the `_w / _h` recorded by `_layoutColumnPanel()`. `_layoutShell()` re-lays the bay out on every resize. The hub owns the frame, the tab owns the content — the same split as ADR-0010, one column over. `tests/side-panel-contract.test.js` asserts the contract over the sources and `tests/hub-scene-smoke.test.js` executes it (boot → activate every tab → assert exactly one visible owner of the bay).
 - `destroy()` tears down tab scenes before the center panel's own destroy.
 
-Shipped today: `src/scenes/tabs/star-map-tab.js` (STAR MAP) + `src/scenes/tabs/research-tab.js` (RESEARCH) + `src/scenes/tabs/build-upgrade-tab.js` (BUILD/UPGRADE). CREW and MARKET still use the shared inline stub.
+Shipped today: `star-map-tab.js` (STAR MAP), `research-tab.js` (RESEARCH), `build-upgrade-tab.js` (BUILD/UPGRADE), `crew-tab.js` (CREW) and `market-tab.js` (MARKET) — every tab with bespoke content is a scene class now, and no tab falls through to the inline stub. Three of them (STAR MAP, BUILD/UPGRADE, MARKET) also own the left bay while active.
 
 ### `src/scenes/tabs/star-map-tab.js`
 
-Galactic-cartography view for the STAR MAP bottom-nav tab. Mounts its root under the hub's center-panel hologram surface (`centerPanel.panel`). Owns: title strip (`STAR MAP · ORION CARTOGRAPHY`), coordinate grid with longitude/latitude tick labels, 8 sector pins colored by `kind` (`star` / `belt` / `station` / `hazard`), bottom-left `MAP LEGEND` sub-panel, top-right `GALACTIC OVERVIEW` thumbnail with a mini spiral + current-position crosshair, and a floating `SYSTEM DATA` panel with a stub `PLOT COURSE` button. Sector catalog is static for now; real warp-cell deduction + mission dispatch lands in P7.
+Planetary-system chart for the STAR MAP bottom-nav tab. Mounts its root under the hub's center-panel hologram surface (`centerPanel.panel`). Owns: title strip (`STAR MAP · SYSTEM CHART`), a clipped map window with a deterministic backdrop speckle, the seeded system from `generateStarSystem(seed)` (central star, orbit rings, asteroid belts, shaded planets with type-specific surfaces, moons, stations, hazards, orbiting ships), a camera with wheel-zoom-toward-cursor / drag-pan / fit-all, zoom counter-scaling so glyphs stay a constant screen size, `MAP LEGEND`, camera controls, and — beside the map when the viewport is ≥ 780 px — the `SECTOR NETWORK` rail wired to `star-map.js` + `MetaState.chartSector()`.
+
+Motion is ambience, not animation spam: `tick()` advances `ORBIT_TIME_SCALE = 0.25`, and moons/ships only appear past `MOON_ZOOM_REVEAL` / `SHIP_ZOOM_REVEAL` multiples of the fit zoom. Selecting a body writes into the hub's left bay (`SYSTEM DATA` board + `SYSTEM INDEX` list, §3a of [UI-HUB](UI-HUB.md)); the older floating panel that chased the body around the window is gone.
+
+### `src/scenes/tabs/market-tab.js`
+
+Commodity exchange for the MARKET bottom-nav tab, split like a trading terminal. The **left bay** (`MARKET`) holds the seven-good watchlist: lot selector, held stock, buy/sell prices and quoted BUY/SELL buttons per row; tapping a row charts that good. The **center panel** holds the chart — `economy.priceHistory()` rendered as grid + area/line series + price and hour axes, a last-price tag, amber markers at each UTC-midnight re-price and a pointer crosshair — above the refinery strip and the status line. All rules stay in `economy.js` / `MetaState`; the tab only quotes, draws and forwards orders.
 
 ### `src/scenes/tabs/research-tab.js`
 
@@ -338,23 +396,43 @@ PixiView repaints only changed cells + active piece layer
     │  view handlers are O(cells changed), never O(board)
 
     ▼
-GameState emits 'game-over' { score }
+GameState emits 'game-over' { score }      (DefenseState: { won, score })
     │
     ▼
 main.js:
-    │  summary  = ledger.summary(state)        // + credits = baseCredits + floor(score/10)
-    │  envelope = ledger.rewardEnvelope(summary)
+    │  summary    = ledger.summary(state)      // RunLedger or DefenseLedger
     │  ledger.detach()
-    │  view.showResultsScreen(summary, { onContinue })
+    │  job        = view.getManualDispatch(mission.id)   // ship + crew the hub sent
+    │  settlement = settleMission({ mission, job, summary, ship, crew,
+    │                               effects: meta.getEffects(),
+    │                               discoveredSectors: meta.discoveredSectorIds(),
+    │                               dispatchMode: 'manual', won })
+    │  view.showResultsScreen(buildReport(summary, settlement), { onContinue })
     │
     ▼
 player clicks CONTINUE
     │
     ▼
 main.js:
-    │  meta.applyMissionReward(envelope)   // fires 'change' + 'mission-reward'; Persistence saves
-    │  view.hideResultsScreen()
-    │  view.showStartScreen()              // hub top-bar chips auto-repaint from MetaState
+    │  meta.applySettlement(settlement)    // ONE 'change' + ONE save: credits,
+    │                                      // ores, REP, crew XP, hull wear, warp,
+    │                                      // completedMissionIds, lifetime stats
+    │  view.completeManualMission(id)      // frees the ship + crew (no rewards)
+    │  view.hideResultsScreen(); view.showStartScreen()
+```
+
+Idle contracts take the same path from inside the hub: `_claimIdleMission()` /
+`_abortIdleMission()` build a settlement with `dispatchMode: 'idle'` and call
+`meta.settleActiveMission(jobId, settlement)`, which banks the reward **and**
+retires the job in one event. Sector jumps (`meta.chartSector`) and market
+orders (`meta.applyTrade`) are the only other writes that move currency.
+
+```
+boot:  summarizeOffline({ jobs, lastSeenMs: meta.lastTickAt, nowMs })  ── BEFORE ──▶ meta.touch()
+         │
+         ▼
+       view.setOfflineSummary(report)  ──▶ hub WELCOME BACK banner ──▶ CLAIM ALL
+                                                                      (one settlement per job)
 ```
 
 ---
@@ -375,16 +453,25 @@ See `adr/0001-pixi-only-renderer.md`. Short version: DOM-per-cell + CSS animatio
 
 ## Persistence
 
-Persistent state ships via P3's `MetaState` + `Persistence` modules. Single localStorage key `stellarVentureSaveV1` stores the player profile: credits, hub resources, per-colour ore counts, fleet roster, crew roster, reputation tier, and completed mission ids. The legacy `stellarCollapseScoresV2` leaderboard was deleted (see `adr/0005-delete-highscore-system.md`); any orphaned payload in returning players' browsers is read by nothing. See [`GAMEPLAY.md §8`](GAMEPLAY.md) for the full profile schema and mutation API.
+Persistent state ships via P3's `MetaState` + `Persistence` modules, at **save v2** since P8. Single localStorage key `stellarVentureSaveV1` stores the player profile: credits, hub resources (minerals, warp), per-colour ore counts, fleet roster, crew roster (with XP), banked reputation, charted sectors, daily board state, research, active missions, lifetime stats and the `lastTickAt` heartbeat. `migrateSave()` lifts v1 blobs in place; the key never changed, so returning players keep their profile. The legacy `stellarCollapseScoresV2` leaderboard was deleted (see `adr/0005-delete-highscore-system.md`); any orphaned payload in returning players' browsers is read by nothing. See [`GAMEPLAY.md`](GAMEPLAY.md#persistence-metastate-profile) for the full profile schema and mutation API, and [`META-SYSTEMS.md §10`](META-SYSTEMS.md) for the v2 field list.
+
+**Offline correctness needs no simulation.** Jobs store absolute `startedAt` /
+`endsAt`, so a gap of any length is resolved by comparison against the
+heartbeat — `main.js` stamps `meta.touch()` on boot, every 30 s, and on
+`pagehide` / `visibilitychange → hidden` (the last two also force an explicit
+`persistence.save()`).
 
 ---
 
 ## Testing strategy
 
-- **Unit tests** (`node --test`, `tests/*.test.js`) cover pure modules: `GameState`, `missions`, `MetaState`, `SceneManager`. 108 tests currently.
-- **View is not unit-tested.** Visual bugs are caught by manual / scripted browser runs. Smoke tests via `enter_test_mode` on meaningful feature PRs; headless automation is a future option but not a requirement.
-- **Every rule change has a test.** Bomb radius, snake length, score multipliers, level ramp, special arming-timer — all covered.
-- **Determinism.** GameState takes a seeded RNG in tests. Any test that is flaky is a bug in the test, not in the code.
+- **Unit tests** (`node --test`, `tests/*.test.js`) cover the pure modules: `GameState`, `DefenseState`, `missions`, `MetaState`, `Persistence`, `RunLedger` / `DefenseLedger`, `IdleClock`, `SceneManager`, and the whole P8 layer (`reputation`, `daily`, `economy`, `star-map`, `crew`, `settlement`, `research` effects). **390 tests currently.**
+- **Hub smoke suite** (`tests/hub-scene-smoke.test.js`) executes the real `HubScene` and its tab scenes. Scene modules import the bare specifier `pixi.js`, which only the browser's importmap resolves, so the suite registers a Node resolve hook (`tests/helpers/pixi-resolve-hook.mjs`) that maps it onto a headless stand-in (`tests/helpers/pixi-mock.js`): a Container tree, chainable `Graphics`, `Text` with approximated measured metrics, and a mini event emitter so `pointertap` / `pointermove` handlers can be driven. It then boots the hub, activates all six tabs, resizes 1920×1080 → 820×560, taps every row and button, dispatches an idle contract and tears down — asserting no throws, no non-finite coordinates anywhere in the graph, exactly one visible owner of the shared left bay, and profile mutations that match what the UI quoted. If the host Node predates `module.register()` (Node < 20.6) the suite skips itself rather than failing CI. **It asserts behaviour and geometry, never appearance** — "it ran and the numbers are finite and honest", not "it looks right".
+  This suite exists because three real defects shipped in the blind spot it covers: `hub-scene.js` calling `buildIdleMissions()` without importing it (every IDLE dispatch threw), `_fleetSlotLimit()` reading `effects.fleetSlots` — an extras counter starting at 0 — as the berth capacity (a fresh station had one berth and refused every BUILD order), and STAR MAP clearing the shared bay's `list` (destroying the SHIPYARD and MARKET containers parked there, so the yard's BUILD buttons came back with no handler).
+- **Static checks** back it up where execution cannot reach: `tests/source-syntax.test.js` runs `node --check` over every `src/` file; `tests/module-imports.test.js` asserts every relative import resolves, every named local import is really exported, **and that no file calls a sibling module's export it did not import**; `tests/side-panel-contract.test.js` asserts the left-bay contract (`usesSidePanel` / `sidePanelTitle` / `layoutSide`, own-container mounting, hide-on-`hide()`) over the sources.
+- **Every rule change has a test.** Bomb radius, snake length, score multipliers, level ramp, special arming-timer, rep gain, reroll pricing, market drift, refine ratios, warp-find rules, XP curve, hull wear, settlement totals — all covered.
+- **Determinism.** GameState takes a seeded RNG; the P8 modules take `nowMs` / `dayKey` / `rng` arguments, so a test can pin a UTC day or an abort fraction exactly. Any test that is flaky is a bug in the test, not in the code.
+- **Atomicity is asserted, not assumed.** Settlement, claim/abort and sector-jump tests count `change` events (`assert.equal(changes, 1)`) so "one action, one save" cannot regress silently.
 
 Run locally:
 

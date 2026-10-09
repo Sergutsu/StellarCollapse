@@ -16,9 +16,11 @@ The repo is moving toward a hybrid casual / idle space-exploration game. Deep de
 
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — what's shipped, next, later.
 - [`docs/DESIGN.md`](docs/DESIGN.md) — pillars, core + meta loops, UX.
-- [`docs/GAMEPLAY.md`](docs/GAMEPLAY.md) — mechanics spec + canonical tunable numbers.
+- [`docs/GAMEPLAY.md`](docs/GAMEPLAY.md) — run-side mechanics spec + canonical tunable numbers.
+- [`docs/META-SYSTEMS.md`](docs/META-SYSTEMS.md) — **the dispatcher layer**: reputation, daily board, market + refinery, sector network, crew progression, hull wear, warp, idle/offline, the single settlement path.
+- [`docs/UI-HUB.md`](docs/UI-HUB.md) — hub specification, zone by zone.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module graph, rendering rules, house rules.
-- [`docs/adr/`](docs/adr/) — architecture decision records (Pixi-only, seeded mission RNG, tier↔mission 1:1).
+- [`docs/adr/`](docs/adr/) — architecture decision records (Pixi-only, seeded mission RNG, tier↔mission 1:1, one settlement path).
 - [`CHANGELOG.md`](CHANGELOG.md) — human-readable release notes.
 
 <p align="center">
@@ -33,15 +35,20 @@ The repo is moving toward a hybrid casual / idle space-exploration game. Deep de
 
 ## Highlights
 
-- **3 gameplay modes** — Stellar click-match, Auto-Match (4+ runs clear on lock), Miner (minerals fall in from 4 edges; a solid ≥6×6 core at the center collapses).
+- **4 minigames, all optional** — Stellar click-match, Auto-Match (4+ runs clear on lock), Miner (minerals fall in from 4 edges; a solid ≥6×6 core at the center collapses), and Defense (the Combat contract: break formations, grab power-ups, kill the boss).
+- **A real idle dispatcher meta** — send contracts out autonomously and collect when they land, or fly them yourself for the full payout. Offline time counts: come back to a WELCOME BACK banner and CLAIM ALL.
+- **Reputation ranks** — six tiers earned by finishing dispatches (never bought), gating the two hardest contracts and the deep sectors.
+- **Daily contract board** — seeded per UTC day, free refresh at the boundary, paid rerolls at an escalating price. Up to two contracts a day roll into Combat variants.
+- **Working economy** — a seven-good market with daily price drift, a refinery that melts ore into minerals, and thirteen chartable sectors that cost warp cells and pay permanent bonuses.
+- **Crew + hull progression** — crew earn XP and level (raising contract payouts), hulls take wear and get repaired with minerals, berths and roster slots come from the tech tree.
+- **One reward path** — every dispatch settles through a single pure function, so the number the planner quotes is the number that lands.
 - **3 piece-complexity tiers** — Classic (7 standard shapes, monochrome), Mutated (15 shapes, multicolor), Totally Collapsed (adds bomb cells + chaos).
 - **3 field sizes per complexity** — pick Small / Medium / Large on the start screen; the grid resizes and the block scale adapts so the board still fits the viewport.
-- **6-tier leaderboard** — each (mode × complexity) combo has its own top-5, with a green → red difficulty gradient.
 - **Specials in the top tier only** — snakes (4-match) and bombs (5+ match) only fire in Totally Collapsed. Easier tiers stay clean.
 - **Gravity-freeze in Totally Collapsed** — color matches and bomb blasts don't drop survivors; cells hang suspended (visibly outlined) until a snake run recolors the board and unlocks gravity.
 - **No build step** — pure ES modules in the browser. Clone and run.
 - **Mobile-responsive** — hub and gameplay surfaces scale to fit narrow viewports; touch gestures (swipe to move/rotate/drop) make runs fully playable on phones.
-- **Unit-tested core** — `GameState` is fully decoupled from DOM/audio; `npm test` runs a `node --test` suite with zero dependencies.
+- **Unit-tested core** — `GameState`, `DefenseState` and the whole meta layer are decoupled from DOM/audio; `npm test` runs a zero-dependency `node --test` suite (390 tests), including a hub smoke suite that boots the real scene graph against a headless Pixi stand-in.
 
 ---
 
@@ -63,11 +70,27 @@ Or run it locally (see [Local Development](#local-development) below).
 
 ### Game modes
 
-Pick one on the start screen:
+The hub picks the mode for you — each contract's tier maps to a
+`{ mode, complexity, field size }` triple — but the sandbox start screen still
+exposes them:
 
 - **Stellar** — Runs of 4+ matching cells only clear when you *click* one of them. The classic Stellar Venture flow (formerly Stellar Collapse click-match).
 - **Auto-Match** — Every 4+ run clears automatically the moment a piece locks. No clicking.
-- **Blocks** — Click-to-match is disabled. Only full horizontal line clears score. Pure block-stacking.
+- **Miner** (internal id `blocks`) — Click-to-match is disabled. Minerals fall inward from all four edges; a fully-filled ≥6×6 square covering the center cell collapses for the big score.
+- **Defense** — the Combat minigame: paddle + ball against invader formations, power-ups and a boss. Reached by ACCEPT-ing a Combat contract; it banks ore as well as credits.
+
+### The dispatcher loop
+
+See [`docs/META-SYSTEMS.md`](docs/META-SYSTEMS.md) for the full spec. In short:
+
+1. Pick a contract on the MISSION BOARD (or in the planner) and send it out
+   **IDLE** (autonomous, quoted ETA, 60 % rep) or **MANUAL** (you fly the
+   minigame, full payout + score bonus).
+2. It settles once: credits, ore, REP, crew XP, hull wear, maybe a warp cell.
+3. Spend the result — refine ore into minerals, build and repair hulls, research
+   the tech tree, hire and level crew, trade the daily market, and burn warp
+   cells charting sectors that permanently buff the contracts flying there.
+4. Rank up to unlock T8/T9 contracts and the threat-5 sectors.
 
 ### Piece complexity
 
