@@ -212,6 +212,23 @@ export class PixiView {
         this._hub?.completeManualMission?.(missionId);
     }
 
+    // P8: the dispatch job behind a manual run (which ship + crew the
+    // player sent), so main.js can settle the finished run against them.
+    getManualDispatch(missionId) {
+        return this._hub?.getPendingManualDispatch?.(missionId) || null;
+    }
+
+    // P8: hand the hub the offline report computed at boot so it can show
+    // the WELCOME BACK banner over the idle fleet list.
+    setOfflineSummary(summary) {
+        this._hub?.setOfflineSummary?.(summary);
+    }
+
+    // P8: push a runtime headline onto the Galactic News ticker.
+    pushNews(text) {
+        this._hub?.pushNews?.(text);
+    }
+
     // Legacy accessor: main.js sets `view._levelInfoFor = ...` to
     // customize the LEVEL panel subtitle. Forward the setter into
     // GameScene so the old call-site keeps working.

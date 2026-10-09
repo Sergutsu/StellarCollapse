@@ -9,7 +9,7 @@
 // - Dependency-injected storage so tests can pass a fake without
 //   touching global state.
 
-import { META_SAVE_VERSION } from './meta-state.js';
+import { META_SAVE_VERSION, META_SAVE_VERSIONS_SUPPORTED } from './meta-state.js';
 
 export const STORAGE_KEY = 'stellarVentureSaveV1';
 
@@ -21,6 +21,28 @@ export function getDefaultStorage() {
         if (typeof localStorage !== 'undefined') return localStorage;
     } catch { /* fall through */ }
     return null;
+}
+
+/**
+ * Forward-migrate a saved blob to the current schema version.
+ *
+ * Returns `null` for anything we cannot recognise (corrupt JSON payload,
+ * future version, missing version) so `load()` falls back to the starter
+ * profile rather than half-hydrating.
+ *
+ * Migration notes:
+ *   v1 → v2 (P8 meta systems): additive only. `MetaState._merge` defaults
+ *   the new fields — `reputation` 0, `discoveredSectors` [], `board`
+ *   fresh, `stats` zeroed — and backfills each crew member's `xp` from
+ *   their stored `level`, so a v1 save keeps its roster, credits, ores,
+ *   research and idle dispatches untouched.
+ */
+export function migrateSave(blob) {
+    if (!blob || typeof blob !== 'object' || Array.isArray(blob)) return null;
+    const version = blob.version;
+    if (!META_SAVE_VERSIONS_SUPPORTED.includes(version)) return null;
+    if (version === META_SAVE_VERSION) return blob;
+    return { ...blob, version: META_SAVE_VERSION, migratedFrom: version };
 }
 
 export class Persistence {
@@ -47,11 +69,11 @@ export class Persistence {
             return null;
         }
         if (!parsed || typeof parsed !== 'object') return null;
-        // Refuse to hydrate an incompatible version -- the caller will
-        // fall back to the starter profile and overwrite the bad blob
-        // on the next save. Keeps corrupted data from cascading.
-        if (parsed.version !== META_SAVE_VERSION) return null;
-        return parsed;
+        // Refuse to hydrate an unknown/corrupt version -- the caller falls
+        // back to the starter profile and overwrites the bad blob on the
+        // next save. Known-but-older versions migrate forward instead of
+        // being discarded (ARCHITECTURE.md: "auto-migration path on load").
+        return migrateSave(parsed);
     }
 
     // Serialize + write. Returns true on success, false on any storage

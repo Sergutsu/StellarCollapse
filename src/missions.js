@@ -182,6 +182,84 @@ const NARRATIVE_BY_TIER_ID = {
 // appearance order.
 export const MISSION_TYPES = Object.freeze(['Mining', 'Exploration', 'Research', 'Salvage', 'Combat']);
 
+// ---------------------------------------------------------------------
+// Combat variants — the "optional mini-game as a mission" layer.
+//
+// ADR-0003 keeps tier ↔ mission 1:1, but it also says variation
+// "layers on top, not under": a variant is a tier-tagged mission that
+// overrides the default card for its tier. A Combat variant keeps the
+// tier's `gameConfig` (so difficulty, rep and credit envelopes stay on
+// the same 9-step ladder) and swaps the *run* to the defense minigame
+// (`src/defense-state.js`) via `runsDefense: true` + `type: 'Combat'`,
+// which is the routing main.js already implements.
+//
+// Two of the five eligible tiers (T5..T9) roll a Combat variant each
+// day, seeded by the daily board seed, so the defense minigame is a
+// regular board citizen instead of unreachable code.
+const COMBAT_VARIANTS_BY_TIER_ID = {
+    'stellar-collapsed': {
+        narrativeName: 'Anomaly Escort: Event Horizon Shadow',
+        sector: 'Event Horizon Shadow',
+        brief: 'Escort the research convoy through the shadow. Nothing gets close.',
+    },
+    'auto-match-collapsed': {
+        narrativeName: 'Voidwreck Pickup: Contested Salvage',
+        sector: 'Voidwreck Field',
+        brief: 'Rival salvagers arrived first. Break their screen, then tow the relic.',
+    },
+    'blocks-classic': {
+        narrativeName: 'Trade Route Defense: Outer Rim',
+        sector: 'Outer Rim Lanes',
+        brief: 'Raiders on the outer lanes. Hold them off the convoy.',
+    },
+    'blocks-mutated': {
+        narrativeName: 'Seismic Rift Blockade',
+        sector: 'Seismic Rift',
+        brief: 'Break the blockade before the survey teams are overrun.',
+    },
+    'blocks-collapsed': {
+        narrativeName: 'Core Breach: Terminus Protocol',
+        sector: 'Terminus Core',
+        brief: 'Something is climbing out of the core. Put it back down.',
+    },
+};
+
+// Tier indexes eligible to roll a Combat variant. Low tiers stay puzzle
+// runs so new dispatchers meet the core loop first.
+const COMBAT_VARIANT_ELIGIBLE_FROM_TIER = 5;
+const COMBAT_VARIANTS_PER_DAY = 2;
+
+// Rep-tier gates. Only the two hardest archetypes are locked behind a
+// rank (DESIGN.md: "Rep tier ... gates some T8/T9 missions"); everything
+// else is open from REP 1. Read by `isMissionUnlocked` in reputation.js.
+const REP_TIER_REQUIRED_BY_TIER_ID = {
+    'blocks-mutated': 3,
+    'blocks-collapsed': 4,
+};
+
+// Pick which eligible tiers roll a Combat variant for this seed.
+// Deterministic: same seed → same variant set (ADR-0002).
+export function pickCombatVariantTierIds(tierIds, { seed, count = COMBAT_VARIANTS_PER_DAY } = {}) {
+    const eligible = (Array.isArray(tierIds) ? tierIds : []).filter(
+        (id) => COMBAT_VARIANTS_BY_TIER_ID[id] && tierIndexFor(id) >= COMBAT_VARIANT_ELIGIBLE_FROM_TIER,
+    );
+    if (eligible.length === 0) return [];
+    const pick = rng(seed);
+    const pool = eligible.slice();
+    // Fisher-Yates with the seeded RNG, then take `count`.
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(pick() * (i + 1)) % (i + 1);
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, Math.max(1, Math.min(count, pool.length)));
+}
+
+// Tier index for a tier id (1-based position in HIGHSCORE_TIERS).
+function tierIndexFor(tierId) {
+    const i = HIGHSCORE_TIERS.findIndex((t) => t.id === tierId);
+    return i < 0 ? 1 : i + 1;
+}
+
 // Idle-fleet contracts are auto-resolved dispatch jobs that consume one
 // ship + one crew member for a fixed duration and then grant rewards.
 // Duration is intentionally short in this phase so QA can validate the
@@ -210,11 +288,18 @@ const TIER_BRIEF_BY_ID = {
 
 // Build a mission object from a HIGHSCORE_TIERS entry. The returned
 // object is the one the UI renders and the runner feeds to GameState.
-function missionFromTier(tier, idx, nameRng) {
+function missionFromTier(tier, idx, nameRng, variant = 'standard', repTier = 1) {
     const pool = ASTEROID_NAMES[tier.id] || [tier.label];
     const name = pool[Math.floor(nameRng() * pool.length) % pool.length];
     const sizeId = TIER_SIZE_BY_ID[tier.id] || 'medium';
-    const narrative = NARRATIVE_BY_TIER_ID[tier.id] || {
+    const combat = variant === 'combat' ? COMBAT_VARIANTS_BY_TIER_ID[tier.id] : null;
+    const narrative = combat ? {
+        narrativeName: combat.narrativeName,
+        type: 'Combat',
+        sector: combat.sector,
+        risk: (NARRATIVE_BY_TIER_ID[tier.id] || {}).risk || Math.min(5, Math.max(1, Math.ceil((idx + 1) / 2))),
+        etaLabel: (NARRATIVE_BY_TIER_ID[tier.id] || {}).etaLabel || '18h',
+    } : NARRATIVE_BY_TIER_ID[tier.id] || {
         narrativeName: tier.label,
         type: 'Mining',
         sector: name,
@@ -229,8 +314,12 @@ function missionFromTier(tier, idx, nameRng) {
         name,
         label: tier.label,
         difficulty: TIER_DIFFICULTY_BY_ID[tier.id] || 'MODERATE',
-        brief: TIER_BRIEF_BY_ID[tier.id] || '',
+        brief: combat ? combat.brief : (TIER_BRIEF_BY_ID[tier.id] || ''),
         baseCredits: baseCreditsFor(idx + 1),
+        // Variant layer (ADR-0003 "layers on top"): 'standard' runs the
+        // tier's puzzle minigame, 'combat' runs the defense minigame.
+        variant: combat ? 'combat' : 'standard',
+        runsDefense: !!combat,
         // Narrative flavor (rendered on the MISSION BOARD modal cards).
         narrativeName: narrative.narrativeName,
         type: narrative.type,
@@ -239,7 +328,12 @@ function missionFromTier(tier, idx, nameRng) {
         etaLabel: narrative.etaLabel,
         // Expected ore preview on the card: the four "common" ores are
         // always in play, plus a rare-ore hint on collapsed tiers.
-        expectedOres: Object.freeze([
+        expectedOres: Object.freeze(combat ? [
+            // Combat always fields a boss, and bosses shed hazard ore.
+            ...NORMAL_COLORS.slice(0, 3).map((c) => ORE_BY_COLOR[c].id),
+            'volatiles',
+            'biomass',
+        ] : [
             ...NORMAL_COLORS.map((c) => ORE_BY_COLOR[c].id),
             ...(tier.complexity === PIECE_COMPLEXITY.COLLAPSED ? ['volatiles', 'biomass'] : []),
         ]),
@@ -248,9 +342,15 @@ function missionFromTier(tier, idx, nameRng) {
             complexity: tier.complexity,
             fieldSizeId: sizeId,
         }),
-        // Reserved for later PRs. All missions are currently unlocked.
-        available: true,
-        requires: null,
+        // Rep gate: the two hardest archetypes need a rank before their
+        // card accepts a dispatch. `available` is computed against the
+        // repTier passed to buildMissions (default 1 = everything but the
+        // gated pair is open).
+        repTierRequired: REP_TIER_REQUIRED_BY_TIER_ID[tier.id] || 1,
+        available: repTier >= (REP_TIER_REQUIRED_BY_TIER_ID[tier.id] || 1),
+        requires: (REP_TIER_REQUIRED_BY_TIER_ID[tier.id] || 1) > 1
+            ? Object.freeze({ repTier: REP_TIER_REQUIRED_BY_TIER_ID[tier.id] })
+            : null,
     });
 }
 
@@ -272,9 +372,17 @@ function rng(seed) {
 // Build the full 9-mission list. Pass a `seed` to get a stable list
 // (used by tests + by the session roller so missions stay the same
 // between menu visits within one boot).
-export function buildMissions({ seed } = {}) {
+export function buildMissions({ seed, repTier = 1 } = {}) {
     const pick = rng(seed);
-    return HIGHSCORE_TIERS.map((tier, idx) => missionFromTier(tier, idx, pick));
+    const rank = Math.max(1, Math.floor(Number.isFinite(repTier) ? repTier : 1));
+    const combatTierIds = new Set(pickCombatVariantTierIds(HIGHSCORE_TIERS.map((t) => t.id), { seed }));
+    return HIGHSCORE_TIERS.map((tier, idx) => missionFromTier(
+        tier,
+        idx,
+        pick,
+        combatTierIds.has(tier.id) ? 'combat' : 'standard',
+        rank,
+    ));
 }
 
 // Pick a subset of missions for the MISSION BOARD modal (2x2 grid by

@@ -1,6 +1,13 @@
 // FleetUpgradeTab -- fleet construction, servicing, and mother-ship
 // upgrade overview. Mounts into the hub center panel when FLEET UPGRADE
 // tab is clicked.
+//
+// P8: berth capacity now comes from the research effect bundle
+// (`MetaState.getEffects().fleetSlots`) instead of a second copy of the
+// tech math living in this file, blueprints advertise the mission types
+// their hull class is built for (`crew.SHIP_CLASS_AFFINITY`, which is what
+// the dispatch fit bonus reads), and repairs report themselves to the
+// lifetime stats through `MetaState.noteHullRepair()`.
 
 import { Container, Graphics, Rectangle } from 'pixi.js';
 import {
@@ -9,6 +16,7 @@ import {
     panelLabel,
     buildSimpleButton,
 } from '../../pixi-ui-kit.js';
+import { SHIP_CLASS_AFFINITY, BASE_FLEET_SLOTS, fleetSlotLimit } from '../../crew.js';
 
 const COLOR_CYAN_300 = 0x67e8f9;
 const COLOR_CYAN_500 = 0x06b6d4;
@@ -39,9 +47,17 @@ const BLUEPRINTS = Object.freeze([
     { className: 'Frigate',   baseName: 'Frigate',     cost: 1200, desc: 'Heavy warship. Highest hull, strongest combat.' },
 ]);
 
+// HubScene._buildSidePanel() mounts `list` at (12, 40) inside the frame, so
+// a tab's usable height is the panel height minus that 40 px header offset.
+const SIDE_LIST_TOP = 40;
 const REPAIR_COST_PER_POINT = 3; // minerals per hull point
 const DISASSEMBLE_RETURN = 0.4;  // fraction of build cost returned as minerals
-const BASE_FLEET_SLOTS = 10;
+
+/** Mission types a hull class is built for — the dispatch fit bonus. */
+function specialtyFor(className) {
+    const list = SHIP_CLASS_AFFINITY[className];
+    return Array.isArray(list) && list.length ? list.join(' / ') : 'general duty';
+}
 
 // Mother-ship upgrade readouts driven by tech-tree completion. The tab
 // shows these as the path toward larger fleet berths without inventing a
@@ -63,10 +79,18 @@ const RESEARCH_LAB_UPGRADE = {
 };
 
 export class BuildUpgradeTab {
-    constructor({ parent, meta }) {
+    constructor({ parent, meta, side = null }) {
         if (!parent) throw new Error('BuildUpgradeTab: parent container is required');
         this.parent = parent;
         this.meta = meta;
+        // The hub's left-column panel: this tab moves the shipyard
+        // (blueprints, berth capacity, build status) into it so the centre
+        // is left for the fleet itself.
+        this._side = side;
+        this._sideW = 276;
+        this._sideH = 420;
+        this.usesSidePanel = true;
+        this.sidePanelTitle = 'SHIPYARD';
         this.root = new Container();
         this.root.visible = false;
         this.parent.addChild(this.root);
@@ -74,6 +98,7 @@ export class BuildUpgradeTab {
         this._selectedShipId = null;
         this._shipCounter = 0;
         this._activeSubTab = 'fleet';
+        this._yardStatus = '';
     }
 
     get visible() { return !!this.root.visible; }
@@ -84,7 +109,11 @@ export class BuildUpgradeTab {
         this.root.visible = true;
     }
 
-    hide() { this.root.visible = false; }
+    hide() {
+        this.root.visible = false;
+        // Shared bay: the yard travels with the tab.
+        if (this._nodes?.yard) this._nodes.yard.visible = false;
+    }
 
     layout(screen) {
         if (!this._nodes || !screen) return;
@@ -201,11 +230,19 @@ export class BuildUpgradeTab {
         });
         detailPanel.addChild(disassembleBtn.container);
 
+        // The shipyard is the left panel's content now: it is built once
+        // into its own container and re-parented into the hub panel by
+        // `_refreshSide`, so `_refresh()` keeps working on the same nodes.
+        const yard = new Container();
+
         const buildHeader = panelLabel('BUILD NEW SHIP', COLOR_EMERALD_300, { size: 11, weight: '700' });
-        parent.addChild(buildHeader);
+        yard.addChild(buildHeader);
 
         const capacityText = panelLabel('', COLOR_SLATE_400, { size: 10 });
-        parent.addChild(capacityText);
+        yard.addChild(capacityText);
+
+        const yardStatus = panelLabel('', COLOR_ROSE_300, { size: 9 });
+        yard.addChild(yardStatus);
 
         const blueprintCards = BLUEPRINTS.map((bp) => {
             const card = new Container();
@@ -224,7 +261,10 @@ export class BuildUpgradeTab {
             desc.position.set(8, 20);
             card.addChild(desc);
 
-            const cost = panelLabel(`${bp.cost} minerals`, COLOR_AMBER_300, { size: 9, weight: '700' });
+            // The fit bonus is invisible unless the yard says so: name the
+            // mission types this hull class pays +12% on, right on the
+            // price line.
+            const cost = panelLabel(`${bp.cost} minerals \u00B7 fits ${specialtyFor(bp.className)}`, COLOR_AMBER_300, { size: 9, weight: '700' });
             cost.position.set(8, 35);
             card.addChild(cost);
 
@@ -237,11 +277,12 @@ export class BuildUpgradeTab {
             });
             card.addChild(buildBtn.container);
 
-            parent.addChild(card);
+            yard.addChild(card);
             return { card, bg, name, desc, cost, buildBtn, bp };
         });
 
         return {
+            yard,
             fleetHeader,
             fleetList,
             detailPanel,
@@ -254,6 +295,7 @@ export class BuildUpgradeTab {
             disassembleBtn,
             buildHeader,
             capacityText,
+            yardStatus,
             blueprintCards,
         };
     }
@@ -357,13 +399,84 @@ export class BuildUpgradeTab {
     _setSubTab(tabId) {
         this._activeSubTab = tabId === 'motherShip' ? 'motherShip' : 'fleet';
         this._refresh();
+        // The shipyard belongs to the AVAILABLE FLEET view only.
+        this._refreshSide();
     }
 
+    /** Called by HubScene on activation and on every resize. */
+    layoutSide({ width = 276, height = 420 } = {}) {
+        this._sideW = Math.max(180, Math.floor(width));
+        this._sideH = Math.max(200, Math.floor(height));
+        this._refreshSide();
+    }
+
+    /**
+     * Move the yard into the hub's left panel and lay it out as one column
+     * of blueprint cards, sized to the panel instead of to whatever space
+     * the centre panel had left over.
+     */
+    _refreshSide() {
+        const side = this._side;
+        const n = this._nodes;
+        const yard = n?.yard;
+        if (!side?.list || !yard) return;
+        if (yard.parent !== side.list) side.list.addChild(yard);
+
+        const visible = this._activeSubTab === 'fleet';
+        yard.visible = visible;
+        if (!visible) return;
+
+        const innerW = this._sideW - 24;
+        n.buildHeader.position.set(0, 0);
+        n.capacityText.position.set(0, 16);
+        if (n.yardStatus) {
+            n.yardStatus.style.wordWrap = true;
+            n.yardStatus.style.wordWrapWidth = innerW;
+            n.yardStatus.position.set(0, 32);
+        }
+
+        const cardW = innerW;
+        const statusH = n.yardStatus ? Math.min(46, Math.max(14, n.yardStatus.height)) : 0;
+        const startY = 34 + statusH + 8;
+
+        // All six blueprints stay on screen at every viewport height: when
+        // the panel is short the cards go compact (name + price + BUILD,
+        // blurb dropped) instead of running off the bottom edge.
+        const count = n.blueprintCards.length;
+        const availH = Math.max(0, this._sideH - SIDE_LIST_TOP - startY - 8);
+        const compact = availH < count * 54;
+        const rowH = compact ? Math.max(38, Math.floor(availH / Math.max(1, count))) : 58;
+        const cardH = Math.max(30, rowH - 8);
+
+        n.blueprintCards.forEach((entry, i) => {
+            entry.card.position.set(0, startY + i * rowH);
+            entry.bg.clear();
+            entry.bg.roundRect(0, 0, cardW, cardH, 4).fill({ color: 0x0f172a, alpha: 0.85 });
+            entry.bg.roundRect(0, 0, cardW, cardH, 4).stroke({ color: 0x334155, width: 1, alpha: 0.5 });
+            entry.desc.visible = !compact;
+            entry.desc.style.wordWrap = true;
+            entry.desc.style.wordWrapWidth = Math.max(80, cardW - 16);
+            entry.cost.position.set(8, compact ? 18 : 30);
+            entry.cost.style.wordWrap = true;
+            entry.cost.style.wordWrapWidth = Math.max(80, cardW - 84);
+            entry.buildBtn.container.position.set(cardW - 68, Math.max(4, cardH - 26));
+            entry.card.hitArea = new Rectangle(0, 0, cardW, cardH);
+        });
+    }
+
+    /**
+     * Berth capacity from the pure `crew.fleetSlotLimit()` — base berths plus
+     * the tech extras in the effect bundle — so the yard, `MetaState` and
+     * settlement can never disagree about how big the fleet is. The tech table
+     * below stays as the *display* of where those berths come from.
+     *
+     * (This used to read `effects.fleetSlots` as the capacity. That key counts
+     * *extra* berths and starts at 0, so a fresh station had one berth for a
+     * four-ship starter fleet and refused every BUILD order.)
+     */
     _fleetSlotLimit() {
-        const completed = this.meta?.getResearchState?.().completed || [];
-        return BASE_FLEET_SLOTS + FLEET_SLOT_TECH_UPGRADES.reduce((sum, upgrade) => (
-            completed.includes(upgrade.nodeId) ? sum + upgrade.slots : sum
-        ), 0);
+        if (typeof this.meta?.fleetSlots === 'function') return this.meta.fleetSlots();
+        return fleetSlotLimit(this.meta?.getEffects?.() ?? null);
     }
 
     _refresh() {
@@ -440,7 +553,7 @@ export class BuildUpgradeTab {
 
         if (selected) {
             n.detailName.text = selected.name;
-            n.detailClass.text = `Class: ${selected.className}`;
+            n.detailClass.text = `Class: ${selected.className}  \u00B7  fits ${specialtyFor(selected.className)}`;
             n.detailHull.text = `Hull: ${selected.hull}%`;
             n.detailStatus.text = `Status: ${selected.status}`;
             n.detailPanel.visible = true;
@@ -457,7 +570,8 @@ export class BuildUpgradeTab {
             n.detailPanel.visible = false;
         }
 
-        n.capacityText.text = `Fleet berths: ${fleet.length}/${slotLimit}${hasFreeBerth ? '' : ' · capacity full'}`;
+        n.capacityText.text = `Fleet berths: ${fleet.length}/${slotLimit}${hasFreeBerth ? '' : ' \u00B7 capacity full'}`;
+        if (n.yardStatus) n.yardStatus.text = this._yardStatus;
         n.blueprintCards.forEach((entry) => {
             const canBuild = minerals >= entry.bp.cost && hasFreeBerth;
             entry.buildBtn.container.alpha = canBuild ? 1 : 0.4;
@@ -469,7 +583,12 @@ export class BuildUpgradeTab {
         const n = this._nodes;
         const completed = this.meta?.getResearchState?.().completed || [];
         n.berthSummary.text = `SV Starwarden berths: ${fleet.length}/${slotLimit}`;
-        n.berthDetail.text = `Base mother-ship capacity is ${BASE_FLEET_SLOTS}. Research completions add more fleet slots.`;
+        const extra = Number.isFinite(this.meta?.getEffects?.().fleetSlots)
+            ? Math.max(0, Math.floor(this.meta.getEffects().fleetSlots))
+            : 0;
+        n.berthDetail.text = extra > 0
+            ? `Base ${BASE_FLEET_SLOTS} berths + ${extra} from research = ${slotLimit}.`
+            : `Base mother-ship capacity is ${BASE_FLEET_SLOTS} berths. Research completions add more.`;
 
         n.upgradeCards.forEach((entry) => {
             const unlocked = completed.includes(entry.upgrade.nodeId);
@@ -508,15 +627,25 @@ export class BuildUpgradeTab {
     _buildShip(bp) {
         if (!this.meta) return;
         const fleet = this.meta.fleetSnapshot();
-        if (fleet.length >= this._fleetSlotLimit()) return;
+        const slotLimit = this._fleetSlotLimit();
+        if (fleet.length >= slotLimit) {
+            this._yardStatus = `All ${slotLimit} berths occupied \u2014 disassemble a hull or research more slots.`;
+            this._refresh();
+            return;
+        }
         const minerals = this.meta.getHubResource('minerals') || 0;
-        if (minerals < bp.cost) return;
+        if (minerals < bp.cost) {
+            this._yardStatus = `Need ${bp.cost - minerals} more minerals for the ${bp.baseName}.`;
+            this._refresh();
+            return;
+        }
         this.meta.setHubResource('minerals', minerals - bp.cost);
         this._shipCounter++;
         const id = `ship-built-${Date.now()}-${this._shipCounter}`;
         const name = `${bp.baseName}-${String(this._shipCounter).padStart(2, '0')}`;
         this.meta.addShip({ id, name, className: bp.className });
         this._selectedShipId = id;
+        this._yardStatus = `${name} launched \u00B7 ${bp.cost} minerals \u00B7 fits ${specialtyFor(bp.className)}.`;
         this._refresh();
     }
 
@@ -527,21 +656,33 @@ export class BuildUpgradeTab {
         const damage = 100 - ship.hull;
         const cost = damage * REPAIR_COST_PER_POINT;
         const minerals = this.meta.getHubResource('minerals') || 0;
-        if (minerals < cost) return;
+        if (minerals < cost) {
+            this._yardStatus = `Repair needs ${cost} minerals \u2014 ${cost - minerals} short.`;
+            this._refresh();
+            return;
+        }
         this.meta.setHubResource('minerals', minerals - cost);
         this.meta.setShipHull(this._selectedShipId, 100);
+        // Lifetime stat: hull wear is a real cost, so the yard counts it.
+        this.meta.noteHullRepair(damage);
+        this._yardStatus = `${ship.name} patched to 100% hull for ${cost} minerals.`;
         this._refresh();
     }
 
     _disassembleShip() {
         if (!this.meta || !this._selectedShipId) return;
         const ship = this.meta.fleetSnapshot().find((s) => s.id === this._selectedShipId);
-        if (!ship || ship.status !== 'Standby') return;
+        if (!ship || ship.status !== 'Standby') {
+            this._yardStatus = ship ? `${ship.name} is ${ship.status} \u2014 recall it before scrapping.` : '';
+            this._refresh();
+            return;
+        }
         const bp = BLUEPRINTS.find((b) => b.className === ship.className);
         const returnMinerals = Math.floor((bp?.cost || 500) * DISASSEMBLE_RETURN);
         this.meta.removeShip(this._selectedShipId);
         this.meta.setHubResource('minerals', (this.meta.getHubResource('minerals') || 0) + returnMinerals);
         this._selectedShipId = null;
+        this._yardStatus = `${ship.name} broken down \u00B7 ${returnMinerals} minerals recovered.`;
         this._refresh();
     }
 
@@ -590,7 +731,7 @@ export class BuildUpgradeTab {
 
     _layoutFleetContent(w, h) {
         const n = this._nodes;
-        const leftW = Math.min(250, Math.max(224, Math.floor(w * 0.38)));
+        const leftW = Math.min(250, Math.max(224, Math.floor(w * 0.42)));
         const rightX = leftW + 18;
         const rightW = Math.max(170, w - rightX - 14);
 
@@ -601,20 +742,8 @@ export class BuildUpgradeTab {
         n.repairCost.position.set(98, 99);
         n.disassembleBtn.container.position.set(Math.min(180, rightW - 116), 94);
 
-        n.buildHeader.position.set(rightX, 184);
-        n.capacityText.position.set(rightX + 138, 184);
-
-        const cardW = rightW - 4;
-        const cardsStartY = 204;
-        n.blueprintCards.forEach((entry, i) => {
-            entry.card.position.set(rightX, cardsStartY + i * 54);
-            entry.bg.clear();
-            entry.bg.roundRect(0, 0, cardW, 48, 4).fill({ color: 0x0f172a, alpha: 0.8 });
-            entry.bg.roundRect(0, 0, cardW, 48, 4).stroke({ color: 0x334155, width: 1, alpha: 0.5 });
-            entry.buildBtn.container.position.set(cardW - 68, 12);
-            entry.desc.style.wordWrapWidth = Math.max(80, cardW - 100);
-        });
-
+        // The yard lives in the left panel now (see `_refreshSide`), so
+        // the centre keeps the fleet list and the selected-hull read-out.
         const maxVisibleRows = Math.max(0, Math.floor((h - 50) / 42));
         n.fleetList.children.forEach((row, i) => { row.visible = i < maxVisibleRows; });
     }

@@ -29,23 +29,29 @@ import {
 } from 'pixi.js';
 
 import {
-    GAME_MODES,
-    PIECE_COMPLEXITY,
-} from '../constants.js';
-
-import {
     buildMissions,
+    buildIdleMissions,
     pickMissionBoard,
     ORES,
-    IDLE_DURATION_SEC_BY_RISK,
 } from '../missions.js';
 
 import {
     computeJobState,
-    computePartialCredits,
-    partitionJobs,
     makeRecoveryJob,
 } from '../idle-clock.js';
+
+// P8 meta systems. The hub is the only scene that mutates the dispatch
+// side of MetaState, so it owns settlement (one reward path for manual
+// runs and idle contracts), rep gating on board cards, and the daily
+// board seed + paid rerolls.
+import {
+    settleMission,
+    resolveDispatch,
+    environmentLevelForMission,
+    idleEtaSecForMission,
+} from '../settlement.js';
+import { isMissionUnlocked, repInfo, repTierRequiredForMission } from '../reputation.js';
+import { countdownToNextDay } from '../daily.js';
 
 import { CELL_PALETTE } from './cell-palette.js';
 import { colors } from '../theme/tokens.js';
@@ -159,6 +165,8 @@ const HUB_RISK_PRESETS = Object.freeze({
     5: { label: 'CRITICAL', color: colors.status.error },
 });
 
+// WELCOME BACK banner height in the idle-fleet column.
+const WELCOME_BANNER_H = 96;
 const PLANNER_ROW_H = 30;
 const PLANNER_ROW_GAP = 8;
 const PLANNER_SECTION_GAP = 18;
@@ -180,9 +188,22 @@ export class HubScene {
         this._onStartGame = null;
         this._metaChipSyncBound = false;
 
-        // Deterministic per-boot mission catalog so asteroid names on
-        // cards don't shuffle every time the player re-opens the menu.
-        this._missions = buildMissions({ seed: Math.floor(Math.random() * 0xffffffff) });
+        // Daily mission catalog. The board now rolls from the persisted
+        // daily seed (src/daily.js) instead of a per-boot random, so the
+        // contract list is the same all day, survives a reload, and only
+        // changes at the UTC boundary or when the player pays for a
+        // reroll. `repTier` decides which cards are gated.
+        const boardState = meta?.getBoardState ? meta.getBoardState() : null;
+        this._missions = [];
+        this._rebuildMissionCatalog(boardState?.seed ?? Math.floor(Math.random() * 0xffffffff));
+        // Runtime news lines pushed by meta events (rep promotion, sector
+        // charted, contract claimed). Prepended to the static flavor pool.
+        this._newsRuntime = [];
+        // Offline summary handed in by main.js at boot; renders the
+        // WELCOME BACK banner over the idle fleet list.
+        this._offlineSummary = null;
+        this._welcomeBanner = null;
+        this._lastBoardMetaRefresh = 0;
         this._idleMissions = [];
         this._idleMissionSeq = 1;
         // MANUAL is the default dispatch mode: pressing DISPATCH immediately
@@ -191,8 +212,13 @@ export class HubScene {
         this._onResetGame = null;
         // Miner (blocks tiers) is the default sandbox: preselect the first
         // blocks-tier mission so a fresh boot points at the miner board.
+        // Combat variants of a blocks tier route to the defense minigame
+        // instead, so skip them when picking the default.
         const defaultMission =
-            this._missions.find((m) => m.tierId === 'blocks-classic') || this._missions[0];
+            this._missions.find((m) => m.tierId === 'blocks-classic' && !m.runsDefense) ||
+            this._missions.find((m) => m.tierId?.startsWith('blocks-') && !m.runsDefense) ||
+            this._missions.find((m) => !m.runsDefense) ||
+            this._missions[0];
         this._selectedMissionTierId = defaultMission?.tierId || null;
         this._selectedShipId = null;
         this._selectedCrewId = null;
@@ -260,6 +286,13 @@ export class HubScene {
             this._refreshActiveIdleMissions();
         }
 
+        // The board's "free refresh in HH:MM:SS" countdown + reroll price
+        // only need a 1 Hz repaint, and only while the modal is open.
+        if (n.modal?.container.visible && now - this._lastBoardMetaRefresh >= 1000) {
+            this._lastBoardMetaRefresh = now;
+            this._refreshMissionBoardMeta();
+        }
+
         // Forward tick to live tabs (Research needs it for live progress)
         const activeTab = this._nodes?.tabs?.[this._nodes.activeTabId];
         if (activeTab && typeof activeTab.tick === 'function') {
@@ -279,6 +312,7 @@ export class HubScene {
     }
 
     destroy() {
+        this._destroyWelcomeBanner();
         if (this._nodes) {
             // Tear down any extracted tab scenes before the center
             // panel itself is destroyed so their own refs are cleared.
@@ -326,6 +360,7 @@ export class HubScene {
         const news = this._buildNewsTicker();
         const leftCol = this._buildActiveMissions();
         const researchProjects = this._buildResearchProjects(); // shown when RESEARCH tab is active
+        const sidePanel = this._buildSidePanel();               // shown when a tab owns it
         const centerPanel = this._buildCenter();
         const rightCol = this._buildFleetCrew();
         const bottomNav = this._buildBottomNav();
@@ -336,17 +371,18 @@ export class HubScene {
         // shows the right one and hides the others. STAR MAP,
         // BUILD/UPGRADE, and RESEARCH are extracted scenes; the
         // remaining tabs still render a locked stub.
-        const starMapTab = new StarMapTab({ parent: centerPanel.panel });
-        const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel, meta: this.meta });
+        const starMapTab = new StarMapTab({ parent: centerPanel.panel, meta: this.meta, side: sidePanel });
+        const buildTab = new BuildUpgradeTab({ parent: centerPanel.panel, meta: this.meta, side: sidePanel });
         const researchTab = new ResearchTab({ parent: centerPanel.panel, meta: this.meta });
         const crewTab = new CrewTab({ parent: centerPanel.panel, meta: this.meta });
-        const marketTab = new MarketTab({ parent: centerPanel.panel, meta: this.meta });
+        const marketTab = new MarketTab({ parent: centerPanel.panel, meta: this.meta, side: sidePanel });
         const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab, crew: crewTab, market: marketTab };
 
         root.addChild(topBar.container);
         root.addChild(news.container);
         root.addChild(leftCol.container);
         root.addChild(researchProjects.container); // will be shown/hidden based on active tab
+        root.addChild(sidePanel.container);        // tab-owned left panel (STAR MAP / BUILD / MARKET)
         root.addChild(centerPanel.container);
         root.addChild(rightCol.container);
         root.addChild(bottomNav.container);
@@ -358,6 +394,7 @@ export class HubScene {
             news,
             leftCol,
             researchProjects, // alternative left column content
+            sidePanel,        // tab-owned alternative left column content
             centerPanel,
             rightCol,
             bottomNav,
@@ -421,6 +458,14 @@ export class HubScene {
             chip.format = r.format;
             return chip;
         });
+        // REP chip: the dispatcher rank + progress toward the next one.
+        // Rendered like a resource chip but sourced from MetaState's
+        // reputation points through reputation.js, not a hub resource.
+        const repChip = this._buildResourceChip({ label: 'REP', color: colors.brand.gold });
+        repChip.metaId = null;
+        repChip.format = 'rep';
+        repChip.wide = true;
+        chips.push(repChip);
         chips.forEach((chip) => container.addChild(chip.container));
         // Sync chip values with MetaState now, and re-sync whenever
         // MetaState emits `change` so reward grants surface in the top
@@ -428,20 +473,31 @@ export class HubScene {
         this._syncResourceChips(chips);
         if (this.meta && !this._metaChipSyncBound) {
             this._metaChipSyncBound = true;
-            this.meta.on('change', () => {
+            this.meta.on('change', (payload) => {
                 if (this._nodes && this._nodes.topBar) {
                     this._syncResourceChips(this._nodes.topBar.chips);
+                }
+                // Runtime headlines: a rank promotion or a newly charted
+                // sector is exactly the kind of thing the ticker is for.
+                if (payload?.kind === 'rep-tier') {
+                    const info = this.meta.getRepInfo();
+                    this.pushNews(`Promotion: you are now ${info.title} (REP tier ${info.tier}).`);
+                }
+                if (payload?.kind === 'sector-discovered') {
+                    this.pushNews(`New sector charted: ${payload.detail?.id?.replace(/-/g, ' ')}.`);
+                }
+                if (payload?.kind === 'research-complete') {
+                    this.pushNews(`Research online: ${payload.detail?.nodeId?.replace(/-/g, ' ')}.`);
                 }
                 // P4: any meta mutation (dispatch claim/abort, rewards, etc.) can affect the idle list
                 this._refreshActiveIdleMissions?.();
                 this._refreshMissionPlanner?.();
                 this._refreshFleetCrewPanel?.();
 
-                // Research tab reacts to resource changes and research state
-                const researchTab = this._nodes?.tabs?.research;
-                if (researchTab && typeof researchTab._refreshFromMeta === 'function') {
-                    researchTab._refreshFromMeta();
-                }
+                // Whichever tab is on screen reacts to resource + state
+                // changes (research nodes, sector rail, market prices,
+                // crew roster, fleet berths).
+                this._refreshVisibleTab();
 
                 // If research projects are visible in left column, refresh them
                 if (this._nodes?.researchProjects?.container.visible) {
@@ -485,6 +541,14 @@ export class HubScene {
     _syncResourceChips(chips) {
         if (!chips) return;
         for (const chip of chips) {
+            if (chip.format === 'rep') {
+                const info = this.meta?.getRepInfo ? this.meta.getRepInfo() : repInfo(0);
+                chip.labelText.text = `REP ${info.tier} · ${info.title.split(' ')[0].toUpperCase()}`;
+                chip.valueText.text = info.maxed
+                    ? 'MAX RANK'
+                    : `${info.rep - info.threshold} / ${info.nextThreshold - info.threshold}`;
+                continue;
+            }
             const value = this.meta ? this.meta.getHubResource(chip.metaId) : null;
             chip.valueText.text = formatHubResourceValue(value, chip.format);
         }
@@ -629,6 +693,47 @@ export class HubScene {
             header,
             list,
             slots: [], // will hold the rendered research slot rows
+        };
+    }
+
+    /**
+     * Generic left-column panel owned by whichever tab is active.
+     *
+     * MISSIONS keeps its idle-fleet list and RESEARCH keeps its project
+     * list; the other tabs get this panel instead, so tab-specific tooling
+     * lives on the left where the player's eye already is:
+     *
+     *   STAR MAP      -> SYSTEM DATA for the selected body
+     *   BUILD/UPGRADE -> the shipyard (blueprints + berth counter)
+     *   MARKET        -> the goods list with BUY/SELL
+     *
+     * The tab builds its own children into `list` and re-lays them out from
+     * `layoutSide({ width, height })`, which the hub calls on activation and
+     * on every resize. ADR-0010 still holds: the tab owns its content, the
+     * hub only owns the frame.
+     */
+    _buildSidePanel() {
+        const container = new Container();
+        const panel = drawTechPanel(HUB_COL_W, 420, { accent: 'cyan' });
+        container.addChild(panel);
+
+        const header = panelLabel('PANEL', COLOR_CYAN_300, { size: 14 });
+        header.position.set(14, 12);
+        panel.addChild(header);
+
+        const list = new Container();
+        list.position.set(12, 40);
+        panel.addChild(list);
+
+        return {
+            container,
+            panel,
+            panelAccent: 'cyan',
+            header,
+            list,
+            // Tab currently driving the panel; used to skip relayout when a
+            // hidden tab's stale content is still mounted.
+            ownerId: null,
         };
     }
 
@@ -950,10 +1055,10 @@ export class HubScene {
         subtitle.position.set(18, 42);
         panel.addChild(subtitle);
 
-        // Roll the initial 2x2 subset. Seed from the session's
-        // mission-name RNG so the visible board stays stable between
-        // opens within one boot but still varies run-to-run.
-        this._hubBoardSeed = Math.floor(Math.random() * 0xffffffff);
+        // Roll the initial 2x2 subset from the *daily* seed so the board
+        // is stable across reloads within a UTC day and only changes at
+        // the day boundary or when the player pays for a reroll.
+        this._hubBoardSeed = this._boardSeed;
         const picks = pickMissionBoard(this._missions, { count: 4, seed: this._hubBoardSeed });
 
         const cardsContainer = new Container();
@@ -976,7 +1081,7 @@ export class HubScene {
 
         const rerollButton = buildStartButton({
             text: 'REROLL BOARD',
-            width: 160,
+            width: 200,
             height: 34,
             onTap: () => this._rerollMissionBoard(),
         });
@@ -992,6 +1097,29 @@ export class HubScene {
         panel.addChild(closeButton.container);
 
         return { container, dim, panel, title, subtitle, cardsContainer, cards, rerollButton, closeButton };
+    }
+
+    // Live copy on the board: today's reroll price + the countdown to the
+    // free daily refresh. Called from tick() at ~1 Hz while the modal is
+    // open, and after every reroll.
+    _refreshMissionBoardMeta() {
+        const modal = this._nodes?.modal;
+        if (!modal) return;
+        const now = Date.now();
+        const board = this.meta?.getBoardState ? this.meta.getBoardState(now) : null;
+        const credits = this.meta?.credits ?? 0;
+        const cost = board?.nextRerollCost ?? Infinity;
+        const affordable = Number.isFinite(cost) && credits >= cost;
+
+        modal.subtitle.text = board
+            ? `Daily contracts · free refresh in ${countdownToNextDay(now)} · ${board.rerollsToday} reroll${board.rerollsToday === 1 ? '' : 's'} used today`
+            : 'Select a contract to dispatch';
+        modal.rerollButton.label.text = !board?.canReroll
+            ? 'REROLL LIMIT REACHED'
+            : `REROLL BOARD · ${cost.toLocaleString('en-US')} CR`;
+        modal.rerollButton.container.alpha = affordable ? 1 : 0.42;
+        modal.rerollButton.container.eventMode = affordable ? 'static' : 'none';
+        modal.rerollButton.container.cursor = affordable ? 'pointer' : 'not-allowed';
     }
 
     _buildNarrativeMissionCard(mission, w, h) {
@@ -1017,15 +1145,18 @@ export class HubScene {
         accent.rect(0, 0, w, 3).fill({ color: tierFill, alpha: 0.9 });
         container.addChild(accent);
 
-        // Type tag (top-left) + sector name (top-right).
+        // Type tag (top-left) + sector name (top-right). Combat variants
+        // get a second badge so the player knows this card launches the
+        // defense minigame instead of the puzzle board.
+        const isCombat = !!mission.runsDefense;
         const typeTag = new Text({
-            text: mission.type.toUpperCase(),
+            text: isCombat ? `${mission.type.toUpperCase()} · MINIGAME` : mission.type.toUpperCase(),
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 10,
                 fontWeight: '800',
                 letterSpacing: 2,
-                fill: tierFill,
+                fill: isCombat ? colors.status.error : tierFill,
             }),
         });
         typeTag.position.set(12, 12);
@@ -1111,35 +1242,84 @@ export class HubScene {
         reward.position.set(w - 12, h - 56);
         container.addChild(reward);
 
+        // Rep gate: T8/T9 cards stay visible (they show what you are
+        // working toward) but refuse a dispatch until the rank is earned.
+        const repTier = this.meta?.reputationTier ?? 1;
+        const unlocked = isMissionUnlocked(mission, repTier);
+        const requiredRep = repTierRequiredForMission(mission);
+
         // ACCEPT button spans the card's bottom edge.
         const accept = buildSimpleButton({
-            text: 'ACCEPT',
+            text: unlocked ? 'ACCEPT' : `LOCKED · REP ${requiredRep}`,
             width: w - 24,
             height: 28,
-            accent: 'green',
+            accent: unlocked ? 'green' : 'amber',
         });
         accept.container.position.set(12, h - 40);
+        accept.container.eventMode = 'none';
         container.addChild(accept.container);
+
+        let lockOverlay = null;
+        let lockText = null;
+        if (!unlocked) {
+            lockOverlay = new Graphics();
+            lockOverlay.roundRect(0, 0, w, h, 10).fill({ color: 0x020617, alpha: 0.62 });
+            container.addChild(lockOverlay);
+            lockText = new Text({
+                text: `REP TIER ${requiredRep} REQUIRED\nYou are REP ${repTier} · ${repInfo(this.meta?.reputation ?? 0).title}`,
+                style: new TextStyle({
+                    fontFamily: '"Courier New", monospace',
+                    fontSize: 12,
+                    fontWeight: '700',
+                    align: 'center',
+                    letterSpacing: 1,
+                    fill: colors.status.warning,
+                }),
+            });
+            lockText.anchor.set(0.5);
+            lockText.position.set(w / 2, h / 2 - 8);
+            container.addChild(lockText);
+        }
 
         // Hover state: brighten border. Click forwards through the
         // parent card's pointertap (set by the caller).
         const redraw = (hovered) => {
+            const live = hovered && unlocked;
             border.clear();
-            border.roundRect(0, 0, w, h, 10).stroke({ color: tierFill, width: hovered ? 2 : 1, alpha: hovered ? 0.95 : 0.55 });
-            bgFill.alpha = hovered ? 0.9 : 0.78;
+            border.roundRect(0, 0, w, h, 10).stroke({
+                color: unlocked ? tierFill : colors.status.warning,
+                width: live ? 2 : 1,
+                alpha: unlocked ? (live ? 0.95 : 0.55) : 0.5,
+            });
+            bgFill.alpha = live ? 0.9 : 0.78;
         };
         container.on('pointerover', () => redraw(true));
         container.on('pointerout', () => redraw(false));
+        container.cursor = unlocked ? 'pointer' : 'not-allowed';
 
-        return { container, border, bgFill, accept, missionId: mission.id };
+        return { container, border, bgFill, accept, lockOverlay, lockText, unlocked, missionId: mission.id };
     }
 
     _rerollMissionBoard() {
-        // Bump seed so pickMissionBoard returns a different subset,
-        // then rebuild the card container in place. Cheap enough to
-        // dispose and recreate; the hub doesn't hit this on a hot
-        // path.
-        this._hubBoardSeed = (this._hubBoardSeed + 0x9E3779B9) >>> 0;
+        // Paid reroll: MetaState charges the escalating credit cost and
+        // persists the day's reroll counter, then the board re-rolls from
+        // the new deterministic seed. The first roll of each UTC day is
+        // free and happens by itself (normalizeBoardState resets it).
+        if (this.meta?.buyBoardReroll) {
+            const result = this.meta.buyBoardReroll();
+            if (!result.ok) {
+                this.pushNews(`Reroll declined: ${result.reason}.`);
+                this._refreshMissionBoardMeta();
+                return;
+            }
+            // Rebuild the whole catalog from the new daily seed: the seed
+            // decides which Combat variants (sector, risk lane, ore split)
+            // hang off the nine tiers, so a paid reroll changes more than
+            // which four cards are face up.
+            this._rebuildMissionCatalog(this.meta.getBoardState().seed);
+        } else {
+            this._rebuildMissionCatalog((this._hubBoardSeed + 0x9E3779B9) >>> 0);
+        }
         const modal = this._nodes?.modal;
         if (!modal) return;
         modal.cardsContainer.removeChildren();
@@ -1157,10 +1337,32 @@ export class HubScene {
             modal.cardsContainer.addChild(card.container);
             return card;
         });
+        this._refreshMissionBoardMeta();
+        // The planner lists contracts from the same catalog; keep its
+        // preselection pointed at a record that still exists.
+        this._refreshMissionPlanner();
+    }
+
+    /**
+     * Rebuild the daily mission catalog from a board seed. Shared by the
+     * constructor and the paid reroll so the seed -> catalog derivation
+     * exists in exactly one place.
+     */
+    _rebuildMissionCatalog(seed) {
+        this._boardSeed = (seed >>> 0) || 1;
+        this._hubBoardSeed = this._boardSeed;
+        this._missions = buildMissions({
+            seed: this._boardSeed,
+            repTier: this.meta?.reputationTier ?? 1,
+        });
+        return this._missions;
     }
 
     _openMissionBoard() {
-        if (this._nodes?.modal) this._nodes.modal.container.visible = true;
+        if (this._nodes?.modal) {
+            this._nodes.modal.container.visible = true;
+            this._refreshMissionBoardMeta();
+        }
     }
 
     _closeMissionBoard() {
@@ -1226,11 +1428,14 @@ export class HubScene {
             this._closeMissionBoard();
         }
 
-        // Left-column content is contextual: idle dispatches are shown only
-        // on MISSIONS, and active research is shown only on RESEARCH. Other
-        // tabs keep the left bay clear so their center content can breathe.
+        // Left-column content is contextual: idle dispatches on MISSIONS,
+        // active projects on RESEARCH, and the tab-owned side panel on any
+        // tab that declares `usesSidePanel` (STAR MAP, BUILD/UPGRADE,
+        // MARKET). CREW keeps the bay clear so its roster can breathe.
         const showIdleLeft = tabId === 'missions';
         const showResearchLeft = tabId === 'research';
+        const sideScene = n.tabs[tabId];
+        const showSideLeft = !showIdleLeft && !showResearchLeft && !!sideScene?.usesSidePanel;
 
         if (n.leftCol && n.researchProjects) {
             n.leftCol.container.visible = showIdleLeft;
@@ -1240,26 +1445,59 @@ export class HubScene {
                 this._refreshResearchProjectsPanel();
             }
         }
+
+        if (n.sidePanel) {
+            n.sidePanel.container.visible = showSideLeft;
+            if (showSideLeft) {
+                // The bay is shared by three tabs, each of which parks its
+                // own container in `list`. Hide everything before the new
+                // owner lays out, so a tab that forgets to hide itself on
+                // `hide()` cannot render behind the next owner's content.
+                if (n.sidePanel.ownerId !== tabId) {
+                    n.sidePanel.list.children.forEach((child) => { child.visible = false; });
+                }
+                n.sidePanel.ownerId = tabId;
+                n.sidePanel.header.text = sideScene.sidePanelTitle || 'PANEL';
+                this._layoutSidePanel();
+            } else if (n.sidePanel.ownerId) {
+                n.sidePanel.ownerId = null;
+            }
+        }
+    }
+
+    /**
+     * Hand the tab-owned left panel its current inner size. Called on tab
+     * activation and from `_layoutShell` on every resize.
+     */
+    _layoutSidePanel() {
+        const n = this._nodes;
+        const side = n?.sidePanel;
+        if (!side || !side.ownerId) return;
+        const scene = n.tabs[side.ownerId];
+        if (!scene || typeof scene.layoutSide !== 'function') return;
+        scene.layoutSide({
+            width: side._w || HUB_COL_W,
+            height: side._h || 420,
+        });
+    }
+
+    /**
+     * Re-paint whichever tab scene is on screen. Every meta write can move
+     * a number a tab shows — warp balance, mineral stock, crew roster — so
+     * the visible tab is refreshed from the single `change` event instead
+     * of each tab polling.
+     */
+    _refreshVisibleTab() {
+        const scene = this._nodes?.tabs?.[this._nodes?.activeTabId];
+        if (!scene || scene.visible === false) return;
+        if (typeof scene._refreshFromMeta === 'function') { scene._refreshFromMeta(); return; }
+        if (typeof scene._refreshSectors === 'function') { scene._refreshSectors(); return; }
+        if (typeof scene._refresh === 'function') scene._refresh();
     }
 
     _setDispatchMode(mode) {
         this._selectedMissionDispatch = mode === 'manual' ? 'manual' : 'idle';
         this._refreshMissionPlanner();
-    }
-
-    _environmentLevelForMission(mission) {
-        const complexity = mission?.gameConfig?.complexity;
-        if (complexity === PIECE_COMPLEXITY.COLLAPSED) return 3;
-        if (complexity === PIECE_COMPLEXITY.MUTATED) return 2;
-        return 1;
-    }
-
-    _idleEtaSecForMission(mission, shipTypeMatch) {
-        const base = IDLE_DURATION_SEC_BY_RISK[mission?.risk] || 240;
-        const tierBonus = Math.max(0, ((mission?.tierIndex || 1) - 1) * 15);
-        const envBonus = (this._environmentLevelForMission(mission) - 1) * 25;
-        const hullPenalty = shipTypeMatch ? -12 : 16;
-        return Math.max(90, Math.round(base + tierBonus + envBonus + hullPenalty));
     }
 
     _truncateSingleLine(textNode, fullText, maxWidth) {
@@ -1366,18 +1604,38 @@ export class HubScene {
         const mission = missionPool.find((m) => m.tierId === this._selectedMissionTierId) || missionPool[0];
         const maxIdle = this._maxIdleAssignments();
         const risk = HUB_RISK_PRESETS[mission.risk] || HUB_RISK_PRESETS[3];
-        const envLvl = this._environmentLevelForMission(mission);
-        const threatLvl = mission.risk;
-        const etaPreviewSec = this._idleEtaSecForMission(mission, true);
+        // Priced through settlement.resolveDispatch so the preview shows
+        // exactly what the crew, hull, tech tree and charted sectors will
+        // pay — the same number the idle job bakes in at dispatch time.
+        const selectedShip = fleet.find((sh) => sh.id === this._selectedShipId) || null;
+        const selectedCrew = crew.find((c) => c.id === this._selectedCrewId) || null;
+        const priced = resolveDispatch({
+            mission,
+            ship: selectedShip,
+            crew: selectedCrew,
+            effects: this._effects(),
+            discoveredSectors: this._sectors(),
+        });
+        const envLvl = priced.environmentLevel;
+        const threatLvl = priced.threatLevel;
+        const etaPreviewSec = priced.etaSec;
+        const locked = !isMissionUnlocked(mission, this.meta?.reputationTier ?? 1);
+        const modeLine = locked
+            ? `LOCKED — REP tier ${repTierRequiredForMission(mission)} clearance required.`
+            : mission.runsDefense
+                ? 'Launches the DEFENSE minigame now.'
+                : this._selectedMissionDispatch === 'manual'
+                    ? `Launches the ${mission.type.toUpperCase()} minigame now.`
+                    : 'Autonomous idle run; RETURN early for a partial payout.';
+        const bonusLine = priced.sectorCharted
+            ? ` · ${mission.sector} charted bonus live`
+            : ` · chart ${mission.sector} on STAR MAP for a bonus`;
         planner.outcomeBody.text = `${mission.narrativeName} · ${mission.type} · ${mission.difficulty}\n` +
             `Threat Lv ${threatLvl} · Environment Lv ${envLvl} · ETA ${formatDuration(etaPreviewSec)}\n` +
-            `Reward ~${Math.round(mission.baseCredits * 0.8)}-${Math.round(mission.baseCredits * 1.25)} credits. ` +
-            `${this._selectedMissionDispatch === 'manual'
-                ? 'Launches playable minigame.'
-                : 'Autonomous idle run, can be aborted anytime for partial return.'}`;
+            `Payout ~${priced.rewardCredits.toLocaleString('en-US')} credits${bonusLine}. ${modeLine}`;
         planner.capacityText.text = `IDLE CAPACITY ${this._idleMissions.length}/${maxIdle} · FREE SHIPS ${freeShips.length} · FREE CREW ${freeCrew.length}`;
 
-        const canDispatch = !!(this._selectedShipId && this._selectedCrewId && mission);
+        const canDispatch = !!(this._selectedShipId && this._selectedCrewId && mission && !locked);
         planner.dispatch.container.eventMode = canDispatch ? 'static' : 'none';
         planner.dispatch.container.cursor = canDispatch ? 'pointer' : 'not-allowed';
         planner.dispatch.label.style.fill = canDispatch ? colors.text.white : colors.text.muted;
@@ -1388,6 +1646,10 @@ export class HubScene {
         const crew = this.meta?.crewSnapshot().find((c) => c.id === this._selectedCrewId && c.status === 'Available');
         const mission = this._missions.find((m) => m.tierId === this._selectedMissionTierId);
         if (!ship || !crew || !mission) return;
+        if (!isMissionUnlocked(mission, this.meta?.reputationTier ?? 1)) {
+            this.pushNews(`${mission.narrativeName} needs REP tier ${repTierRequiredForMission(mission)} clearance.`);
+            return;
+        }
         if (this._selectedMissionDispatch === 'idle' && this._idleMissions.length >= this._maxIdleAssignments()) return;
 
         const now = Date.now();
@@ -1469,22 +1731,38 @@ export class HubScene {
         this._refreshFleetCrewPanel();
     }
 
+    // Thin delegate onto settlement.resolveDispatch so the planner preview
+    // and the persisted idle job are priced by exactly the same code.
     _resolveMissionForDispatch(mission, ship, crew) {
-        const missionType = String(mission.type || '').toLowerCase();
-        const shipTypeMatch = String(ship.className || '').toLowerCase().includes(missionType);
-        const skillFactor = 1 + ((crew.level - 1) * 0.04);
-        const typeFactor = shipTypeMatch ? 1.12 : 0.94;
-        const threatLevel = mission.risk;
-        const environmentLevel = this._environmentLevelForMission(mission);
-        const rewardCredits = Math.max(60, Math.round(mission.baseCredits * skillFactor * typeFactor));
-        const etaSec = this._idleEtaSecForMission(mission, shipTypeMatch);
-        return {
-            rewardCredits,
-            etaSec,
-            threatLevel,
-            environmentLevel,
-            rewardOres: { common: [], rare: [] },
-        };
+        return resolveDispatch({
+            mission,
+            ship,
+            crew,
+            effects: this._effects(),
+            discoveredSectors: this._sectors(),
+        });
+    }
+
+    _environmentLevelForMission(mission) {
+        return environmentLevelForMission(mission);
+    }
+
+    _idleEtaSecForMission(mission, shipTypeMatch) {
+        return idleEtaSecForMission(mission, {
+            shipTypeMatch,
+            effects: this._effects(),
+            sectorBonus: null,
+        });
+    }
+
+    /** Resolved research + station-sector modifiers (never null). */
+    _effects() {
+        return this.meta?.getEffects ? this.meta.getEffects() : null;
+    }
+
+    /** Charted sector ids. */
+    _sectors() {
+        return this.meta?.discoveredSectorIds ? this.meta.discoveredSectorIds() : [];
     }
 
     _maxIdleAssignments() {
@@ -1615,7 +1893,25 @@ export class HubScene {
             });
         }
         left.rows = [];
+        left.emptyOffset = 0;
+
+        // WELCOME BACK banner: idle contracts store absolute end times, so
+        // anything that finished while the tab was closed is already
+        // claimable. The banner says so out loud instead of leaving the
+        // player to notice a number changed.
+        this._destroyWelcomeBanner();
+        let rowOffset = 0;
+        const banner = this._buildWelcomeBanner(HUB_COL_W - 24);
+        if (banner) {
+            banner.container.position.set(0, 0);
+            left.list.addChild(banner.container);
+            this._welcomeBanner = banner;
+            rowOffset = WELCOME_BANNER_H + 10;
+            left.emptyOffset = rowOffset;
+        }
+
         if (this._idleMissions.length === 0) {
+            left.empty.position.set(0, rowOffset);
             left.list.addChild(left.empty);
             return;
         }
@@ -1624,10 +1920,64 @@ export class HubScene {
         this._idleMissions.forEach((job, i) => {
             const state = computeJobState(job, now);
             const row = this._buildActiveIdleRow(job, rowW, state.remainingSec, state.done);
-            row.container.y = i * 118;
+            row.container.y = rowOffset + i * 118;
             left.list.addChild(row.container);
             left.rows.push(row);
         });
+    }
+
+    _destroyWelcomeBanner() {
+        if (!this._welcomeBanner) return;
+        const node = this._welcomeBanner.container;
+        if (node?.parent) node.parent.removeChild(node);
+        node?.destroy({ children: true });
+        this._welcomeBanner = null;
+    }
+
+    /** Returns null when there is nothing to welcome the player back to. */
+    _buildWelcomeBanner(w) {
+        const summary = this._offlineSummary;
+        if (!summary || !summary.completed || summary.completed.length === 0) return null;
+
+        const container = new Container();
+        const frame = drawTechPanel(w, WELCOME_BANNER_H, { accent: 'green' });
+        container.addChild(frame);
+
+        const title = new Text({
+            text: 'WELCOME BACK',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: '800', letterSpacing: 2, fill: colors.status.success }),
+        });
+        title.position.set(12, 8);
+        frame.addChild(title);
+
+        const away = new Text({
+            text: `Away ${summary.awayLabel} · ${summary.completed.length} contract${summary.completed.length === 1 ? '' : 's'} finished`,
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: colors.text.muted, wordWrap: true, wordWrapWidth: w - 24 }),
+        });
+        away.position.set(12, 26);
+        frame.addChild(away);
+
+        const payout = new Text({
+            text: `${summary.credits.toLocaleString('en-US')} CR · ${summary.oreUnits} ore lanes waiting`,
+            style: new TextStyle({ fontFamily: '"Courier New", monospace', fontSize: 11, fill: colors.status.warning }),
+        });
+        payout.position.set(12, 44);
+        frame.addChild(payout);
+
+        const claimAll = buildSimpleButton({
+            text: 'CLAIM ALL',
+            width: w - 24,
+            height: 26,
+            accent: 'green',
+            onTap: () => {
+                const claimed = this.claimAllReadyMissions();
+                this.pushNews(`${claimed} idle contract${claimed === 1 ? '' : 's'} claimed after ${summary.awayLabel} away.`);
+            },
+        });
+        claimAll.container.position.set(12, WELCOME_BANNER_H - 34);
+        frame.addChild(claimAll.container);
+
+        return { container, frame, title, away, payout, claimAll };
     }
 
     _reconcileIdleMissionState() {
@@ -1739,10 +2089,13 @@ export class HubScene {
         const job = this._idleMissions.find((m) => m.id === jobId);
         if (!job) return;
 
-        // P4: compute pure partial via clock helper, then delegate to MetaState
-        // (meta handles credits + status flips + removal + persistence)
-        const partialCredits = computePartialCredits(job);
-        this.meta?.abortActiveMission(jobId, { partialCredits });
+        // P8: the partial payout is a settlement like any other — same
+        // crew/hull/rep rules, `aborted: true` zeroes the ore + XP and
+        // pays the elapsed fraction of the contract. One atomic write
+        // banks it and retires the job (ship + crew released).
+        const settlement = this._settleJob(job, { aborted: true });
+        if (this.meta) this.meta.settleActiveMission(jobId, settlement);
+        this.pushNews(`${job.title} returned early \u2014 ${settlement.credits.toLocaleString('en-US')} CR salvaged.`);
 
         // Keep local cache in sync (meta change handler will also refresh)
         this._idleMissions = this._idleMissions.filter((m) => m.id !== jobId);
@@ -1753,25 +2106,97 @@ export class HubScene {
 
     _claimIdleMission(jobId) {
         const idx = this._idleMissions.findIndex((m) => m.id === jobId);
-        if (idx < 0) return;
+        if (idx < 0) return null;
         const job = this._idleMissions[idx];
 
-        // P4: build the exact payout envelope (credits + per-color ores) then delegate
-        let credits = job.rewardCredits || 0;
-        const ores = {};
-        const applyOre = (oreId) => {
-            const ore = ORES.find((o) => o.id === oreId);
-            if (ore?.color) ores[ore.color] = (ores[ore.color] || 0) + 1;
-        };
-        if (Array.isArray(job.rewardOres?.common)) job.rewardOres.common.forEach(applyOre);
-        if (Array.isArray(job.rewardOres?.rare)) job.rewardOres.rare.forEach(applyOre);
-
-        this.meta?.claimActiveMission(jobId, { credits, ores });
+        // P8: one settlement covers credits, ores, rep, crew XP, hull wear
+        // and any warp cell the fleet brought home. `applySettlement`
+        // mutates + saves in a single change event; the job record is then
+        // removed and its ship/crew released by claimActiveMission.
+        const settlement = this._settleJob(job, { aborted: false });
+        if (this.meta) this.meta.settleActiveMission(jobId, settlement);
+        this._announceSettlement(settlement);
 
         this._idleMissions.splice(idx, 1);
         this._refreshActiveIdleMissions();
         this._refreshMissionPlanner();
         this._refreshFleetCrewPanel();
+        return settlement;
+    }
+
+    /**
+     * Claim every ready contract at once — the WELCOME BACK action after
+     * an offline stretch. Returns the number of contracts claimed.
+     */
+    claimAllReadyMissions() {
+        const now = Date.now();
+        const ready = this._idleMissions.filter((job) => computeJobState(job, now).done);
+        ready.forEach((job) => this._claimIdleMission(job.id));
+        this._offlineSummary = null;
+        this._refreshActiveIdleMissions();
+        return ready.length;
+    }
+
+    // Build a settlement for a persisted idle job: look the ship + crew up
+    // in MetaState so hull wear and XP land on the right records.
+    _settleJob(job, { aborted = false } = {}) {
+        const nowMs = Date.now();
+        const mission = this._missions.find((m) => m.id === job.missionId) || null;
+        const ship = this.meta?.fleetSnapshot().find((s) => s.id === job.shipId) || null;
+        const crew = this.meta?.crewSnapshot().find((c) => c.id === job.crewId) || null;
+        return settleMission({
+            mission: mission || { id: job.missionId, risk: job.risk, type: job.type, sector: job.sector, tierIndex: 1 },
+            job,
+            ship,
+            crew,
+            effects: this._effects(),
+            discoveredSectors: this._sectors(),
+            dispatchMode: 'idle',
+            won: !aborted,
+            aborted,
+            nowMs,
+        });
+    }
+
+    // One-line Galactic News entry for a finished contract, plus a rep
+    // promotion call-out when the payout crossed a rank boundary.
+    _announceSettlement(settlement) {
+        if (!settlement) return;
+        const parts = [`${settlement.title} paid ${settlement.credits.toLocaleString('en-US')} CR`];
+        if (settlement.rep > 0) parts.push(`+${settlement.rep} REP`);
+        if (settlement.warp > 0) parts.push(`+${settlement.warp} warp`);
+        this.pushNews(parts.join(' · ') + '.');
+    }
+
+    /**
+     * Prepend a runtime headline to the Galactic News ticker. Keeps the
+     * last few so the strip stays a live feed instead of static flavor.
+     */
+    pushNews(text) {
+        if (!text) return;
+        this._newsRuntime = [String(text), ...this._newsRuntime].slice(0, 4);
+        const body = this._nodes?.news?.body;
+        if (body) body.text = [...this._newsRuntime, ...HUB_NEWS_POOL].join('   \u25C7   ');
+    }
+
+    /**
+     * Offline report handed in by main.js at boot. Renders the WELCOME
+     * BACK banner over the idle fleet list until the player claims.
+     */
+    setOfflineSummary(summary) {
+        this._offlineSummary = summary && summary.completed?.length ? summary : null;
+        if (this._nodes) this._refreshActiveIdleMissions();
+    }
+
+    /**
+     * The manual-dispatch job record for a mission, so main.js can settle
+     * a finished run against the ship + crew the player actually sent.
+     */
+    getPendingManualDispatch(missionId) {
+        if (!missionId) return null;
+        return this._idleMissions.find(
+            (j) => j.missionId === missionId && j.dispatchMode === 'manual' && !j.claimed,
+        ) || null;
     }
 
     _rollCallsign() {
@@ -1788,6 +2213,11 @@ export class HubScene {
     // start-game request. main.js listens and drives the GameState +
     // screen transition.
     _onMissionCardTapped(mission) {
+        if (!isMissionUnlocked(mission, this.meta?.reputationTier ?? 1)) {
+            const required = repTierRequiredForMission(mission);
+            this.pushNews(`${mission.narrativeName} needs REP tier ${required} clearance.`);
+            return;
+        }
         this._startState.mode = mission.gameConfig.mode;
         this._startState.complexity = mission.gameConfig.complexity;
         this._startState.fieldSizeId = mission.gameConfig.fieldSizeId;
@@ -1851,6 +2281,9 @@ export class HubScene {
 
         this._layoutColumnPanel(n.leftCol, leftX, columnsY, HUB_COL_W, columnsH);
         this._layoutColumnPanel(n.researchProjects, leftX, columnsY, HUB_COL_W, columnsH);
+        this._layoutColumnPanel(n.sidePanel, leftX, columnsY, HUB_COL_W, columnsH);
+        // The owning tab re-fits its own content after the frame is sized.
+        this._layoutSidePanel();
         this._layoutColumnPanel(n.rightCol, rightX, columnsY, HUB_COL_W, columnsH);
         this._layoutCenterPanel(n.centerPanel, centerX, columnsY, centerW, columnsH);
 
@@ -1878,18 +2311,22 @@ export class HubScene {
         topBar.reset.position.set(w - 78, h / 2);
 
         // Resource chips flex between the dispatcher badge and the controls.
-        const chipCount = topBar.chips.length;
+        // The REP chip is wider because it carries the rank title.
         const chipGap = 14;
         const chipW = 88;
-        const stripW = chipCount * chipW + (chipCount - 1) * chipGap;
+        const repW = 132;
+        const widths = topBar.chips.map((chip) => (chip.wide ? repW : chipW));
+        const stripW = widths.reduce((sum, cw) => sum + cw, 0) + (widths.length - 1) * chipGap;
         const stripRight = w - 116;
         const stripLeft = stripRight - stripW;
+        let cursor = stripLeft;
         topBar.chips.forEach((chip, i) => {
-            const cx = stripLeft + i * (chipW + chipGap);
-            chip.container.position.set(cx, h / 2 - 18);
-            redrawTechChip(chip.frame, chipW, 36, { accent: chip.color });
+            const cw = widths[i];
+            chip.container.position.set(cursor, h / 2 - 18);
+            redrawTechChip(chip.frame, cw, 36, { accent: chip.color });
             chip.labelText.position.set(10, 10);
             chip.valueText.position.set(10, 22);
+            cursor += cw + chipGap;
         });
     }
 
@@ -1916,16 +2353,22 @@ export class HubScene {
     }
 
     _layoutColumnPanel(col, x, y, w, h) {
+        if (!col) return;
         col.container.position.set(x, y);
+        // Remember the fitted size: `_layoutSidePanel()` hands it to the
+        // tab that owns the panel so its content can re-fit too.
+        col._w = w;
+        col._h = h;
         redrawTechPanel(col.panel, w, h, { accent: col.panelAccent ?? 'cyan' });
         if (col.counter) col.counter.position.set(w - 14, 12);
         if (col.list) col.list.position.set(12, 40);
         if (col.empty) {
             // Keep the sky-400 accent set by _buildActiveMissions;
             // re-using the default cyan here would mute the empty card
-            // against the panel border.
+            // against the panel border. `emptyOffset` leaves room for the
+            // WELCOME BACK banner when one is showing.
             redrawTechPanel(col.empty, w - 24, 108, { accent: 'cyan' });
-            col.empty.position.set(0, 0);
+            col.empty.position.set(0, col.emptyOffset || 0);
         }
         if (col.fleetRows) {
             const rowW = w - 28;

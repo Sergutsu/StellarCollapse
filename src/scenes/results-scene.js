@@ -124,7 +124,10 @@ export class ResultsScene {
             v.anchor.set(1, 0);
             v.x = 240;
             row.addChild(v);
-            stats[key] = v;
+            // Keep the label too: `summary.statLabels` lets a minigame
+            // rename its own rows (Defense reports WAVE / BALLS LOST /
+            // PIXELS / WRECKS / PICKUPS instead of puzzle vocabulary).
+            stats[key] = { label: l, value: v, defaultLabel: label };
         });
 
         // ---- Right column: ore breakdown ---------------------------
@@ -183,6 +186,18 @@ export class ResultsScene {
             ores[ore.color] = value;
         });
 
+        // ---- Settlement column (rep / crew / hull / warp) ----------
+        // Filled in by _populate from the settlement attached to the run;
+        // a sandbox run with no profile behind it leaves it empty.
+        const settlement = new Container();
+        settlement.position.set(oreX, oreY + 8 + ORES.length * 26 + 12);
+        panel.addChild(settlement);
+        const settlementHeader = new Text({ text: 'SETTLEMENT', style: statsLabelStyle });
+        settlement.addChild(settlementHeader);
+        const settlementRows = new Container();
+        settlementRows.position.set(0, 22);
+        settlement.addChild(settlementRows);
+
         // ---- Credits + breakdown ----------------------------------
         const creditsLabel = new Text({
             text: 'CREDITS EARNED',
@@ -239,6 +254,8 @@ export class ResultsScene {
             sector,
             stats,
             ores,
+            settlement,
+            settlementRows,
             creditsLabel,
             creditsValue,
             breakdown,
@@ -258,12 +275,19 @@ export class ResultsScene {
         r.sector.text = [tierPart, sectorPart].filter(Boolean).join(' \u00B7 ');
 
         const formatInt = (n) => Math.max(0, Math.floor(n || 0)).toLocaleString('en-US');
-        r.stats.score.text   = formatInt(s.finalScore);
-        r.stats.level.text   = formatInt(s.finalLevel);
-        r.stats.lines.text   = formatInt(s.finalLines);
-        r.stats.cells.text   = formatInt(s.cellsCleared);
-        r.stats.matches.text = formatInt(s.matchesCleared);
-        r.stats.bombs.text   = formatInt(s.bombsExploded);
+        const labels = s.statLabels || {};
+        const statValues = {
+            score:   formatInt(s.finalScore ?? s.score),
+            level:   formatInt(s.finalLevel ?? s.level),
+            lines:   formatInt(s.finalLines ?? s.lines),
+            cells:   formatInt(s.cellsCleared ?? s.cells),
+            matches: formatInt(s.matchesCleared ?? s.matches),
+            bombs:   formatInt(s.bombsExploded ?? s.bombs),
+        };
+        for (const key of Object.keys(r.stats)) {
+            r.stats[key].value.text = statValues[key];
+            r.stats[key].label.text = labels[key] || r.stats[key].defaultLabel;
+        }
 
         const oreCounts = s.ores || {};
         for (const color of Object.keys(r.ores)) {
@@ -272,9 +296,57 @@ export class ResultsScene {
 
         const credits = Math.max(0, Math.floor(s.credits || 0));
         r.creditsValue.text = `+${credits.toLocaleString('en-US')} cr`;
-        const base  = Math.max(0, Math.floor(s.baseCredits || 0));
-        const bonus = Math.max(0, Math.floor(s.scoreBonus  || 0));
-        r.breakdown.text = `Base ${base.toLocaleString('en-US')} cr + Score bonus ${bonus.toLocaleString('en-US')} cr`;
+        // P8 settlements itemise the payout (contract base, crew level,
+        // ship fit, tech tree, sector bonus); older summaries only carry a
+        // base + score bonus pair.
+        const rows = Array.isArray(s.creditsBreakdown) ? s.creditsBreakdown.filter((row) => row && row.label) : [];
+        if (rows.length > 0) {
+            r.breakdown.text = rows
+                .map((row) => `${row.label} ${row.amount >= 0 ? '+' : '\u2212'}${Math.abs(Math.round(row.amount)).toLocaleString('en-US')}`)
+                .join('  \u00B7  ');
+        } else {
+            const base  = Math.max(0, Math.floor(s.baseCredits || 0));
+            const bonus = Math.max(0, Math.floor(s.scoreBonus  || 0));
+            r.breakdown.text = `Base ${base.toLocaleString('en-US')} cr + Score bonus ${bonus.toLocaleString('en-US')} cr`;
+        }
+
+        this._populateSettlement(s);
+    }
+
+    /**
+     * Render the mission settlement lines: reputation (with a promotion
+     * call-out), crew XP + level-ups, hull wear and any warp cell found.
+     * Rows are rebuilt on every show so a stale report never lingers.
+     */
+    _populateSettlement(summary) {
+        const r = this._nodes;
+        if (!r?.settlementRows) return;
+        r.settlementRows.removeChildren().forEach((child) => child?.destroy?.({ children: true }));
+
+        const rows = buildSettlementRows(summary);
+        r.settlement.visible = rows.length > 0;
+        const rowStyle = new TextStyle({
+            fontFamily: '"Courier New", monospace',
+            fontSize: 11,
+            fontWeight: '700',
+            fill: 0x94a3b8,
+        });
+        rows.forEach((row, i) => {
+            const line = new Container();
+            line.position.set(0, i * 24);
+            r.settlementRows.addChild(line);
+
+            const label = new Text({ text: row.label, style: rowStyle });
+            line.addChild(label);
+
+            const value = new Text({
+                text: row.value,
+                style: new TextStyle({ ...rowStyle, fontSize: 12, fill: row.color }),
+            });
+            value.anchor.set(1, 0);
+            value.position.set(260, -1);
+            line.addChild(value);
+        });
     }
 
     layout(screen) {
@@ -311,4 +383,43 @@ export class ResultsScene {
         this._nodes = null;
         this._onContinue = null;
     }
+}
+
+/**
+ * The settlement lines shown beneath the ore haul. Every field is
+ * optional — the hub's reward path fills them in through `settleMission()`,
+ * while a sandbox run renders the ore column alone.
+ */
+function buildSettlementRows(summary) {
+    const s = summary || {};
+    const rows = [];
+    const rep = Math.max(0, Math.floor(s.rep || 0));
+    if (rep > 0) {
+        rows.push(s.promoted
+            ? { label: 'REPUTATION', value: `+${rep} \u2192 ${String(s.repTitleAfter || `TIER ${s.repTierAfter}`).toUpperCase()}`, color: 0x4ade80 }
+            : { label: 'REPUTATION', value: `+${rep} rep`, color: 0xfacc15 });
+    }
+    if (s.crewName) {
+        const gained = Math.max(0, Math.floor(s.crewLevelsGained || 0));
+        const xp = Math.max(0, Math.floor(s.crewXp || 0));
+        rows.push({
+            label: String(s.crewName).slice(0, 14).toUpperCase(),
+            value: gained > 0 ? `+${xp} xp \u00B7 Lv ${s.crewLevel}` : `+${xp} xp`,
+            color: gained > 0 ? 0x4ade80 : 0x7dd3fc,
+        });
+    }
+    if ((s.hullDamage || 0) > 0 || (s.hullAbsorbed || 0) > 0) {
+        const absorbed = (s.hullAbsorbed || 0) > 0 ? ` \u00B7 ${s.hullAbsorbed} absorbed` : '';
+        rows.push({ label: 'HULL WEAR', value: `-${s.hullDamage}${absorbed}`, color: 0xfb7185 });
+    }
+    if ((s.warp || 0) > 0) rows.push({ label: 'WARP CELL', value: `+${s.warp}`, color: 0xa78bfa });
+    if (s.sectorCharted) {
+        rows.push({
+            label: 'SECTOR CHARTED',
+            value: String(s.sectorCharted).replace(/-/g, ' ').slice(0, 16).toUpperCase(),
+            color: 0x4ade80,
+        });
+    }
+    if (s.won === false) rows.push({ label: 'OUTCOME', value: 'SHIFT ABORTED', color: 0xfb7185 });
+    return rows;
 }

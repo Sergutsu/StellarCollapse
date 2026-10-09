@@ -47,19 +47,45 @@ One screen per stage. No pauses inserted between them.
 
 ## Meta loop (across missions)
 
+Shipped in P8 — see [`META-SYSTEMS.md`](META-SYSTEMS.md) for the numbers and
+[ADR-0011](adr/0011-meta-economy-single-source.md) for why it is shaped this way.
+
 ```
-RUN ─▶ credits + ores banked ─▶ REP tier ─▶ unlocks ─▶ more missions
+            ┌────────────── dispatch (manual or idle) ──────────────┐
+            ▼                                                       │
+   MISSION BOARD ──▶ optional MINIGAME ──▶ settleMission() ─────────┘
+    (daily seed,        (skill expression)     │
+     paid rerolls)                             ▼
+                     credits · ore · REP · crew XP · hull wear · warp
+                             │            │           │          │
+                             ▼            ▼           ▼          ▼
+                        RESEARCH      MARKET +     BUILD/UPGRADE  STAR MAP
+                        (effects)     REFINERY     (hulls, repairs) (sectors)
+                             └────────────┴───────────┴──────────┘
+                                          │
+                                          ▼
+                              better-priced dispatches
 ```
 
-- Credits are the primary currency. Ores are secondary, consumed by upgrades.
-- Rep tier is a cumulative-credits rank (Apprentice → Master Dispatcher, etc.). Gates some T8/T9 missions.
-- Mission list shuffles on daily reroll; reroll manually for credits if impatient.
+- **Credits** are the primary currency; **ore** is the tradeable/refinable
+  output; **minerals** are the build + research sink (fed by the refinery and
+  sector grants — they have no other faucet); **warp cells** are the STAR MAP
+  fuel and are *found*, never bought; **REP** is the rank and is earned only by
+  finishing dispatches.
+- **REP is not a wallet.** It is banked experience with a derived tier
+  (Apprentice → Master Dispatcher), gating T8/T9 contracts and threat-5 sectors.
+  You cannot buy your way into a rank.
+- **The minigame is optional but strictly better.** A hands-on run pays full rep
+  and XP, keeps the score bonus, and can find a warp cell at any qualifying risk;
+  an idle contract pays 60 % rep, half XP and only finds warp at risk 4+.
+- **Mission list refreshes free at the UTC boundary** and can be rerolled for an
+  escalating credit price (150 × n+1, capped per day, +1 with research).
+- **Loss is a cost, not a wall.** A failed run still pays ~a third of the rep,
+  damages the hull more, and the hull is repairable with minerals.
 - **No persistent leaderboard.** The old HighScores module was removed — the
-  game is about banking resources, not bragging about a top score. Per-run
-  stats live in the results screen (P1) and personal-bests can reappear later
-  as a MetaState read-out if useful.
-
-This is all **P2+** work. P1 only introduces the per-run tally and results screen.
+  game is about banking resources, not bragging about a top score. Per-run stats
+  live in the results screen; lifetime stats are recorded in the profile
+  (`getStats()`) and can surface as a station log later.
 
 ---
 
@@ -192,10 +218,43 @@ Canonical tier list lives in `constants.HIGHSCORE_TIERS`. Field-size defaults an
 
 ## Open design questions
 
-Things we'll answer as we build, noted so they don't get forgotten:
+Things we'll answer as we build, noted so they don't get forgotten.
 
-- How expensive should daily reroll be? Free, credit-cost, or ore-cost?
-- Is rep tier advancement cumulative credits, or "hardest mission cleared"?
-- Do upgrades apply to a single mission per purchase, or permanent?
-- Does idle generation use offline-time-since-close, or a global daily bucket?
-- Are the 6 ores all gameplay-relevant, or are some purely decorative? (Leaning: all relevant, different ratios.)
+Answered in P8:
+
+- ~~How expensive should daily reroll be? Free, credit-cost, or ore-cost?~~
+  **Free once per UTC day** (the board re-seeds itself at the boundary); extra
+  rolls cost **credits**, escalating 150 × (n+1) with a daily cap of 6 (+1 from
+  Countermeasures). Credits — not ore — because a reroll is an impatience tax and
+  ore is a refining input with its own sink.
+- ~~Is rep tier advancement cumulative credits, or "hardest mission cleared"?~~
+  **Neither: cumulative REP earned by finishing dispatches.** REP is awarded per
+  contract from risk + tier with multipliers for mode and outcome, so a rich
+  player who never flies stays an Apprentice and a player who grinds hard
+  contracts ranks up.
+- ~~Do upgrades apply to a single mission per purchase, or permanent?~~
+  **Permanent.** Research nodes resolve into one effect bundle that every
+  dispatch, market quote and jump price reads. Hulls persist with their hull
+  percentage; crew levels persist with their XP.
+- ~~Does idle generation use offline-time-since-close, or a global daily bucket?~~
+  **Offline-time-since-close**, with no simulation: jobs store absolute
+  `startedAt`/`endsAt`, so `summarizeOffline()` just compares against a heartbeat
+  stamped on boot, every 30 s and on `pagehide`. Anything that finished while you
+  were away is claimable (or partially claimable if you RETURN it).
+- ~~Are the 6 ores all gameplay-relevant, or are some purely decorative?~~
+  **All six are relevant, at different ratios.** Four commons refine 4:1 into
+  minerals and trade at 6–9 CR; the two hazard ores (Volatiles, Biomass) refine
+  2:1 and trade at 26/30 CR. Combat is the reliable way to farm the hazard pair
+  (the boss pays 4 + 3), which gives the defense minigame an economic reason to
+  exist beyond the REP win bonus.
+
+Still open:
+
+- Should a charted sector be able to *spawn* its own contract (a sector-specific
+  board slot), rather than only buffing contracts that already fly there?
+- Do lifetime stats deserve a surface (station log / career panel), and if so
+  which of the 15 counters are worth showing?
+- Should hull damage below some threshold block dispatch (a grounded hull), or
+  stay a pure repair-tax as it is today?
+- Is the mineral faucet (refinery + sector grants) sized correctly against the
+  research tree's 300–1 100 per node, or does the mid-game stall?
