@@ -83,3 +83,63 @@ test('makeRecoveryJob produces a zero-reward instant-claim placeholder with corr
     assert.equal(rec.endsAt, rec.startedAt);
     assert.equal(rec.shipId, 's-99');
 });
+
+// ---------------------------------------------------------------------
+// P8: offline / welcome-back summary
+// ---------------------------------------------------------------------
+
+import { summarizeOffline, formatAway } from '../src/idle-clock.js';
+
+const HOUR = 3600_000;
+const NOW = Date.UTC(2026, 9, 9, 18, 0, 0);
+
+test('summarizeOffline reports what finished while the player was away', () => {
+    const jobs = [
+        makeJob({ id: 'a', _now: NOW, elapsedMs: 3 * HOUR, etaSec: 3600, rewardCredits: 400 }),
+        makeJob({ id: 'b', _now: NOW, elapsedMs: 0, etaSec: 3600, rewardCredits: 250 }),
+    ];
+    const summary = summarizeOffline({ jobs, lastSeenMs: NOW - 2 * HOUR, nowMs: NOW });
+    assert.equal(summary.away, true);
+    assert.equal(summary.awaySec, 7200);
+    assert.equal(summary.awayLabel, '2h 0m');
+    assert.equal(summary.completed.length, 1);
+    assert.equal(summary.completed[0].id, 'a');
+    assert.equal(summary.pending.length, 1);
+    assert.equal(summary.credits, 400);
+    assert.equal(summary.oreUnits, 2);
+});
+
+test('jobs that finished before the absence are not reported as new', () => {
+    const jobs = [makeJob({ id: 'old', _now: NOW, elapsedMs: 10 * HOUR, etaSec: 3600 })];
+    const summary = summarizeOffline({ jobs, lastSeenMs: NOW - HOUR, nowMs: NOW });
+    assert.equal(summary.ready, 1, 'still claimable');
+    assert.equal(summary.completed.length, 0, 'but not new while away');
+    assert.equal(summary.credits, 0);
+});
+
+test('a short absence is not "away"', () => {
+    const summary = summarizeOffline({ jobs: [], lastSeenMs: NOW - 5000, nowMs: NOW });
+    assert.equal(summary.away, false);
+    assert.equal(summary.awaySec, 5);
+    assert.deepEqual(summary.completed, []);
+});
+
+test('summarizeOffline tolerates missing or junk input', () => {
+    const empty = summarizeOffline({});
+    assert.equal(empty.away, false);
+    assert.equal(empty.credits, 0);
+    assert.deepEqual(empty.completed, []);
+    const noLastSeen = summarizeOffline({ jobs: [], lastSeenMs: 0, nowMs: NOW });
+    assert.equal(noLastSeen.away, false);
+    const junk = summarizeOffline({ jobs: null, lastSeenMs: NaN, nowMs: NaN });
+    assert.equal(junk.away, false);
+});
+
+test('formatAway renders coarse human durations', () => {
+    assert.equal(formatAway(0), '0s');
+    assert.equal(formatAway(59_000), '59s');
+    assert.equal(formatAway(60_000), '1m');
+    assert.equal(formatAway(90 * 60_000), '1h 30m');
+    assert.equal(formatAway(25 * HOUR), '1d 1h');
+    assert.equal(formatAway(-1), '0s');
+});

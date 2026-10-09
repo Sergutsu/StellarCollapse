@@ -194,7 +194,11 @@ export function drawHologramPanel(w, h, { accent = PANEL_DEFAULT_ACCENT } = {}) 
  * scan). No-ops if `panel` is null or has fewer than 3 children.
  */
 export function redrawHologramPanel(panel, w, h, accent = PANEL_DEFAULT_ACCENT) {
-    redrawTechPanel(panel, w, h, { accent });
+    // Callers pass either a bare colour or the `{ accent }` options object
+    // that drawHologramPanel takes. Accept both: an object used to fall
+    // through to the default cyan and silently drop the panel's accent.
+    const resolved = accent && typeof accent === 'object' ? accent.accent : accent;
+    redrawTechPanel(panel, w, h, { accent: resolved ?? PANEL_DEFAULT_ACCENT });
 }
 
 // -------------------------------------------------------------------

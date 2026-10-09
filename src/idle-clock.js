@@ -81,3 +81,59 @@ export function makeRecoveryJob(ship, crew, seq = 1) {
         claimed: false,
     };
 }
+
+/**
+ * Offline / "welcome back" summary.
+ *
+ * Idle jobs store absolute `endsAt` timestamps, so a contract that
+ * finished while the tab was closed is already complete when the player
+ * returns — nothing has to be simulated. What was missing was the
+ * *report*: an idle game has to tell the player what happened while they
+ * were away, otherwise the payout reads as a random number.
+ *
+ * @param {object} opts
+ * @param {Array}  opts.jobs          persisted active missions
+ * @param {number} [opts.lastSeenMs]  MetaState.lastTickAt (when the hub last ran)
+ * @param {number} [opts.nowMs]
+ * @returns {{away:boolean, awaySec:number, awayLabel:string, completed:Array,
+ *            pending:Array, credits:number, oreUnits:number}}
+ */
+export function summarizeOffline({ jobs = [], lastSeenMs = 0, nowMs = Date.now() } = {}) {
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const last = Number.isFinite(lastSeenMs) && lastSeenMs > 0 ? lastSeenMs : now;
+    const awayMs = Math.max(0, now - last);
+    const list = Array.isArray(jobs) ? jobs : [];
+    const { active, ready } = partitionJobs(list, now);
+
+    // Only count jobs that actually finished *during* the absence.
+    const completed = ready.filter((j) => Number.isFinite(j.endsAt) && j.endsAt >= last);
+    const credits = completed.reduce((sum, j) => sum + Math.max(0, Math.floor(j.rewardCredits || 0)), 0);
+    const oreUnits = completed.reduce((sum, j) => {
+        const common = Array.isArray(j.rewardOres?.common) ? j.rewardOres.common.length : 0;
+        const rare = Array.isArray(j.rewardOres?.rare) ? j.rewardOres.rare.length : 0;
+        return sum + common + rare;
+    }, 0);
+
+    return {
+        away: awayMs >= 60_000,
+        awaySec: Math.floor(awayMs / 1000),
+        awayLabel: formatAway(awayMs),
+        completed,
+        pending: active,
+        ready: ready.length,
+        credits,
+        oreUnits,
+    };
+}
+
+/** Coarse "3h 12m" style label for the welcome-back banner. */
+export function formatAway(ms) {
+    const total = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000));
+    if (total < 60) return `${total}s`;
+    const minutes = Math.floor(total / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ${minutes % 60}m`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ${hours % 24}h`;
+}

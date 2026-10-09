@@ -20,6 +20,7 @@ import {
     isNodeAvailable,
     getAllNodes,
     getPrerequisites,
+    activeEffectSummaries,
     RESEARCH_CATEGORIES as CATEGORIES,
     RESEARCH_NODES as NODES,
     RESEARCH_EDGES as EDGES,
@@ -219,8 +220,15 @@ export class ResearchTab {
         const legend = this._buildLegend();
         root.addChild(legend.container);
 
-        this._nodes = { title, categoryLabels, edges, nodes: liveNodes, detail, legend };
+        // ACTIVE BONUSES: what the completed nodes are actually doing for
+        // the station right now. Until P8 the effect layer had no reader,
+        // so this is where the tech tree's payoff becomes visible.
+        const bonuses = this._buildBonuses();
+        root.addChild(bonuses.container);
+
+        this._nodes = { title, categoryLabels, edges, nodes: liveNodes, detail, legend, bonuses };
         this._refreshDetail();
+        this._refreshBonuses();
     }
 
     _getCurrentResearchState() {
@@ -320,6 +328,69 @@ export class ResearchTab {
         return { container, panel, header, name, status, costLine, progressBg, progressFill, progressText, effect, cta, width: 260, height: 210 };
     }
 
+    _buildBonuses() {
+        const container = new Container();
+        const panel = drawHologramPanel(260, 150, { accent: COLOR_CYAN_500 });
+        container.addChild(panel);
+
+        const header = panelLabel('ACTIVE BONUSES', COLOR_AMBER_300, { size: 10, weight: '700' });
+        header.position.set(10, 8);
+        panel.addChild(header);
+
+        const count = panelLabel('', COLOR_SLATE_400, { size: 9 });
+        count.anchor.set(1, 0);
+        count.position.set(250, 9);
+        panel.addChild(count);
+
+        const list = new Container();
+        list.position.set(10, 24);
+        panel.addChild(list);
+
+        return { container, panel, header, count, list, width: 260, height: 150 };
+    }
+
+    /**
+     * One line per online node, straight from `research.activeEffectSummaries()`
+     * — the same strings the settlement math is built from, so the panel
+     * can never claim a bonus the game does not apply. Row height adapts so
+     * a fully researched tree still fits the card.
+     */
+    _refreshBonuses() {
+        const n = this._nodes?.bonuses;
+        if (!n) return;
+        const completed = this._getCurrentResearchState().completed || [];
+        const lines = activeEffectSummaries(completed);
+        n.count.text = `${lines.length} online`;
+
+        n.list.removeChildren().forEach((child) => child?.destroy?.({ children: true }));
+        if (lines.length === 0) {
+            const empty = new Text({
+                text: 'No tech online yet.\nComplete a node to see its bonus here.',
+                style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: COLOR_SLATE_400, lineHeight: 14 }),
+            });
+            n.list.addChild(empty);
+            return;
+        }
+
+        const rowH = Math.max(11, Math.min(16, Math.floor((n.height - 32) / lines.length)));
+        lines.forEach((line, i) => {
+            const row = new Container();
+            row.position.set(0, i * rowH);
+            n.list.addChild(row);
+
+            const dot = new Graphics();
+            dot.circle(3, Math.round(rowH / 2), 2).fill({ color: COLOR_EMERALD_300, alpha: 0.9 });
+            row.addChild(dot);
+
+            const text = new Text({
+                text: line,
+                style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: rowH >= 15 ? 10 : 9, fill: COLOR_SLATE_200 }),
+            });
+            text.position.set(12, Math.max(0, (rowH - text.height) / 2));
+            row.addChild(text);
+        });
+    }
+
     _buildLegend() {
         const container = new Container();
         const panel = drawHologramPanel(220, 76, { accent: COLOR_CYAN_500 });
@@ -373,6 +444,7 @@ export class ResearchTab {
     _refreshFromMeta() {
         if (this._nodes) {
             this._refreshDetail();
+            this._refreshBonuses();
         }
     }
 
@@ -591,6 +663,18 @@ export class ResearchTab {
         // Legend: bottom-left of the tree area.
         redrawHologramPanel(n.legend.panel, n.legend.width, n.legend.height, COLOR_CYAN_500);
         n.legend.container.position.set(treeX, treeY + treeH - n.legend.height - 4);
+
+        // ACTIVE BONUSES: right column, under the detail card, taking
+        // whatever height is left.
+        if (n.bonuses) {
+            const bonusY = detailY + detailH + 12;
+            const bonusH = Math.max(70, treeY + treeH - bonusY - 4);
+            n.bonuses.height = bonusH;
+            redrawHologramPanel(n.bonuses.panel, n.bonuses.width, bonusH, COLOR_CYAN_500);
+            n.bonuses.container.position.set(detailX, bonusY);
+            n.bonuses.container.visible = bonusH >= 70;
+            this._refreshBonuses();
+        }
     }
 }
 

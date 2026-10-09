@@ -166,3 +166,147 @@ export class RunLedger {
         };
     }
 }
+
+// ---------------------------------------------------------------------
+// DefenseLedger — the Combat (defense minigame) counterpart of RunLedger.
+//
+// Combat missions run `DefenseState` instead of `GameState`, so the tile
+// events RunLedger listens for never fire. This ledger listens to the
+// defense events and maps destroyed formations onto the same six-ore
+// palette, which means a Combat dispatch banks ore exactly like a mining
+// one and the results screen renders without a special case.
+//
+// Ore identity for combat (documented in docs/GAMEPLAY.md §Defense haul):
+//   Squid formation   (type 0) → Pyrite    (red)
+//   Crab formation    (type 1) → Cryonite  (blue)
+//   Octopus formation (type 2) → Verdanite (green)
+//   every power-up picked up   → +2 Helium (yellow)
+//   boss kill                  → +4 Volatiles (bomb), +3 Biomass (snake)
+
+const DEFENSE_ORE_BY_INVADER_TYPE = Object.freeze({
+    0: 'red',
+    1: 'blue',
+    2: 'green',
+});
+
+export const DEFENSE_ORE_PER_INVADER = 3;
+export const DEFENSE_HELIUM_PER_POWERUP = 2;
+export const DEFENSE_BOSS_HAUL = Object.freeze({ bomb: 4, snake: 3 });
+
+export class DefenseLedger {
+    constructor({ state, mission } = {}) {
+        this.mission = mission || null;
+        this.ores = zeroedOreCounts();
+        this.invadersDestroyed = 0;
+        this.bossDestroyed = false;
+        this.powerUpsCollected = 0;
+        this.pixelsDestroyed = 0;
+        this.ballsLost = 0;
+        this._state = null;
+        this._bound = [];
+        if (state) this._attach(state);
+    }
+
+    _attach(state) {
+        const onInvader = (p) => this._tallyInvader(p);
+        const onBoss    = ()  => this._tallyBoss();
+        const onPowerUp = ()  => this._tallyPowerUp();
+        const onBallLost = () => { this.ballsLost += 1; };
+        state.on('invader-destroyed', onInvader);
+        state.on('boss-destroyed', onBoss);
+        state.on('powerup-collected', onPowerUp);
+        state.on('ball-lost', onBallLost);
+        this._state = state;
+        this._bound = [
+            ['invader-destroyed', onInvader],
+            ['boss-destroyed', onBoss],
+            ['powerup-collected', onPowerUp],
+            ['ball-lost', onBallLost],
+        ];
+    }
+
+    detach() {
+        if (this._state) {
+            for (const [evt, fn] of this._bound) this._state.off(evt, fn);
+        }
+        this._bound = [];
+        this._state = null;
+    }
+
+    _creditOre(color, amount = 1) {
+        if (!color || !(color in this.ores)) return;
+        this.ores[color] += Math.max(0, Math.floor(amount));
+    }
+
+    _tallyInvader(payload) {
+        this.invadersDestroyed += 1;
+        // Each formation is a handful of pixels; count them as cells so
+        // the results screen's CELLS row means the same thing in both
+        // minigames.
+        this.pixelsDestroyed += 1;
+        const color = DEFENSE_ORE_BY_INVADER_TYPE[payload?.type] ?? 'yellow';
+        this._creditOre(color, DEFENSE_ORE_PER_INVADER);
+    }
+
+    _tallyBoss() {
+        this.bossDestroyed = true;
+        this.pixelsDestroyed += 2;
+        for (const [color, n] of Object.entries(DEFENSE_BOSS_HAUL)) this._creditOre(color, n);
+    }
+
+    _tallyPowerUp() {
+        this.powerUpsCollected += 1;
+        this._creditOre('yellow', DEFENSE_HELIUM_PER_POWERUP);
+    }
+
+    /**
+     * Summary in the exact shape ResultsScene + settleMission consume.
+     * @param {object} [finalState] the DefenseState at game over
+     */
+    summary(finalState = null) {
+        const score = finalState?.score ?? 0;
+        const won = !!finalState?.won;
+        const baseCredits = this.mission?.baseCredits || 0;
+        const credits = computeCredits({ baseCredits, score });
+        return {
+            missionId:     this.mission?.id ?? null,
+            missionName:   this.mission?.name ?? null,
+            narrativeName: this.mission?.narrativeName ?? null,
+            sector:        this.mission?.sector ?? null,
+            tierIndex:     this.mission?.tierIndex ?? null,
+            tierColor:     this.mission?.tierColor ?? null,
+            baseCredits,
+            scoreBonus: Math.max(0, Math.floor(score / 10)),
+            credits,
+            ores: { ...this.ores },
+            cellsCleared:   this.pixelsDestroyed,
+            matchesCleared: this.invadersDestroyed,
+            bombsExploded:  this.powerUpsCollected,
+            linesCleared:   this.bossDestroyed ? 1 : 0,
+            finalScore: score,
+            finalLevel: 1,
+            finalLines: this.ballsLost,
+            won,
+            minigame: 'defense',
+            // ResultsScene relabels its stat rows from this so a combat
+            // report doesn't claim you cleared "lines".
+            statLabels: Object.freeze({
+                score: 'SCORE',
+                level: 'WAVE',
+                lines: 'BALLS LOST',
+                cells: 'PIXELS',
+                matches: 'WRECKS',
+                bombs: 'PICKUPS',
+            }),
+        };
+    }
+
+    rewardEnvelope(summary) {
+        const s = summary || this.summary();
+        return {
+            credits:   s.credits,
+            ores:      { ...s.ores },
+            missionId: s.missionId,
+        };
+    }
+}

@@ -8,6 +8,7 @@ import {
     buildIdleMissions,
     findMission,
     baseCreditsFor,
+    pickCombatVariantTierIds,
     pickMissionBoard,
     MISSION_TYPES,
     ORES,
@@ -50,33 +51,90 @@ test('baseCreditsFor scales linearly with tier index', () => {
     assert.equal(baseCreditsFor(9), 900);
 });
 
-test('every mission is currently available (no lock gates yet)', () => {
-    const list = buildMissions({ seed: 7 });
-    list.forEach((m) => assert.equal(m.available, true));
-});
-
-test('expectedOres always contains the four normal ores', () => {
-    const list = buildMissions({ seed: 7 });
+test('ungated missions are available at REP 1; T8/T9 need a rank', () => {
+    const list = buildMissions({ seed: 7, repTier: 1 });
     list.forEach((m) => {
-        NORMAL_COLORS.forEach((c) => {
-            const ore = ORE_BY_COLOR[c];
-            assert.ok(m.expectedOres.includes(ore.id), `${m.tierId} missing ${ore.id}`);
-        });
+        if (m.tierIndex >= 8) {
+            assert.equal(m.available, false, `${m.tierId} should be rep-gated`);
+            assert.ok(m.repTierRequired >= 3, `${m.tierId} requires REP 3+`);
+            assert.deepEqual(m.requires, { repTier: m.repTierRequired });
+        } else {
+            assert.equal(m.available, true, `${m.tierId} should be open`);
+            assert.equal(m.repTierRequired, 1);
+            assert.equal(m.requires, null);
+        }
     });
 });
 
-test('collapsed missions preview rare ores (volatiles / biomass)', () => {
+test('raising repTier unlocks the gated archetypes', () => {
+    const list = buildMissions({ seed: 7, repTier: 6 });
+    list.forEach((m) => assert.equal(m.available, true, `${m.tierId} unlocked at REP 6`));
+});
+
+test('expectedOres always contains common ores (Combat variants carry 3 + both rares)', () => {
+    const list = buildMissions({ seed: 7 });
+    list.forEach((m) => {
+        const commons = NORMAL_COLORS.map((c) => ORE_BY_COLOR[c].id).filter((id) => m.expectedOres.includes(id));
+        if (m.variant === 'combat') {
+            assert.equal(commons.length, 3, `${m.tierId} combat preview shows three commons`);
+            assert.ok(m.expectedOres.includes('volatiles'), `${m.tierId} combat previews volatiles`);
+            assert.ok(m.expectedOres.includes('biomass'), `${m.tierId} combat previews biomass`);
+        } else {
+            assert.equal(commons.length, 4, `${m.tierId} standard preview shows all four commons`);
+        }
+    });
+});
+
+test('collapsed + combat missions preview rare ores (volatiles / biomass)', () => {
     const list = buildMissions({ seed: 7 });
     list.forEach((m) => {
         const ranked = HIGHSCORE_TIERS.find((t) => t.id === m.tierId);
-        if (ranked.complexity === PIECE_COMPLEXITY.COLLAPSED) {
-            assert.ok(m.expectedOres.includes('volatiles'));
-            assert.ok(m.expectedOres.includes('biomass'));
+        const rare = ranked.complexity === PIECE_COMPLEXITY.COLLAPSED || m.variant === 'combat';
+        if (rare) {
+            assert.ok(m.expectedOres.includes('volatiles'), `${m.tierId} volatiles`);
+            assert.ok(m.expectedOres.includes('biomass'), `${m.tierId} biomass`);
         } else {
-            assert.ok(!m.expectedOres.includes('volatiles'));
-            assert.ok(!m.expectedOres.includes('biomass'));
+            assert.ok(!m.expectedOres.includes('volatiles'), `${m.tierId} no volatiles`);
+            assert.ok(!m.expectedOres.includes('biomass'), `${m.tierId} no biomass`);
         }
     });
+});
+
+// -- Combat variants (the optional defense minigame as a mission) ------
+
+test('combat variants only ever land on T5..T9 and keep their tier gameConfig', () => {
+    for (const seed of [1, 7, 42, 1337, 99991]) {
+        const list = buildMissions({ seed });
+        list.forEach((m, i) => {
+            if (m.variant === 'combat') {
+                assert.ok(m.tierIndex >= 5, `seed ${seed}: ${m.tierId} combat variant below T5`);
+                assert.equal(m.type, 'Combat');
+                assert.equal(m.runsDefense, true);
+                assert.equal(m.gameConfig.mode, HIGHSCORE_TIERS[i].mode);
+                assert.equal(m.gameConfig.complexity, HIGHSCORE_TIERS[i].complexity);
+                assert.ok(m.narrativeName.length > 0);
+                assert.ok(m.sector.length > 0);
+            } else {
+                assert.equal(m.variant, 'standard');
+                assert.equal(m.runsDefense, false);
+            }
+        });
+    }
+});
+
+test('every daily roll fields at least one combat mission', () => {
+    for (const seed of [1, 2, 7, 42, 1337, 99991, 555]) {
+        const list = buildMissions({ seed });
+        const combat = list.filter((m) => m.variant === 'combat');
+        assert.ok(combat.length >= 1, `seed ${seed} rolled no combat mission`);
+        assert.ok(combat.length <= 2, `seed ${seed} rolled ${combat.length} combat missions`);
+    }
+});
+
+test('combat variant assignment is deterministic per seed', () => {
+    const a = buildMissions({ seed: 2024 }).filter((m) => m.variant === 'combat').map((m) => m.tierId);
+    const b = buildMissions({ seed: 2024 }).filter((m) => m.variant === 'combat').map((m) => m.tierId);
+    assert.deepEqual(a, b);
 });
 
 test('findMission looks up by id and returns null for unknown', () => {
@@ -172,4 +230,14 @@ test('buildIdleMissions includes ore payout lanes', () => {
         assert.ok(job.rewardOres.common.length <= 2);
         assert.ok(job.rewardOres.rare.length <= 1);
     });
+});
+
+test('pickCombatVariantTierIds only returns eligible tier ids', () => {
+    const ids = HIGHSCORE_TIERS.map((t) => t.id);
+    for (const seed of [1, 9, 77, 4242]) {
+        const picked = pickCombatVariantTierIds(ids, { seed });
+        assert.ok(picked.length >= 1 && picked.length <= 2);
+        picked.forEach((id) => assert.ok(ids.includes(id), `${id} is a real tier`));
+        assert.equal(new Set(picked).size, picked.length, 'no duplicate picks');
+    }
 });

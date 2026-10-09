@@ -184,3 +184,117 @@ test('rewardEnvelope matches MetaState.applyMissionReward shape', () => {
     assert.equal(Number.isInteger(envelope.credits), true);
     assert.ok(envelope.credits >= 0);
 });
+
+// ---------------------------------------------------------------------
+// DefenseLedger — the Combat minigame's ore tally (P8)
+// ---------------------------------------------------------------------
+
+import {
+    DefenseLedger,
+    DEFENSE_ORE_PER_INVADER,
+    DEFENSE_HELIUM_PER_POWERUP,
+    DEFENSE_BOSS_HAUL,
+} from '../src/run-ledger.js';
+
+const COMBAT_MISSION = Object.freeze({
+    id: 'mission-blocks-classic',
+    name: 'G-440 "Granitor"',
+    narrativeName: 'Trade Route Defense: Outer Rim',
+    sector: 'Outer Rim Lanes',
+    tierIndex: 7,
+    tierColor: '#fb923c',
+    baseCredits: 700,
+    type: 'Combat',
+    risk: 4,
+});
+
+function stubDefense() {
+    const em = new Emitter();
+    return {
+        on:  (evt, fn) => em.on(evt, fn),
+        off: (evt, fn) => em.off(evt, fn),
+        emit: (evt, payload) => em.emit(evt, payload),
+        score: 0,
+        won: false,
+    };
+}
+
+test('each destroyed formation banks ore of its own colour', () => {
+    const state = stubDefense();
+    const ledger = new DefenseLedger({ state, mission: COMBAT_MISSION });
+    state.emit('invader-destroyed', { type: 0 });
+    state.emit('invader-destroyed', { type: 1 });
+    state.emit('invader-destroyed', { type: 2 });
+    const s = ledger.summary({ score: 300, won: false });
+    assert.equal(s.ores.red, DEFENSE_ORE_PER_INVADER);
+    assert.equal(s.ores.blue, DEFENSE_ORE_PER_INVADER);
+    assert.equal(s.ores.green, DEFENSE_ORE_PER_INVADER);
+    assert.equal(s.matchesCleared, 3);
+    assert.equal(s.cellsCleared, 3);
+});
+
+test('power-ups bank helium', () => {
+    const state = stubDefense();
+    const ledger = new DefenseLedger({ state, mission: COMBAT_MISSION });
+    state.emit('powerup-collected', { type: 'MULTI' });
+    state.emit('powerup-collected', { type: 'WIDE' });
+    const s = ledger.summary({ score: 0, won: false });
+    assert.equal(s.ores.yellow, DEFENSE_HELIUM_PER_POWERUP * 2);
+    assert.equal(s.bombsExploded, 2);
+});
+
+test('the boss sheds both hazard ores', () => {
+    const state = stubDefense();
+    const ledger = new DefenseLedger({ state, mission: COMBAT_MISSION });
+    state.emit('boss-destroyed');
+    const s = ledger.summary({ score: 1200, won: true });
+    assert.equal(s.ores.bomb, DEFENSE_BOSS_HAUL.bomb);
+    assert.equal(s.ores.snake, DEFENSE_BOSS_HAUL.snake);
+    assert.equal(s.won, true);
+    assert.equal(s.linesCleared, 1);
+});
+
+test('defense credits use the same formula as a puzzle run', () => {
+    const state = stubDefense();
+    const ledger = new DefenseLedger({ state, mission: COMBAT_MISSION });
+    const s = ledger.summary({ score: 2500, won: true });
+    assert.equal(s.baseCredits, COMBAT_MISSION.baseCredits);
+    assert.equal(s.scoreBonus, 250);
+    assert.equal(s.credits, computeCredits({ baseCredits: COMBAT_MISSION.baseCredits, score: 2500 }));
+});
+
+test('the defense summary carries combat stat labels for the results scene', () => {
+    const state = stubDefense();
+    const ledger = new DefenseLedger({ state, mission: COMBAT_MISSION });
+    const s = ledger.summary({ score: 10, won: false });
+    assert.equal(s.minigame, 'defense');
+    assert.equal(s.statLabels.lines, 'BALLS LOST');
+    assert.equal(s.statLabels.matches, 'WRECKS');
+    assert.equal(s.statLabels.bombs, 'PICKUPS');
+    assert.equal(s.statLabels.level, 'WAVE');
+});
+
+test('ball losses are tallied and detach stops the tally', () => {
+    const state = stubDefense();
+    const ledger = new DefenseLedger({ state, mission: COMBAT_MISSION });
+    state.emit('ball-lost');
+    state.emit('ball-lost');
+    assert.equal(ledger.summary({ score: 0 }).finalLines, 2);
+    ledger.detach();
+    state.emit('invader-destroyed', { type: 0 });
+    state.emit('ball-lost');
+    assert.equal(ledger.summary({ score: 0 }).matchesCleared, 0);
+    assert.equal(ledger.summary({ score: 0 }).finalLines, 2);
+});
+
+test('a defense ledger without a mission still produces a valid envelope', () => {
+    const state = stubDefense();
+    const ledger = new DefenseLedger({ state });
+    state.emit('invader-destroyed', { type: 1 });
+    const s = ledger.summary({ score: 50, won: false });
+    assert.equal(s.missionId, null);
+    assert.equal(s.baseCredits, 0);
+    const envelope = ledger.rewardEnvelope();
+    assert.deepEqual(Object.keys(envelope).sort(), ['credits', 'missionId', 'ores']);
+    assert.equal(envelope.ores.blue, DEFENSE_ORE_PER_INVADER);
+});

@@ -11,7 +11,10 @@ import { bindInput } from './input.js';
 import { bindDefenseInput } from './defense-input.js';
 import { MetaState } from './meta-state.js';
 import { Persistence } from './persistence.js';
-import { RunLedger } from './run-ledger.js';
+import { RunLedger, DefenseLedger } from './run-ledger.js';
+import { settleMission } from './settlement.js';
+import { repInfo } from './reputation.js';
+import { summarizeOffline } from './idle-clock.js';
 import {
     GAME_MODES,
     PIECE_COMPLEXITY,
@@ -40,6 +43,15 @@ async function boot() {
     const persistence = new Persistence();
     const meta = new MetaState(persistence.load());
     meta.on('change', () => { persistence.save(meta.snapshot()); });
+    // Offline report has to be computed BEFORE the first `touch()`, since
+    // the whole point is the gap between the last time the hub was alive
+    // and now. Idle jobs store absolute end times, so nothing needs to be
+    // simulated — this just counts what finished while the tab was closed.
+    const offlineReport = summarizeOffline({
+        jobs: meta.activeMissionsSnapshot(),
+        lastSeenMs: meta.lastTickAt,
+        nowMs: Date.now(),
+    });
     const state = new GameState({
         schedule: (fn, ms) => setTimeout(fn, ms),
         mode: DEFAULT_MODE,
@@ -69,6 +81,22 @@ async function boot() {
 
     view.createBoard();
     view.createPreviews();
+    if (offlineReport.completed.length > 0) {
+        view.setOfflineSummary(offlineReport);
+    }
+
+    // Keep the "hub was alive" clock fresh so the next offline report
+    // measures from the last real heartbeat instead of the last mutation.
+    meta.touch();
+    window.setInterval(() => meta.touch(), 30_000);
+    const stampAndSave = () => {
+        meta.touch();
+        persistence.save(meta.snapshot());
+    };
+    window.addEventListener('pagehide', stampAndSave);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') stampAndSave();
+    });
     audio.bindState(state);
     bindInput({ state, elements, view });
     view.setTopControlsHandlers({
@@ -128,6 +156,61 @@ async function boot() {
     // second run starts with a clean tally.
     let currentRun = null;
 
+    // --- Mission settlement (P8) ------------------------------------
+    //
+    // One reward path for every minigame. The hub owns the dispatch job
+    // (which ship + crew were sent); main.js owns the run summary. Both
+    // go into settleMission(), which applies crew level, hull fit, the
+    // tech tree, charted-sector bonuses and rep, and hands back a single
+    // settlement the results screen renders and CONTINUE banks.
+    function settleManualRun(mission, summary, { won = true } = {}) {
+        const job = view.getManualDispatch(mission?.id);
+        const ship = job ? meta.fleetSnapshot().find((s) => s.id === job.shipId) || null : null;
+        const crew = job ? meta.crewSnapshot().find((c) => c.id === job.crewId) || null : null;
+        return settleMission({
+            mission,
+            job,
+            summary,
+            ship,
+            crew,
+            effects: meta.getEffects(),
+            discoveredSectors: meta.discoveredSectorIds(),
+            dispatchMode: 'manual',
+            won,
+            nowMs: Date.now(),
+        });
+    }
+
+    // Merge a run summary with its settlement into the report the results
+    // scene renders. The settlement's numbers win: they are what actually
+    // lands in the profile.
+    function buildReport(summary, settlement) {
+        const before = meta.getRepInfo();
+        const projected = repInfo(meta.reputation + (settlement?.rep || 0));
+        return {
+            ...summary,
+            credits: settlement.credits,
+            creditsBreakdown: settlement.creditsBreakdown,
+            ores: settlement.ores,
+            rep: settlement.rep,
+            repTierBefore: before.tier,
+            repTierAfter: projected.tier,
+            repTitleAfter: projected.title,
+            promoted: projected.tier > before.tier,
+            crewName: settlement.crewName,
+            crewXp: settlement.crewXp,
+            crewLevel: settlement.crewLevel,
+            crewLevelsGained: settlement.crewLevelsGained,
+            shipName: settlement.shipName,
+            hullDamage: settlement.hullDamage,
+            hullAbsorbed: settlement.hullAbsorbed,
+            warp: settlement.warp,
+            sectorCharted: settlement.sectorCharted,
+            settlementLog: settlement.log,
+            won: settlement.won,
+        };
+    }
+
     state.on('game-over', () => {
         const run = currentRun;
         if (!run || !run.mission) {
@@ -138,14 +221,17 @@ async function boot() {
             return;
         }
         const summary = run.ledger.summary(state);
-        const envelope = run.ledger.rewardEnvelope(summary);
         run.ledger.detach();
-        view.showResultsScreen(summary, {
+        // A puzzle shift always ends with the board full — the ore you
+        // banked is yours either way, so the run counts as completed.
+        const settlement = settleManualRun(run.mission, summary, { won: true });
+        const report = buildReport(summary, settlement);
+        view.showResultsScreen(report, {
             onContinue: () => {
-                meta.applyMissionReward(envelope);
+                meta.applySettlement(settlement);
                 // Free the ship + crew this manual run consumed so the
                 // next DISPATCH is available immediately.
-                if (run.mission) view.completeManualMission(run.mission.id);
+                view.completeManualMission(run.mission.id);
                 view.hideResultsScreen();
                 view.showStartScreen();
                 currentRun = null;
@@ -166,36 +252,23 @@ async function boot() {
             rng: Math.random,
             schedule: (fn, ms) => setTimeout(fn, ms),
         });
+        // P8: combat runs tally ore too (destroyed formations → pyrite /
+        // cryonite / verdanite, power-ups → helium, the boss → both hazard
+        // ores), so a Combat contract banks resources like any other.
+        const defenseLedger = new DefenseLedger({ state: defenseState, mission });
 
-        defenseState.on('game-over', ({ won, score }) => {
+        defenseState.on('game-over', ({ won }) => {
             if (defenseInputTeardown) { defenseInputTeardown(); defenseInputTeardown = null; }
             cancelAnimationFrame(defenseRaf);
 
-            // Build a results-compatible summary from the defense run.
-            const summary = {
-                missionName: mission?.narrativeName || 'Defense Mission',
-                sector: mission?.sector || 'Unknown Sector',
-                tier: mission?.tierId || 'defense',
-                won,
-                score,
-                level: 1,
-                lines: 0,
-                cells: 0,
-                matches: 0,
-                bombs: 0,
-                ores: {},
-                credits: Math.floor(score / 10),
-                baseCredits: mission?.baseCredits || 0,
-            };
-            const envelope = {
-                credits: summary.credits,
-                ores: {},
-                missionId: mission?.id || null,
-            };
+            const summary = defenseLedger.summary(defenseState);
+            defenseLedger.detach();
+            const settlement = settleManualRun(mission, summary, { won });
+            const report = buildReport(summary, settlement);
 
-            view.showResultsScreen(summary, {
+            view.showResultsScreen(report, {
                 onContinue: () => {
-                    meta.applyMissionReward(envelope);
+                    meta.applySettlement(settlement);
                     // Free the ship + crew this manual defense run consumed.
                     if (mission) view.completeManualMission(mission.id);
                     view.hideResultsScreen();
