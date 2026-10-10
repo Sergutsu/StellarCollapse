@@ -37,6 +37,8 @@ import { ResultsScene } from './scenes/results-scene.js';
 import { HubScene } from './scenes/hub-scene.js';
 import { GameScene } from './scenes/game-scene.js';
 import { DefenseScene } from './scenes/defense-scene.js';
+import { HelpOverlay } from './scenes/help-overlay.js';
+import { ModalDialog } from './scenes/modal-dialog.js';
 
 // Shared palette consumed by ResultsScene's ore chips + the game
 // scenes' tile tints. Lives in its own module so all three scenes can
@@ -65,6 +67,8 @@ export class PixiView {
         this._game = null;
         this._defense = null;
         this._results = null;
+        this._help = null;
+        this._dialog = null;
 
         this._starfield = null;
         this._backdropTexture = null;
@@ -146,6 +150,14 @@ export class PixiView {
         });
         this._sceneMgr.register('defense', this._defense);
 
+        // HOW TO PLAY manual + generic modal (pause / confirm). Built
+        // lazily on first show, like ResultsScene, so they layer above
+        // whatever chrome already exists on uiRoot.
+        this._help = new HelpOverlay({ app, uiRoot: this.uiRoot });
+        this._sceneMgr.register('help', this._help);
+        this._dialog = new ModalDialog({ app, uiRoot: this.uiRoot });
+        this._sceneMgr.register('dialog', this._dialog);
+
         this._layoutViewport();
 
         // Hub is the default boot screen; lazy-build happens on first
@@ -206,6 +218,16 @@ export class PixiView {
         this._hub?.setResetGameCallback(callback);
     }
 
+    // P10: top-bar HELP button → the HOW TO PLAY overlay.
+    onHelp(callback) {
+        this._hub?.setHelpCallback(callback);
+    }
+
+    // P10: defense scene's PAUSE button → the pause dialog.
+    onDefensePause(callback) {
+        this._defense?.setPauseCallback(callback);
+    }
+
     // Forwarded so main.js can free a manual run's ship/crew when the
     // results screen CONTINUE is pressed.
     completeManualMission(missionId) {
@@ -227,6 +249,53 @@ export class PixiView {
     // P8: push a runtime headline onto the Galactic News ticker.
     pushNews(text) {
         this._hub?.pushNews?.(text);
+    }
+
+    // P10: HOW TO PLAY manual + generic modal (pause / confirm), both
+    // overlays owned by PixiView so they can open over hub OR run.
+    showHelp(opts = {}) {
+        this._sceneMgr.show('help', opts);
+    }
+
+    hideHelp() {
+        this._sceneMgr.hide('help');
+    }
+
+    get helpVisible() {
+        return this._sceneMgr.isVisible('help');
+    }
+
+    showDialog(opts = {}) {
+        this._sceneMgr.show('dialog', opts);
+    }
+
+    hideDialog() {
+        this._sceneMgr.hide('dialog');
+    }
+
+    cancelDialog() {
+        this._dialog?.cancel();
+    }
+
+    get dialogVisible() {
+        return this._sceneMgr.isVisible('dialog');
+    }
+
+    // P10: hub navigation surface for hotkeys + the results loop.
+    openMissionBoard() {
+        this._hub?.openMissionBoard?.();
+    }
+
+    closeMissionBoard() {
+        this._hub?.closeMissionBoard?.();
+    }
+
+    get missionBoardOpen() {
+        return !!this._hub?.missionBoardOpen;
+    }
+
+    selectHubTab(tabId) {
+        this._hub?.selectTab?.(tabId);
     }
 
     // Legacy accessor: main.js sets `view._levelInfoFor = ...` to

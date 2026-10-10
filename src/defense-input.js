@@ -6,13 +6,14 @@
 
 import { GRID } from './defense-constants.js';
 
-export function bindDefenseInput({ state, canvas, getScale, getOffset }) {
+export function bindDefenseInput({ state, canvas, getScale, getOffset, isPaused }) {
     const keys = {};
     const scale = () => (typeof getScale === 'function' ? getScale() : 1);
     const offset = () => (typeof getOffset === 'function' ? getOffset() : { x: 0, y: 0 });
+    const paused = () => (typeof isPaused === 'function' ? isPaused() : false);
 
     function onKeyDown(e) {
-        if (state.gameOver) return;
+        if (state.gameOver || paused()) return;
         keys[e.key] = true;
         if (e.code === 'Space') keys.Space = true;
 
@@ -42,7 +43,7 @@ export function bindDefenseInput({ state, canvas, getScale, getOffset }) {
     }
 
     function onPointerMove(e) {
-        if (state.gameOver) return;
+        if (state.gameOver || paused()) return;
         const rect = canvas.getBoundingClientRect();
         const s = scale();
         const o = offset();
@@ -51,7 +52,7 @@ export function bindDefenseInput({ state, canvas, getScale, getOffset }) {
     }
 
     function onPointerDown(e) {
-        if (state.gameOver) return;
+        if (state.gameOver || paused()) return;
         const rect = canvas.getBoundingClientRect();
         const s = scale();
         const o = offset();
@@ -65,6 +66,7 @@ export function bindDefenseInput({ state, canvas, getScale, getOffset }) {
     function startLaserLoop() {
         if (laserInterval) return;
         laserInterval = setInterval(() => {
+            if (paused()) return;
             if (keys[' '] || keys.Space) state.fireLaser();
         }, 80);
     }

@@ -19,6 +19,7 @@ import {
 import {
     drawTechPanel,
     panelLabel,
+    buildSimpleButton,
 } from '../pixi-ui-kit.js';
 
 import {
@@ -92,6 +93,13 @@ export class DefenseScene {
         this._turretTip = null;
         this._winOverlay = null;
         this._gameOverOverlay = null;
+        this._onPauseRequested = null;
+        this._pauseBtn = null;
+    }
+
+    /** P10: PAUSE button → main.js opens the pause dialog (also on ESC). */
+    setPauseCallback(fn) {
+        this._onPauseRequested = typeof fn === 'function' ? fn : null;
     }
 
     // ── Scene contract ────────────────────────────────────────────────
@@ -213,6 +221,18 @@ export class DefenseScene {
 
         this._bossHealthBar = new Graphics();
         this._root.addChild(this._bossHealthBar);
+
+        // P10: a real way out of (and back into) a combat shift on any
+        // device — the pause menu carries RESUME / HOW TO SHIFT / ABORT.
+        this._pauseBtn = buildSimpleButton({
+            text: 'PAUSE',
+            width: 88,
+            height: 26,
+            accent: 'cyan',
+            onTap: () => this._onPauseRequested?.(),
+        });
+        this._pauseBtn.container.position.set(ARENA_W - 112, 30);
+        this._root.addChild(this._pauseBtn.container);
 
         // Paddle.
         this._paddleGfx = new Graphics();
@@ -446,7 +466,8 @@ export class DefenseScene {
             panel.x = Math.round((ARENA_W - 420) / 2);
             panel.y = Math.round((ARENA_H - 160) / 2);
             this._gameOverOverlay.addChild(panel);
-            const title = panelLabel('MISSION FAILED', 0xff4444, { size: 32, weight: '800' });
+            // An aborted shift reads differently from a lost one.
+            const title = panelLabel(snap.aborted ? 'SHIFT ABORTED' : 'MISSION FAILED', snap.aborted ? 0xfbbf24 : 0xff4444, { size: 32, weight: '800' });
             title.anchor.set(0.5);
             title.x = 210;
             title.y = 50;

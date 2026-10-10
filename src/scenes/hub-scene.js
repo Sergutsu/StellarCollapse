@@ -120,7 +120,7 @@ const HUB_NEWS_POOL = Object.freeze([
 const HUB_TABS = Object.freeze([
     { id: 'star-map',   label: 'STAR MAP',      locked: false, colorKey: 'starMap' },
     { id: 'missions',   label: 'MISSIONS',      locked: false, colorKey: 'missions' },
-    { id: 'build',      label: 'FLEET UPGRADE', locked: false, colorKey: 'build' },
+    { id: 'build',      label: 'SHIPYARD',      locked: false, colorKey: 'build' },
     { id: 'research',   label: 'RESEARCH',      locked: false, colorKey: 'research' },
     { id: 'crew',       label: 'CREW',          locked: false, colorKey: 'crew' },
     { id: 'market',     label: 'MARKET',        locked: false, colorKey: 'market' },
@@ -130,9 +130,12 @@ const HUB_TABS = Object.freeze([
 // render time. `metaId` is the MetaState key; `format` is the
 // display format.
 const HUB_RESOURCES = Object.freeze([
-    { id: 'mins', metaId: 'minerals', label: 'Minerals',  format: 'kilo',    color: colors.misc.mineral },
-    { id: 'cred', metaId: 'credits',  label: 'Credits',   format: 'comma',   color: colors.status.success },
-    { id: 'warp', metaId: 'warp',     label: 'Warp',      format: 'int',     color: colors.misc.warp },
+    { id: 'mins', metaId: 'minerals', label: 'Minerals',  format: 'kilo',    color: colors.misc.mineral,
+      hint: 'MINERALS — the build + research sink. Refine ore into them at MARKET (4:1 common, 2:1 rare).' },
+    { id: 'cred', metaId: 'credits',  label: 'Credits',   format: 'comma',   color: colors.status.success,
+      hint: 'CREDITS — spend anywhere. Earned by dispatches and market sales; pay for rerolls and crew.' },
+    { id: 'warp', metaId: 'warp',     label: 'Warp',      format: 'int',     color: colors.misc.warp,
+      hint: 'WARP CELLS — fuel for sector jumps on the STAR MAP. Found on dispatches, never bought.' },
 ]);
 
 // Format a numeric MetaState value for the top-bar chip.
@@ -210,6 +213,12 @@ export class HubScene {
         // launches the selected mission's playable minigame. IDLE is opt-in.
         this._selectedMissionDispatch = 'manual';
         this._onResetGame = null;
+        this._onHelpRequested = null;
+        // The MISSION BOARD modal is the pillar-2 deploy surface. It opens
+        // at boot and after every settled shift; closing it by hand sets
+        // this flag so tab switches stop re-opening it until asked (M key,
+        // the planner's MISSION BOARD button, or the next settled shift).
+        this._boardDismissed = false;
         // Miner (blocks tiers) is the default sandbox: preselect the first
         // blocks-tier mission so a fresh boot points at the miner board.
         // Combat variants of a blocks tier route to the defense minigame
@@ -255,6 +264,12 @@ export class HubScene {
             this._layoutShell(this.app.screen.width, this.app.screen.height);
         }
         this._nodes.root.visible = true;
+        // A settled shift (or first boot) lands on the MISSION BOARD — the
+        // core loop's "click a card" stage. A hand-dismissed board stays
+        // shut until asked (see _boardDismissed).
+        if (!this._boardDismissed && this._nodes.activeTabId === 'missions') {
+            this._openMissionBoard();
+        }
     }
 
     hide() {
@@ -337,6 +352,11 @@ export class HubScene {
 
     setResetGameCallback(fn) {
         this._onResetGame = typeof fn === 'function' ? fn : null;
+    }
+
+    /** P10: top-bar HELP button → the HOW TO PLAY overlay (main.js). */
+    setHelpCallback(fn) {
+        this._onHelpRequested = typeof fn === 'function' ? fn : null;
     }
 
     getStartState() {
@@ -461,7 +481,11 @@ export class HubScene {
         // REP chip: the dispatcher rank + progress toward the next one.
         // Rendered like a resource chip but sourced from MetaState's
         // reputation points through reputation.js, not a hub resource.
-        const repChip = this._buildResourceChip({ label: 'REP', color: colors.brand.gold });
+        const repChip = this._buildResourceChip({
+            label: 'REP',
+            color: colors.brand.gold,
+            hint: 'REPUTATION — your rank, earned only by finishing dispatches. Gates T8/T9 contracts and threat-5 sectors.',
+        });
         repChip.metaId = null;
         repChip.format = 'rep';
         repChip.wide = true;
@@ -506,14 +530,23 @@ export class HubScene {
             });
         }
 
-        const gear = new Text({
-            text: '\u2699',
-            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 20, fill: colors.text.info }),
+        // P10: the top-bar "?" button opens the HOW TO PLAY manual. The
+        // old settings gear was a dead control (no handler) and is cut.
+        const help = new Text({
+            text: '? HELP',
+            style: new TextStyle({
+                fontFamily: '"Courier New", monospace',
+                fontSize: 11,
+                fontWeight: '700',
+                letterSpacing: 1,
+                fill: colors.text.info,
+            }),
         });
-        gear.anchor.set(0.5);
-        gear.eventMode = 'static';
-        gear.cursor = 'pointer';
-        container.addChild(gear);
+        help.anchor.set(0.5);
+        help.eventMode = 'static';
+        help.cursor = 'pointer';
+        help.on('pointertap', () => this._onHelpRequested?.());
+        container.addChild(help);
 
         // Reset Game: wipes the saved profile and reloads so the player can
         // always start a fresh run, even if dispatch state wedged itself.
@@ -534,7 +567,7 @@ export class HubScene {
         container.addChild(reset);
 
         return {
-            container, frame, star, brand, dispatcherBadge, chips, gear, reset,
+            container, frame, star, brand, dispatcherBadge, chips, help, reset,
         };
     }
 
@@ -554,10 +587,15 @@ export class HubScene {
         }
     }
 
-    _buildResourceChip({ label, color }) {
+    _buildResourceChip({ label, color, hint }) {
         const chipFrame = drawTechChip(88, 36, { accent: color });
         const { container, frame } = chipFrame;
         container.eventMode = 'static';
+        container.cursor = 'pointer';
+        // One-line explainer: what this resource is and what it gates.
+        if (hint) {
+            container.on('pointertap', () => this.pushNews(hint));
+        }
 
         const labelText = new Text({
             text: label,
@@ -816,7 +854,7 @@ export class HubScene {
         const crewList = new Container();
         frame.addChild(crewList);
 
-        const missionHeader = panelLabel('MISSION TYPES', COLOR_CYAN_300, { size: 11 });
+        const missionHeader = panelLabel('CONTRACTS', COLOR_CYAN_300, { size: 11 });
         missionHeader.position.set(388, 78);
         frame.addChild(missionHeader);
         const missionList = new Container();
@@ -851,6 +889,17 @@ export class HubScene {
         });
         frame.addChild(dispatch.container);
 
+        // Re-open the narrative MISSION BOARD (quick ACCEPT cards) from
+        // the console — the board is also the M hotkey and the boot surface.
+        const boardButton = buildSimpleButton({
+            text: 'MISSION BOARD',
+            width: 170,
+            height: 34,
+            accent: 'amber',
+            onTap: () => this._openMissionBoard(),
+        });
+        frame.addChild(boardButton.container);
+
         return {
             container,
             frame,
@@ -867,6 +916,7 @@ export class HubScene {
             outcomeBody,
             capacityText,
             dispatch,
+            boardButton,
             shipRows: [],
             crewRows: [],
             missionRows: [],
@@ -1025,10 +1075,11 @@ export class HubScene {
         container.eventMode = 'static';
         container.visible = false;
 
-        // Dim overlay covers the whole viewport.
+        // Dim overlay covers the whole viewport. Tapping the void is a
+        // deliberate dismissal, same as CLOSE.
         const dim = new Graphics();
         dim.eventMode = 'static';
-        dim.on('pointertap', () => this._closeMissionBoard());
+        dim.on('pointertap', () => this._dismissMissionBoard());
         container.addChild(dim);
 
         const panel = drawTechPanel(640, 480, { accent: 'cyan' });
@@ -1092,7 +1143,7 @@ export class HubScene {
             width: 100,
             height: 34,
             accent: 'amber',
-            onTap: () => this._closeMissionBoard(),
+            onTap: () => this._dismissMissionBoard(),
         });
         panel.addChild(closeButton.container);
 
@@ -1359,14 +1410,41 @@ export class HubScene {
     }
 
     _openMissionBoard() {
+        this._boardDismissed = false;
         if (this._nodes?.modal) {
             this._nodes.modal.container.visible = true;
             this._refreshMissionBoardMeta();
         }
     }
 
+    // Hide without recording a dismissal (tab switches, mission launch).
     _closeMissionBoard() {
         if (this._nodes?.modal) this._nodes.modal.container.visible = false;
+    }
+
+    // The player closed the board by hand (CLOSE / dim tap / ESC): keep it
+    // shut across tab switches until it is explicitly re-opened.
+    _dismissMissionBoard() {
+        this._boardDismissed = true;
+        this._closeMissionBoard();
+    }
+
+    // ---- Public navigation surface (main.js hotkeys + results loop) ----
+
+    openMissionBoard() {
+        this._openMissionBoard();
+    }
+
+    closeMissionBoard() {
+        this._dismissMissionBoard();
+    }
+
+    get missionBoardOpen() {
+        return !!this._nodes?.modal?.container.visible;
+    }
+
+    selectTab(tabId) {
+        this._setActiveTab(tabId);
     }
 
     // Repaints only the bottom-nav highlights at their current size.
@@ -1409,6 +1487,10 @@ export class HubScene {
             c.tabTitle.visible = true;
             c.tabTitle.text = 'MISSIONS';
             c.planner.container.visible = true;
+            // The board is the tab's primary surface (pillar 2: one action
+            // to deploy). Re-open it unless the player dismissed it by hand
+            // this session — the planner's MISSION BOARD button still works.
+            if (!this._boardDismissed) this._openMissionBoard();
             this._refreshMissionPlanner();
         } else if (n.tabs[tabId]) {
             // Extracted tab scenes own their own title + surface; hide
@@ -1590,7 +1672,9 @@ export class HubScene {
         planner.missionRows.forEach((r) => r.container.destroy({ children: true }));
         planner.missionRows = [];
         missionPool.forEach((mission, i) => {
-            const rowLabel = `T${mission.tierIndex} · ${mission.type.toUpperCase()} · ${mission.difficulty}`;
+            // Narrative name first — the type/difficulty read-out already
+            // lives in the POSSIBLE OUTCOME card below.
+            const rowLabel = `T${mission.tierIndex} · ${mission.narrativeName}`;
             const row = this._buildSelectableRow(rowLabel, missionRowW, () => {
                 this._selectedMissionTierId = mission.tierId;
                 this._refreshMissionPlanner();
@@ -1652,58 +1736,52 @@ export class HubScene {
         }
         if (this._selectedMissionDispatch === 'idle' && this._idleMissions.length >= this._maxIdleAssignments()) return;
 
-        const now = Date.now();
-        const missionResult = this._resolveMissionForDispatch(mission, ship, crew);
-
-        // P4: for idle dispatches, populate real ore rewards using the same
-        // catalog derivation that buildIdleMissions uses (common + rare split).
-        let rewardOres = missionResult.rewardOres;
         if (this._selectedMissionDispatch === 'idle') {
+            const now = Date.now();
+            const missionResult = this._resolveMissionForDispatch(mission, ship, crew);
+            // P4: populate real ore rewards using the same catalog
+            // derivation that buildIdleMissions uses (common + rare split).
+            let rewardOres = missionResult.rewardOres;
             const idleOffers = buildIdleMissions(this._missions);
             const offer = idleOffers.find((o) => o.sourceMissionId === mission.id || o.id === `idle-${mission.id}`);
             if (offer && offer.rewardOres) {
                 rewardOres = offer.rewardOres;
             }
-        }
 
-        const jobId = `dispatch-${this._idleMissionSeq++}`;
-        const job = {
-            id: jobId,
-            offerId: mission.tierId,
-            missionId: mission.id,
-            title: mission.narrativeName,
-            type: mission.type,
-            dispatchMode: this._selectedMissionDispatch,
-            risk: mission.risk,
-            difficulty: mission.difficulty,
-            threatLevel: missionResult.threatLevel,
-            environmentLevel: missionResult.environmentLevel,
-            rewardCredits: missionResult.rewardCredits,
-            rewardOres,
-            shipId: ship.id,
-            shipName: ship.name,
-            crewId: crew.id,
-            crewName: crew.name,
-            startedAt: now,
-            etaSec: missionResult.etaSec,
-            endsAt: now + missionResult.etaSec * 1000,
-            claimed: false,
-        };
+            const job = {
+                id: `dispatch-${this._idleMissionSeq++}`,
+                offerId: mission.tierId,
+                missionId: mission.id,
+                title: mission.narrativeName,
+                type: mission.type,
+                dispatchMode: 'idle',
+                risk: mission.risk,
+                difficulty: mission.difficulty,
+                threatLevel: missionResult.threatLevel,
+                environmentLevel: missionResult.environmentLevel,
+                rewardCredits: missionResult.rewardCredits,
+                rewardOres,
+                shipId: ship.id,
+                shipName: ship.name,
+                crewId: crew.id,
+                crewName: crew.name,
+                startedAt: now,
+                etaSec: missionResult.etaSec,
+                endsAt: now + missionResult.etaSec * 1000,
+                claimed: false,
+            };
 
-        if (this._selectedMissionDispatch === 'idle') {
             // P4: persist via MetaState (auto-saves + emits change)
             this.meta?.addActiveMission(job);
             // Local cache will be refreshed from meta in the change handler + explicit refresh below
             this._idleMissions.push(job);
+            this.meta?.setShipStatus(ship.id, 'On Mission');
+            this.meta?.setCrewStatus(crew.id, 'On Mission');
         } else {
-            this._idleMissions.push(job);
-        }
-
-        this.meta?.setShipStatus(ship.id, 'On Mission');
-        this.meta?.setCrewStatus(crew.id, 'On Mission');
-
-        if (this._selectedMissionDispatch === 'manual') {
-            this._onMissionCardTapped(mission);
+            // Manual: the same job shape via the shared builder (P10), so
+            // quick-ACCEPT and planner DISPATCH settle identically.
+            this._createManualJob(mission, ship, crew);
+            this._launchMission(mission);
         }
 
         this._refreshActiveIdleMissions();
@@ -1713,9 +1791,8 @@ export class HubScene {
 
     // Called by main.js when a manually-dispatched mission run ends (the
     // player hit CONTINUE on the results screen). Frees the ship + crew
-    // that were locked by _dispatchSelectedMission and drops the local
+    // locked by planner DISPATCH or board quick-ACCEPT and drops the local
     // job row so they are immediately available for the next dispatch.
-    // Without this, a manual run permanently consumed its assets.
     completeManualMission(missionId) {
         if (!missionId) return;
         const idx = this._idleMissions.findIndex(
@@ -2218,6 +2295,65 @@ export class HubScene {
             this.pushNews(`${mission.narrativeName} needs REP tier ${required} clearance.`);
             return;
         }
+        // P10: quick-ACCEPT settles through the same dispatch path as the
+        // planner. The first free ship + crew are locked onto a manual job
+        // so fit bonuses, crew XP and hull wear all apply (one reward path,
+        // one payout shape). With every asset busy the shift still launches
+        // — flown solo at base rate, and the ticker says so.
+        if (!this.getPendingManualDispatch(mission.id)) {
+            const fleet = this.meta?.fleetSnapshot() || [];
+            const roster = this.meta?.crewSnapshot() || [];
+            const ship = fleet.find((s) => s.status === 'Standby') || null;
+            const crew = roster.find((c) => c.status === 'Available') || null;
+            if (ship && crew) {
+                this._createManualJob(mission, ship, crew);
+            } else {
+                this.pushNews(`${mission.narrativeName}: flying solo \u2014 no free ship/crew, base-rate payout.`);
+            }
+        }
+        this._launchMission(mission);
+    }
+
+    /**
+     * Lock a manual-dispatch job (ship + crew reserved, payout quoted) for
+     * a shift the player is about to fly. Shared by planner DISPATCH and
+     * board quick-ACCEPT so there is exactly one job shape for manual runs.
+     * @returns {object|null} the job, or null when flying solo.
+     */
+    _createManualJob(mission, ship, crew) {
+        if (!mission) return null;
+        const now = Date.now();
+        const priced = this._resolveMissionForDispatch(mission, ship, crew);
+        const job = {
+            id: `dispatch-${this._idleMissionSeq++}`,
+            offerId: mission.tierId,
+            missionId: mission.id,
+            title: mission.narrativeName,
+            type: mission.type,
+            dispatchMode: 'manual',
+            risk: mission.risk,
+            difficulty: mission.difficulty,
+            threatLevel: priced.threatLevel,
+            environmentLevel: priced.environmentLevel,
+            rewardCredits: priced.rewardCredits,
+            rewardOres: priced.rewardOres,
+            shipId: ship?.id ?? null,
+            shipName: ship?.name ?? null,
+            crewId: crew?.id ?? null,
+            crewName: crew?.name ?? null,
+            startedAt: now,
+            etaSec: priced.etaSec,
+            endsAt: now + priced.etaSec * 1000,
+            claimed: false,
+        };
+        this._idleMissions.push(job);
+        if (ship) this.meta?.setShipStatus(ship.id, 'On Mission');
+        if (crew) this.meta?.setCrewStatus(crew.id, 'On Mission');
+        return job;
+    }
+
+    /** Lock the mission's gameConfig into the start state and launch it. */
+    _launchMission(mission) {
         this._startState.mode = mission.gameConfig.mode;
         this._startState.complexity = mission.gameConfig.complexity;
         this._startState.fieldSizeId = mission.gameConfig.fieldSizeId;
@@ -2306,9 +2442,10 @@ export class HubScene {
         // Dispatcher badge sits just under the brand, left-aligned.
         topBar.dispatcherBadge.position.set(starX + 22, h / 2 + topBar.brand.height / 2 - 2);
 
-        // Gear sits at the far right edge; the reset control sits left of it.
-        topBar.gear.position.set(w - 24, h / 2);
-        topBar.reset.position.set(w - 78, h / 2);
+        // Help + reset sit at the far right edge (P10: help replaced the
+        // dead settings gear).
+        topBar.help.position.set(w - 30, h / 2);
+        topBar.reset.position.set(w - 100, h / 2);
 
         // Resource chips flex between the dispatcher badge and the controls.
         // The REP chip is wider because it carries the rank title.
@@ -2317,7 +2454,7 @@ export class HubScene {
         const repW = 132;
         const widths = topBar.chips.map((chip) => (chip.wide ? repW : chipW));
         const stripW = widths.reduce((sum, cw) => sum + cw, 0) + (widths.length - 1) * chipGap;
-        const stripRight = w - 116;
+        const stripRight = w - 150;
         const stripLeft = stripRight - stripW;
         let cursor = stripLeft;
         topBar.chips.forEach((chip, i) => {
@@ -2429,6 +2566,10 @@ export class HubScene {
         center.planner.dispatch.container.position.set(
             Math.round((plannerW - center.planner.dispatch.width) / 2),
             plannerH - center.planner.dispatch.height - 10,
+        );
+        center.planner.boardButton.container.position.set(
+            Math.round((plannerW - center.planner.dispatch.width) / 2) - 190,
+            plannerH - center.planner.dispatch.height - 8,
         );
         this._refreshMissionPlanner();
 

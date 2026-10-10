@@ -19,7 +19,7 @@
 //   game.createPreviews()    -- legacy no-op kept for API parity
 //   game.setTip(text)
 //   game.setSoundEnabled(on)
-//   game.setTopControlsHandlers({ onExit, onToggleSound })
+//   game.setTopControlsHandlers({ onPause, onToggleSound })
 //   game.setLevelInfoFor(fn)
 //
 // See docs/adr/0009-scene-graph-extraction.md.
@@ -168,7 +168,7 @@ export class GameScene {
         this._scannerY = 0;
 
         // Top controls callbacks, set via setTopControlsHandlers().
-        this._onExitRequested = null;
+        this._onPauseRequested = null;
         this._onSoundToggleRequested = null;
 
         // setSoundEnabled / setTip may be called before the HUD is
@@ -306,8 +306,9 @@ export class GameScene {
         }
     }
 
-    setTopControlsHandlers({ onExit, onToggleSound } = {}) {
-        this._onExitRequested = typeof onExit === 'function' ? onExit : null;
+    setTopControlsHandlers({ onPause, onExit, onToggleSound } = {}) {
+        // `onExit` is accepted as a legacy alias for onPause.
+        this._onPauseRequested = typeof onPause === 'function' ? onPause : (typeof onExit === 'function' ? onExit : null);
         this._onSoundToggleRequested = typeof onToggleSound === 'function' ? onToggleSound : null;
     }
 
@@ -1362,25 +1363,25 @@ export class GameScene {
             fill: 0x7e22ce,
             hoverFill: 0x9333ea,
         });
-        const exitBtn = this._buildHudButton({
-            text: '⎋ Exit Mission',
-            width: 128,
-            fill: 0xb91c1c,
-            hoverFill: 0xdc2626,
+        const pauseBtn = this._buildHudButton({
+            text: '⏸ PAUSE (ESC)',
+            width: 132,
+            fill: 0x1e3a8a,
+            hoverFill: 0x2563eb,
         });
 
         soundBtn.container.x = 0;
-        exitBtn.container.x = soundBtn.width + gap;
-        container.addChild(soundBtn.container, exitBtn.container);
+        pauseBtn.container.x = soundBtn.width + gap;
+        container.addChild(soundBtn.container, pauseBtn.container);
 
         soundBtn.container.on('pointertap', () => {
             if (typeof this._onSoundToggleRequested === 'function') {
                 this._onSoundToggleRequested();
             }
         });
-        exitBtn.container.on('pointertap', () => {
-            if (typeof this._onExitRequested === 'function') {
-                this._onExitRequested();
+        pauseBtn.container.on('pointertap', () => {
+            if (typeof this._onPauseRequested === 'function') {
+                this._onPauseRequested();
             }
         });
 

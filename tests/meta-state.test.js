@@ -857,3 +857,32 @@ test('fleetSlots() reports base berths plus research extras', () => {
     meta.completeResearch('fuel-cell');
     assert.equal(meta.fleetSlots(), 12, 'Compact Fuel Cell adds two berths');
 });
+
+// ---- UI preferences (P10) -------------------------------------------
+
+test('helpSeen starts false and survives a snapshot round-trip', () => {
+    const meta = new MetaState();
+    assert.equal(meta.hasSeenHelp(), false, 'a fresh profile has not read the manual');
+
+    let changes = 0;
+    meta.on('change', () => { changes += 1; });
+    meta.markHelpSeen();
+    assert.equal(meta.hasSeenHelp(), true);
+    assert.equal(changes, 1, 'one action, one change event');
+
+    meta.markHelpSeen();
+    assert.equal(changes, 1, 'markHelpSeen is idempotent');
+
+    const reloaded = new MetaState(meta.snapshot());
+    assert.equal(reloaded.hasSeenHelp(), true, 'the flag persists');
+});
+
+test('an old save without the ui slice keeps the starter default', () => {
+    const legacy = starterProfile();
+    delete legacy.ui;
+    const meta = new MetaState(legacy);
+    assert.equal(meta.hasSeenHelp(), false, 'missing ui slice → manual shows again');
+    meta.markHelpSeen();
+    const again = new MetaState(meta.snapshot());
+    assert.equal(again.hasSeenHelp(), true);
+});

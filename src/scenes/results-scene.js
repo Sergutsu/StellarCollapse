@@ -13,6 +13,7 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 
 import { ORES } from '../missions.js';
+import { nextStepHints } from '../results-hints.js';
 import { drawHologramPanel, buildStartButton } from '../pixi-ui-kit.js';
 
 export class ResultsScene {
@@ -230,6 +231,34 @@ export class ResultsScene {
         breakdown.position.set(statsX, panelH - 72);
         panel.addChild(breakdown);
 
+        // ---- NEXT STEPS --------------------------------------------
+        // "Where does this haul go?" — context-aware pointers into the
+        // station (src/results-hints.js is the pure rulebook).
+        const nextLabel = new Text({
+            text: 'NEXT',
+            style: statsLabelStyle,
+        });
+        nextLabel.position.set(statsX, panelH - 50);
+        panel.addChild(nextLabel);
+
+        const hintLines = [];
+        for (let i = 0; i < 2; i += 1) {
+            const line = new Text({
+                text: '',
+                style: new TextStyle({
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: 11,
+                    fontWeight: '600',
+                    fill: 0x7dd3fc,
+                    wordWrap: true,
+                    wordWrapWidth: 330,
+                }),
+            });
+            line.position.set(statsX, panelH - 36 + i * 15);
+            panel.addChild(line);
+            hintLines.push(line);
+        }
+
         // ---- CONTINUE button --------------------------------------
         const continueBtn = buildStartButton({
             text: 'CONTINUE',
@@ -259,6 +288,7 @@ export class ResultsScene {
             creditsLabel,
             creditsValue,
             breakdown,
+            hintLines,
             continueBtn,
         };
     }
@@ -309,6 +339,13 @@ export class ResultsScene {
             const bonus = Math.max(0, Math.floor(s.scoreBonus  || 0));
             r.breakdown.text = `Base ${base.toLocaleString('en-US')} cr + Score bonus ${bonus.toLocaleString('en-US')} cr`;
         }
+
+        // P10: point the haul at the bays that consume it.
+        const hints = nextStepHints(s, r.hintLines.length);
+        r.hintLines.forEach((line, i) => {
+            const hint = hints[i];
+            line.text = hint ? `\u25B8 ${hint.label} \u2014 ${hint.text}` : '';
+        });
 
         this._populateSettlement(s);
     }

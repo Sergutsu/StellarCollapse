@@ -84,6 +84,7 @@ export class DefenseState extends Emitter {
         this._reset();
         this.gameOver = false;
         this.won = false;
+        this.aborted = false;
         this._spawnInvaders();
         this._spawnBoss();
         this._balls.push(this._makeBall(
@@ -184,6 +185,7 @@ export class DefenseState extends Emitter {
         this.playerHealth = PLAYER_MAX_HEALTH;
         this.gameOver = false;
         this.won = false;
+        this.aborted = false;
         this._elapsed = 0;
 
         this._paddle = { x: snap(ARENA_W / 2 - PADDLE_WIDTH / 2), y: snap(ARENA_H - 40) };
@@ -668,11 +670,21 @@ export class DefenseState extends Emitter {
         }
     }
 
-    _endGame(won) {
+    _endGame(won, { aborted = false } = {}) {
         if (this.gameOver) return;
         this.gameOver = true;
         this.won = won;
-        this.emit('game-over', { won, score: this.score });
+        this.aborted = aborted;
+        this.emit('game-over', { won, aborted, score: this.score });
+    }
+
+    /**
+     * Abort the shift from the pause menu (P10). Settles like a failed
+     * defense run — reduced rep, extra hull wear — so bailing out early
+     * is a cost, not a free exit. Mirrors GameState.endGameEarly().
+     */
+    endGameEarly() {
+        this._endGame(false, { aborted: true });
     }
 
     // ── Snapshot for rendering ────────────────────────────────────────
@@ -701,6 +713,7 @@ export class DefenseState extends Emitter {
             pixelKills: this._pixelKills,
             gameOver: this.gameOver,
             won: this.won,
+            aborted: this.aborted,
         };
     }
 }

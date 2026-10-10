@@ -48,7 +48,8 @@ The repo is moving toward a hybrid casual / idle space-exploration game. Deep de
 - **Gravity-freeze in Totally Collapsed** — color matches and bomb blasts don't drop survivors; cells hang suspended (visibly outlined) until a snake run recolors the board and unlocks gravity.
 - **No build step** — pure ES modules in the browser. Clone and run.
 - **Mobile-responsive** — hub and gameplay surfaces scale to fit narrow viewports; touch gestures (swipe to move/rotate/drop) make runs fully playable on phones.
-- **Unit-tested core** — `GameState`, `DefenseState` and the whole meta layer are decoupled from DOM/audio; `npm test` runs a zero-dependency `node --test` suite (390 tests), including a hub smoke suite that boots the real scene graph against a headless Pixi stand-in.
+- **Explains itself** — a paged HOW TO PLAY manual (auto on first boot, `H` afterwards), pause menus with priced aborts, next-step hints on the mission report, and full keyboard navigation.
+- **Unit-tested core** — `GameState`, `DefenseState` and the whole meta layer are decoupled from DOM/audio; `npm test` runs a zero-dependency `node --test` suite (417 tests), including hub + boot smoke suites that run the real scene graph and `main.js` against a headless Pixi stand-in.
 
 ---
 
@@ -66,7 +67,16 @@ Or run it locally (see [Local Development](#local-development) below).
 | `↓`              | Soft drop                          |
 | `↑`              | Rotate                             |
 | `SPACE`          | Hard drop                          |
+| `ESC`            | Pause a shift / close any panel    |
+| `H` or `?`       | Open the HOW TO PLAY manual        |
+| `P`              | Pause a shift                      |
+| `1` – `6`        | Switch hub tabs (hub only)         |
+| `M`              | Open the MISSION BOARD (hub only)  |
 | **Mouse click**  | Trigger a color match (Stellar mode only; disabled in Blocks, automated in Auto-Match) |
+
+First boot opens the in-game manual over the mission board — five short pages
+covering the loop, dispatching, the minigames, the station, and the controls.
+After that it stays one key away (`H`) or on the top-bar `? HELP` button.
 
 ### Game modes
 
@@ -157,7 +167,7 @@ The game-state logic is covered by [`node --test`](https://nodejs.org/api/test.h
 npm test
 ```
 
-Covers movement, rotation, gravity, line clears, color matches, the special-block mechanics (bomb, snake), the mission catalogue, and scene-manager registration/lifecycle. 108 tests as of the latest merge.
+Covers movement, rotation, gravity, line clears, color matches, the special-block mechanics (bomb, snake), the mission catalogue, scene-manager registration/lifecycle, the meta economy, the help/hotkey shell, and a full `main.js` boot against a headless Pixi. 417 tests as of the latest merge.
 
 ---
 
