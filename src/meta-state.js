@@ -123,6 +123,11 @@ const STARTER_PROFILE = Object.freeze({
         activeResearches: Object.freeze([]), // [{ nodeId, startedAt, accumulatedMs }]
         maxConcurrent: 2,
     }),
+    // P10: lightweight UI preferences. `helpSeen` stops the first-boot
+    // HOW TO PLAY overlay from re-appearing once the manual is read.
+    ui: Object.freeze({
+        helpSeen: false,
+    }),
 });
 
 export function starterProfile() {
@@ -145,6 +150,9 @@ export function starterProfile() {
             completed: [],
             activeResearches: [],
             maxConcurrent: 2,
+        },
+        ui: {
+            helpSeen: false,
         },
     };
     // Starter crew are veterans: seed their XP at their level threshold so
@@ -218,6 +226,16 @@ export class MetaState {
     /** Per-colour ore counts (the hold the MARKET tab trades out of). */
     oreCounts() { return { ...(this._data.ores || {}) }; }
 
+    /** P10: has the HOW TO PLAY manual been opened before? */
+    hasSeenHelp() { return !!(this._data.ui && this._data.ui.helpSeen); }
+
+    /** P10: record that the manual has been read (one save, idempotent). */
+    markHelpSeen() {
+        if (this.hasSeenHelp()) return;
+        this._data.ui = { ...(this._data.ui || {}), helpSeen: true };
+        this._changed('ui', { helpSeen: true });
+    }
+
     /**
      * Today's mission-board record, normalised: a stale `dayKey` resets
      * the paid-reroll counter because the board refreshed for free.
@@ -275,6 +293,7 @@ export class MetaState {
             })),
             lastTickAt: this._data.lastTickAt || Date.now(),
             research: this.getResearchState(),
+            ui: { helpSeen: !!(this._data.ui && this._data.ui.helpSeen) },
         };
     }
 
@@ -1169,6 +1188,14 @@ export class MetaState {
             if (Number.isFinite(inc.maxConcurrent)) {
                 base.research.maxConcurrent = Math.max(1, Math.floor(inc.maxConcurrent));
             }
+        }
+
+        // P10: UI preferences (additive; a save from before this field
+        // simply keeps the starter `helpSeen: false`).
+        if (incoming.ui && typeof incoming.ui === 'object') {
+            base.ui = {
+                helpSeen: typeof incoming.ui.helpSeen === 'boolean' ? incoming.ui.helpSeen : base.ui.helpSeen,
+            };
         }
 
         return base;

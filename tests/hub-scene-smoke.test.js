@@ -35,6 +35,9 @@ const HOOK_AVAILABLE = typeof register === 'function';
 let HubScene = null;
 let MetaState = null;
 let starterProfile = null;
+let HelpOverlay = null;
+let ModalDialog = null;
+let ResultsScene = null;
 let pixi = null;
 let loadError = null;
 
@@ -44,6 +47,9 @@ if (HOOK_AVAILABLE) {
         pixi = await import('./helpers/pixi-mock.js');
         ({ HubScene } = await import('../src/scenes/hub-scene.js'));
         ({ MetaState, starterProfile } = await import('../src/meta-state.js'));
+        ({ HelpOverlay } = await import('../src/scenes/help-overlay.js'));
+        ({ ModalDialog } = await import('../src/scenes/modal-dialog.js'));
+        ({ ResultsScene } = await import('../src/scenes/results-scene.js'));
     } catch (err) {
         loadError = err;
     }
@@ -330,6 +336,155 @@ describe('hub scene smoke (executed against a headless Pixi)', { skip: !HOOK_AVA
         assert.equal(after.length, before + 1, 'an idle job was created');
         assert.ok(after[0].missionId || after[0].id, 'the job names its contract');
         assert.ok(Number.isFinite(after[0].endsAt), 'and carries an absolute ETA');
+    });
+
+    it('the MISSION BOARD is the boot surface, dismissable and re-openable', () => {
+        const { hub } = bootHub();
+        assert.equal(hub.missionBoardOpen, true, 'boot opens the board');
+
+        hub.closeMissionBoard();               // deliberate dismissal
+        assert.equal(hub.missionBoardOpen, false);
+        hub._setActiveTab('market');
+        hub._setActiveTab('missions');
+        assert.equal(hub.missionBoardOpen, false, 'a dismissed board stays shut across tab flips');
+
+        hub.openMissionBoard();                // M hotkey / planner button
+        assert.equal(hub.missionBoardOpen, true);
+        hub._setActiveTab('market');           // tab switch hides without dismissing
+        hub._setActiveTab('missions');
+        assert.equal(hub.missionBoardOpen, true, 'a merely-hidden board comes back');
+    });
+
+    it('quick-ACCEPT locks a ship + crew through the manual job path', () => {
+        const { hub, meta } = bootHub();
+        // Skip Combat variants and the REP-gated T8/T9 cards.
+        const mission = hub.getMissions().find((m) => !m.runsDefense && m.tierIndex < 8);
+        const freeShip = meta.fleetSnapshot().find((s) => s.status === 'Standby');
+        const freeCrew = meta.crewSnapshot().find((c) => c.status === 'Available');
+
+        let launched = null;
+        hub.setStartGameCallback((args) => { launched = args; });
+        hub._onMissionCardTapped(mission);
+
+        assert.ok(launched, 'the shift launched');
+        assert.equal(launched.mission.id, mission.id);
+        const job = hub.getPendingManualDispatch(mission.id);
+        assert.ok(job, 'a manual job exists for the run');
+        assert.equal(job.shipId, freeShip.id, 'first free ship assigned');
+        assert.equal(job.crewId, freeCrew.id, 'first free crew assigned');
+        assert.equal(job.dispatchMode, 'manual');
+        assert.ok(job.rewardCredits > 0, 'payout quoted at dispatch time');
+
+        // Assets are locked until CONTINUE frees them.
+        assert.equal(meta.fleetSnapshot().find((s) => s.id === freeShip.id).status, 'On Mission');
+        hub.completeManualMission(mission.id);
+        assert.equal(meta.fleetSnapshot().find((s) => s.id === freeShip.id).status, 'Standby');
+        assert.equal(meta.crewSnapshot().find((c) => c.id === freeCrew.id).status, 'Available');
+        assert.equal(hub.getPendingManualDispatch(mission.id), null);
+    });
+
+    it('planner contract rows carry the narrative name', () => {
+        const { hub } = bootHub();
+        hub._setActiveTab('missions');
+        const rows = hub._nodes.centerPanel.planner.missionRows;
+        assert.ok(rows.length >= 9, 'every catalog entry listed');
+        for (const row of rows) {
+            assert.doesNotMatch(row.title.text, /^T\d+ · [A-Z]+ · /, 'no cryptic tier-only labels');
+        }
+    });
+
+    it('HELP overlay pages through the manual and the dialog confirms', () => {
+        const app = { screen: { width: 1280, height: 800 } };
+        const uiRoot = new pixi.Container();
+        const help = new HelpOverlay({ app, uiRoot });
+
+        let closed = 0;
+        let started = 0;
+        help.show({ firstRun: true, onClose: () => { closed += 1; }, onStartShift: () => { started += 1; } });
+        assert.equal(help.visible, true);
+        assert.equal(help.pageIndex, 0);
+        assert.equal(help._nodes.startBtn.container.visible, true, 'first-run CTA shown');
+
+        help.nextPage();
+        help.nextPage();
+        assert.equal(help.pageIndex, 2);
+        help.prevPage();
+        assert.equal(help.pageIndex, 1);
+        help.goToPage(99);
+        assert.equal(help.pageIndex, 4, 'clamped to the last page');
+        assert.deepEqual(nonFiniteGeometry(uiRoot), [], 'finite help geometry');
+
+        help.tapStart();
+        assert.equal(started, 1);
+        assert.equal(closed, 1, 'closing fires onClose');
+        assert.equal(help.visible, false);
+
+        // A later manual open has no START SHIFT CTA.
+        help.show({});
+        assert.equal(help._nodes.startBtn.container.visible, false);
+        help.hide();
+
+        const dialog = new ModalDialog({ app, uiRoot });
+        const taps = [];
+        dialog.show({
+            title: 'SHIFT PAUSED',
+            buttons: [
+                { label: 'RESUME', style: 'primary', role: 'cancel', onTap: () => taps.push('resume') },
+                { label: 'ABORT SHIFT', style: 'danger', role: 'confirm', onTap: () => taps.push('abort') },
+            ],
+        });
+        assert.equal(dialog.visible, true);
+        assert.deepEqual(nonFiniteGeometry(uiRoot), [], 'finite dialog geometry');
+        dialog.cancel();  // ESC path
+        assert.equal(dialog.visible, false);
+        assert.deepEqual(taps, ['resume'], 'cancel fires the safe button');
+
+        dialog.show({
+            title: 'RESET PROFILE?',
+            buttons: [
+                { label: 'CANCEL', style: 'ghost', role: 'cancel', onTap: () => taps.push('cancel') },
+                { label: 'WIPE & RELOAD', style: 'danger', role: 'confirm', onTap: () => taps.push('wipe') },
+            ],
+        });
+        dialog.tapButton(1);
+        assert.deepEqual(taps, ['resume', 'wipe']);
+        assert.equal(dialog.visible, false);
+    });
+
+    it('RESULTS report renders the settlement and next-step hints', () => {
+        const app = { screen: { width: 1280, height: 800 } };
+        const uiRoot = new pixi.Container();
+        const results = new ResultsScene({ app, uiRoot });
+
+        let continued = 0;
+        results.show({
+            narrativeName: 'Core Drilling',
+            missionName: 'blocks-classic',
+            sector: 'Ironspan Flats',
+            tierIndex: 1,
+            score: 1234,
+            level: 3,
+            credits: 420,
+            ores: { red: 4, blue: 2, bomb: 1 },
+            hullDamage: 6,
+            rep: 34,
+            crewName: 'V. Draeven',
+            crewXp: 20,
+            warp: 1,
+        }, { onContinue: () => { continued += 1; } });
+
+        assert.equal(results.visible, true);
+        assert.deepEqual(nonFiniteGeometry(uiRoot), [], 'finite results geometry');
+        const hints = results._nodes.hintLines.map((l) => l.text).filter(Boolean);
+        assert.equal(hints.length, 2, 'two next-step hints');
+        assert.match(hints[0], /SHIPYARD/, 'hull damage leads');
+        assert.match(results._nodes.creditsValue.text, /420/, 'credits rendered');
+        assert.match(results._nodes.breakdown.text, /Base|Contract/, 'breakdown rendered');
+
+        results._nodes.continueBtn.container.emit('pointertap', {});
+        assert.equal(continued, 1, 'CONTINUE forwards to the host (which hides + returns to the hub)');
+        results.hide();
+        assert.equal(results.visible, false);
     });
 
     it('tears down without leaving a scene graph behind', () => {

@@ -415,3 +415,32 @@ describe('DefenseState', () => {
         });
     });
 });
+
+describe('aborting a shift (P10 pause menu)', () => {
+    it('endGameEarly settles as a failed, aborted run exactly once', () => {
+        const s = new DefenseState({ rng: seededRng([]) });
+        s.start();
+        const seen = [];
+        s.on('game-over', (payload) => seen.push(payload));
+
+        s.endGameEarly();
+        assert.equal(s.gameOver, true);
+        assert.equal(s.won, false);
+        assert.equal(s.aborted, true, 'snapshot can relabel the end screen');
+        assert.equal(seen.length, 1);
+        assert.equal(seen[0].won, false);
+        assert.equal(seen[0].aborted, true);
+        assert.equal(s.snapshot().aborted, true);
+
+        // A second abort is a no-op (no double settlement).
+        s.endGameEarly();
+        assert.equal(seen.length, 1);
+    });
+
+    it('a finished run is not marked aborted', () => {
+        const s = new DefenseState({ rng: seededRng([]) });
+        s.start();
+        s._endGame(false); // natural loss path
+        assert.equal(s.aborted, false);
+    });
+});

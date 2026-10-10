@@ -9,6 +9,7 @@ import { PixiView } from './pixi-view.js';
 import { Audio } from './audio.js';
 import { bindInput } from './input.js';
 import { bindDefenseInput } from './defense-input.js';
+import { bindHotkeys, HOTKEY_TAB_ORDER } from './hotkeys.js';
 import { MetaState } from './meta-state.js';
 import { Persistence } from './persistence.js';
 import { RunLedger, DefenseLedger } from './run-ledger.js';
@@ -98,15 +99,100 @@ async function boot() {
         if (document.visibilityState === 'hidden') stampAndSave();
     });
     audio.bindState(state);
-    bindInput({ state, elements, view });
+
+    // --- Pause + help + dialogs (P10) --------------------------------
+    //
+    // One `paused` flag freezes both minigame loops (puzzle + defense)
+    // while the pause dialog is up. Special arming timers are wall-time
+    // and keep counting — documented in GAMEPLAY.md — everything the
+    // player drives stops.
+    let paused = false;
+    let runKind = null; // 'puzzle' | 'defense' | null
+    const setPaused = (value) => {
+        paused = !!value;
+    };
+
+    const openPauseMenu = () => {
+        if (runKind === null) return;
+        if (runKind === 'puzzle' && state.gameOver) return;
+        if (runKind === 'defense' && defenseState?.gameOver) return;
+        setPaused(true);
+        view.showDialog({
+            title: 'SHIFT PAUSED',
+            body: 'The board is frozen. Resume when you are ready — or abort the shift for a reduced payout.',
+            detail: 'ESC resumes · H opens the full manual',
+            buttons: [
+                {
+                    label: 'RESUME',
+                    style: 'primary',
+                    role: 'cancel',
+                    onTap: () => setPaused(false),
+                },
+                {
+                    label: 'HOW TO SHIFT',
+                    style: 'ghost',
+                    onTap: () => openHelp(2, { returnToPause: true }),
+                },
+                {
+                    label: 'ABORT SHIFT',
+                    style: 'danger',
+                    onTap: () => abortRun(),
+                },
+            ],
+        });
+    };
+
+    const abortRun = () => {
+        setPaused(false);
+        view.hideDialog();
+        if (runKind === 'defense') {
+            defenseState?.endGameEarly?.();
+        } else {
+            state.endGameEarly();
+        }
+    };
+
+    // The manual, paged. `returnToPause` re-opens the pause menu when the
+    // manual closes so a paused shift can never silently resume.
+    const openHelp = (page = 0, { returnToPause = false, firstRun = false } = {}) => {
+        if (view.helpVisible) return;
+        if (view.dialogVisible) view.hideDialog();
+        view.showHelp({
+            page,
+            firstRun,
+            onClose: () => {
+                meta.markHelpSeen();
+                if (returnToPause) openPauseMenu();
+            },
+            onStartShift: () => {
+                meta.markHelpSeen();
+                view.openMissionBoard();
+            },
+        });
+    };
+
+    const toggleHelp = () => {
+        if (view.helpVisible) {
+            view.hideHelp(); // its onClose re-opens the pause menu if needed
+        } else {
+            openHelp(0, { returnToPause: paused });
+        }
+    };
+
+    // Top-bar / in-run controls. Pause replaces the old instant "exit":
+    // aborting is now a deliberate choice inside the pause menu.
     view.setTopControlsHandlers({
-        onExit: () => state.endGameEarly(),
+        onPause: () => openPauseMenu(),
         onToggleSound: () => {
             const on = audio.toggle();
             view.setSoundEnabled(on);
         },
     });
     view.setSoundEnabled(audio.enabled);
+    view.onHelp(() => openHelp(0, { returnToPause: paused }));
+    view.onDefensePause(() => openPauseMenu());
+
+    bindInput({ state, elements, isPaused: () => paused });
 
     // --- Mission tips: short cue per level ---------------------------
     const LEVEL_TIPS = {
@@ -211,7 +297,9 @@ async function boot() {
         };
     }
 
-    state.on('game-over', () => {
+    state.on('game-over', (payload) => {
+        runKind = null;
+        paused = false;
         const run = currentRun;
         if (!run || !run.mission) {
             // No mission selected (e.g. sandbox boot); keep behaviour
@@ -222,9 +310,11 @@ async function boot() {
         }
         const summary = run.ledger.summary(state);
         run.ledger.detach();
-        // A puzzle shift always ends with the board full — the ore you
-        // banked is yours either way, so the run counts as completed.
-        const settlement = settleManualRun(run.mission, summary, { won: true });
+        // A full board is a finished shift and pays in full. A deliberate
+        // abort (user-exit) settles as a failed run — reduced rep, more
+        // hull wear — so bailing early is a cost, not a free exit (P10).
+        const aborted = payload?.reason === 'user-exit';
+        const settlement = settleManualRun(run.mission, summary, { won: !aborted });
         const report = buildReport(summary, settlement);
         view.showResultsScreen(report, {
             onContinue: () => {
@@ -247,6 +337,8 @@ async function boot() {
     function launchDefenseMission(mission) {
         if (!audio.ctx && audio.enabled) audio.init();
         audio.resume();
+        runKind = 'defense';
+        paused = false;
 
         defenseState = new DefenseState({
             rng: Math.random,
@@ -260,6 +352,8 @@ async function boot() {
         defenseState.on('game-over', ({ won }) => {
             if (defenseInputTeardown) { defenseInputTeardown(); defenseInputTeardown = null; }
             cancelAnimationFrame(defenseRaf);
+            runKind = null;
+            paused = false;
 
             const summary = defenseLedger.summary(defenseState);
             defenseLedger.detach();
@@ -285,6 +379,7 @@ async function boot() {
             defenseInputTeardown = bindDefenseInput({
                 state: defenseState,
                 canvas: view.app.canvas,
+                isPaused: () => paused,
                 getScale: () => view._defense?.scale ?? 1,
                 getOffset: () => ({
                     x: view._defense?._root?.x ?? 0,
@@ -297,6 +392,7 @@ async function boot() {
         function defenseLoop(time = 0) {
             if (defenseState?.gameOver) return;
             defenseRaf = requestAnimationFrame(defenseLoop);
+            if (paused) { lastDefenseFrame = time; return; }
             if (lastDefenseFrame < 0) { lastDefenseFrame = time; return; }
             const delta = time - lastDefenseFrame;
             lastDefenseFrame = time;
@@ -306,9 +402,25 @@ async function boot() {
     }
 
     // Reset Game: wipe the persisted profile and reload for a fresh run.
+    // One confirmation stands between a stray click and a deleted save.
     view.onResetGame(() => {
-        persistence.clear();
-        window.location.reload();
+        view.showDialog({
+            title: 'RESET PROFILE?',
+            body: 'This wipes your saved dispatcher profile — credits, fleet, crew, research, reputation — and reloads the game.',
+            detail: 'There is no undo.',
+            buttons: [
+                { label: 'CANCEL', style: 'ghost', role: 'cancel' },
+                {
+                    label: 'WIPE & RELOAD',
+                    style: 'danger',
+                    role: 'confirm',
+                    onTap: () => {
+                        persistence.clear();
+                        window.location.reload();
+                    },
+                },
+            ],
+        });
     });
 
     view.onStartGame(({ mode, complexity, fieldSizeId, mission }) => {
@@ -320,6 +432,8 @@ async function boot() {
 
         if (!audio.ctx && audio.enabled) audio.init();
         audio.resume();
+        runKind = 'puzzle';
+        paused = false;
         state.configure({
             mode,
             complexity,
@@ -344,9 +458,53 @@ async function boot() {
     function loop(time = 0) {
         if (state.gameOver) return;
         requestAnimationFrame(loop);
+        if (paused) { lastFrame = time; return; }
         const delta = time - lastFrame;
         lastFrame = time;
         state.tick(delta);
+    }
+
+    // --- Global hotkeys (P10) ---------------------------------------
+    //
+    // H / ?  manual anywhere · ESC  close/pause · 1–6 hub tabs ·
+    // M mission board · P pause a shift.
+    bindHotkeys({
+        getContext: () => {
+            if (view.helpVisible) return 'help';
+            if (view.dialogVisible) return 'dialog';
+            if (runKind !== null) return 'run';
+            return 'hub';
+        },
+        actions: {
+            escape: () => {
+                if (view.helpVisible) { view.hideHelp(); return; }
+                if (view.dialogVisible) { view.cancelDialog(); return; }
+                if (runKind !== null) { openPauseMenu(); return; }
+                if (view.missionBoardOpen) view.closeMissionBoard();
+            },
+            toggleHelp,
+            togglePause: () => {
+                if (runKind === null) return;
+                if (paused) {
+                    setPaused(false);
+                    view.hideDialog();
+                } else {
+                    openPauseMenu();
+                }
+            },
+            openMissionBoard: () => view.openMissionBoard(),
+            selectTab: (index) => {
+                const id = HOTKEY_TAB_ORDER[index];
+                if (id) view.selectHubTab(id);
+            },
+        },
+    });
+
+    // First boot opens the manual over the mission board (its START SHIFT
+    // button drops you straight into the board). Later boots go straight
+    // to the board; the manual stays on H / the HELP button.
+    if (!meta.hasSeenHelp()) {
+        openHelp(0, { firstRun: true });
     }
 }
 

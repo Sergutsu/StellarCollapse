@@ -2,9 +2,12 @@
 // Stays in one small file so changing the control scheme (or adding a
 // touch layer later) doesn't touch state or view internals.
 
-export function bindInput({ state, elements }) {
+export function bindInput({ state, elements, isPaused }) {
     document.addEventListener('keydown', (event) => {
         if (state.gameOver) return;
+        // While the pause dialog is open the board is frozen — keys must
+        // not sneak pieces around behind it.
+        if (typeof isPaused === 'function' && isPaused()) return;
         switch (event.key) {
             case 'ArrowLeft':
                 event.preventDefault();
@@ -56,6 +59,7 @@ export function bindInput({ state, elements }) {
         if (event.pointerType !== 'touch') return;
         if (activePointerId !== event.pointerId) return;
         if (state.gameOver) return;
+        if (typeof isPaused === 'function' && isPaused()) return;
 
         const dx = event.clientX - touchStartX;
         const dy = event.clientY - touchStartY;

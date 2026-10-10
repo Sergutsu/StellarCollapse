@@ -219,6 +219,14 @@ class Application {
         this.stage = new Container();
         this.renderer = new Renderer();
         this.screen = { width: 1280, height: 720 };
+        this.canvas = {
+            style: {},
+            width: 1280,
+            height: 720,
+            addEventListener() {},
+            removeEventListener() {},
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
+        };
         this.ticker = { add() {}, remove() {}, start() {}, stop() {}, deltaMS: 16 };
     }
     async init(opts = {}) {

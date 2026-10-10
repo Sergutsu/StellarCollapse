@@ -91,9 +91,16 @@ Chip behavior:
   layout pass positions chips from a `widths[]` array, so the strip still fits
   at the hub's minimum scale.
 
-- **RESET GAME button** — left of the gear. Wipes the saved profile and reloads.
-- **Settings gear** — rightmost. Opens a modal with sound toggle, reset-profile
-  confirmation, credits (the project kind), link to docs.
+- **RESET GAME button** — left of the HELP button. Asks for confirmation
+  (ModalDialog: `CANCEL` / `WIPE & RELOAD`) and only then wipes the saved
+  profile and reloads.
+- **`? HELP` button** — rightmost (P10; replaces the dead settings gear).
+  Opens the paged HOW TO PLAY manual (`src/scenes/help-overlay.js`, copy in
+  the pure `src/help-content.js`): THE LOOP · DISPATCHING · THE MINIGAMES ·
+  THE STATION · CONTROLS & HOTKEYS. First boot opens it over the MISSION
+  BOARD with a `START SHIFT` CTA; `ui.helpSeen` (save field) stops the
+  first-run open. The `H` / `?` hotkey and the pause menu's HOW TO SHIFT
+  open the same overlay.
 
 ### 2. Galactic News ticker
 
@@ -224,22 +231,30 @@ WebGL).
 ### 4. Center — tab content
 
 One panel at a time, driven by the bottom nav. At boot the **MISSIONS**
-tab is active and the mission board modal is open. Dismissing the modal
-leaves the MISSIONS tab showing the static galactic-map backdrop.
+tab is active and the mission board modal is open (P10 made this real:
+the modal used to be unreachable — `_openMissionBoard()` had no callers).
+The board also re-opens after every settled shift (`HubScene.show()`),
+from the planner's **MISSION BOARD** button, and on the `M` hotkey.
+Dismissing it by hand (`CLOSE` / dim tap / `ESC`) sets `_boardDismissed`
+and keeps it shut across tab flips until one of those paths asks for it
+again; the planner console remains fully usable behind it.
 
 The six tab-panels:
 
 - **STAR MAP** — one seeded planetary system: a central star, orbit rings and
   shaded planets (with moons, stations, hazards and ships), plus the SECTOR
   NETWORK rail. Tapping a body fills the left panel's `SYSTEM DATA` board.
-- **MISSIONS** — default tab. Static galactic-map backdrop + `MISSION
-  BOARD` modal overlay (see §5 below) + the **mission planner**: an
-  IDLE / MANUAL toggle, ship and crew pickers, the contract list, and an
-  outcome card quoting the dispatch through `resolveDispatch()` — ETA,
-  threat, environment, payout with its sector-bonus line, and the mode
-  line (`AUTONOMOUS · NO MINIGAME` vs `PLAY THE MINIGAME`). DISPATCH is
-  gated on a free ship, an available crew member, an idle slot when IDLE
-  is selected, and the contract's REP clearance.
+- **MISSIONS** — default tab. `MISSION BOARD` modal overlay (see §5 below)
+  + the **mission planner**: an IDLE / MANUAL toggle, ship and crew
+  pickers, the contract list (narrative names since P10), and an outcome
+  card quoting the dispatch through `resolveDispatch()` — ETA, threat,
+  environment, payout with its sector-bonus line, and the mode line
+  (`AUTONOMOUS · NO MINIGAME` vs `PLAY THE MINIGAME`). DISPATCH is gated
+  on a free ship, an available crew member, an idle slot when IDLE is
+  selected, and the contract's REP clearance. Board quick-ACCEPT
+  auto-assigns the first free ship + crew onto the same manual job shape,
+  so every shift settles with the same rules (solo at base rate when
+  nothing is free — the ticker says so).
 - **BUILD/UPGRADE** — center: fleet list with hull bars, a selected-hull
   detail card (class + the mission types it fits, hull %, status), REPAIR
   at 3 minerals per point, DISASSEMBLE at 40 % of build cost, and a
@@ -638,8 +653,11 @@ Card elements (one per card):
 
 Modal behavior:
 
-- Opens automatically when the MISSIONS tab activates at boot.
-- Dismissed by the `×`, by ESC, or by clicking outside the panel.
+- Opens automatically at boot, when the MISSIONS tab activates (unless
+  dismissed this session), and again after every settled shift.
+- Dismissed by the `CLOSE`, by ESC, or by clicking outside the panel —
+  a deliberate dismissal is remembered (`_boardDismissed`) so tab flips
+  don't nag. `M` or the planner's MISSION BOARD button re-opens it.
 - **Subtitle (P8)** — `Daily contracts · free refresh in HH:MM:SS · N rerolls
   used today`, repainted at 1 Hz while the modal is open, straight from
   `meta.getBoardState()`.
@@ -652,6 +670,30 @@ Modal behavior:
   catalog from the new daily seed, so Combat variants and sectors move too.
 - The four face-up cards are a seeded `pickMissionBoard()` subset of the
   nine-tier catalog; in-flight contracts stay intact across a reroll.
+
+### 5e. Keyboard, pause & the manual (P10)
+
+`src/hotkeys.js` routes global keys per screen context (movement keys stay
+in `input.js` / `defense-input.js`):
+
+| Key | Hub | In a shift |
+| --- | --- | --- |
+| `ESC` | close MISSION BOARD / dialog | pause menu (RESUME / HOW TO SHIFT / ABORT SHIFT) |
+| `H` / `?` | HOW TO PLAY manual | same manual (pause stays armed underneath) |
+| `P` | — | pause / resume |
+| `M` | open MISSION BOARD | — |
+| `1`–`6` | bottom-nav tabs | — |
+
+- **Pause** (`ModalDialog`) freezes the run loop (`state.tick` /
+  `defenseState.tick` gated in `main.js`); bomb/snake arming timers are
+  wall-clock and keep counting (documented in `GAMEPLAY.md`). Both the
+  puzzle HUD (`⏸ PAUSE (ESC)`) and the combat HUD (`PAUSE`) open it, so
+  touch players can always leave a shift.
+- **ABORT SHIFT** settles `won: false` — reduced rep, extra hull wear —
+  the same cost language as an idle RETURN.
+- **RESET PROFILE** asks for confirmation before wiping the save.
+- The first-run manual (`ui.helpSeen`) boots once per profile; every
+  later visit is opt-in.
 
 ### 6. Right column — FLEET & CREW STATUS
 
@@ -780,14 +822,17 @@ different minigame.
 
 ### 8. Bottom nav — tab switcher
 
-Six pill-shaped buttons: `STAR MAP · MISSIONS · BUILD/UPGRADE · RESEARCH · CREW · MARKET`.
+Six pill-shaped buttons: `STAR MAP · MISSIONS · SHIPYARD · RESEARCH · CREW · MARKET`
+(the build tab's label is `SHIPYARD` since P10, matching its side-panel
+header; docs prose still says BUILD/UPGRADE).
 Active tab is highlighted (orange fill + white text in the mock; we'll use our
 existing cyan accent for consistency).
 
 - Default active tab at boot: **MISSIONS** (with the mission board modal
   open). Changed from the earlier "STAR MAP default" — the mission
   board is the primary verb of the game, so it greets the player first.
-- Keyboard shortcuts: `1`–`6` jump to the corresponding tab.
+- Keyboard shortcuts: `1`–`6` jump to the corresponding tab (live since
+  P10; see §5e).
 - Mobile: horizontal scroll if the screen is too narrow. (Deferred — desktop
   first.)
 

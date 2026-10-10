@@ -46,6 +46,21 @@ A Space-Invaders / Breakout hybrid. Game state lives in `src/defense-state.js`; 
 - **Scoring:** 10 pts per pixel hit by bullet, 5 pts per pixel hit by ball. Credits = floor(score / 10).
 - **Win:** boss + all invaders destroyed. **Lose:** player HP reaches 0 or invaders reach the bottom row.
 
+### Pausing & aborting a shift (P10)
+
+- `ESC` or the in-run `PAUSE` button (puzzle HUD + combat HUD) freezes the
+  run and opens a dialog: **RESUME / HOW TO SHIFT / ABORT SHIFT**.
+- While paused, `state.tick` / `DefenseState.tick` do not run (gravity, drops,
+  invaders, balls all stop). **Exception:** the Collapsed-tier bomb/snake
+  arming timer is wall-clock (`schedule`) and keeps counting through a pause —
+  a 5 s armed cell can still expire behind the dialog.
+- **ABORT SHIFT** calls `endGameEarly()` and settles `won: false`: the fail
+  multiplier (0.35× rep) and `+6` hull wear apply, exactly like a lost run.
+  A naturally finished puzzle shift (board full / spawn blocked) settles
+  `won: true` as before — the haul always banks.
+- The same dialog pattern guards `RESET PROFILE` in the hub (confirmation
+  before the save is wiped).
+
 ### Mode × Complexity × Size matrix
 
 Every tier in `HIGHSCORE_TIERS` is a `(mode, complexity)` pair. Field size is a third axis:
@@ -368,6 +383,7 @@ are now backed by a persistent player profile saved to
 | `stats` | lifetime counters | all `0` | **P8.** `missionsCompleted, missionsFailed, combatWins, idleClaims, idleAborts, creditsEarned, oresMined, mineralsRefined, repEarned, sectorsCharted, warpSpent, warpFound, hullRepairs, crewLevelsGained, bestScore`. |
 | `lastTickAt` | int (ms) | boot | Heartbeat for the offline report; stamped on boot, every 30 s and on `pagehide` / hidden. |
 | `completedMissionIds` | `string[]` | `[]` | Deduped on settlement / `applyMissionReward`. |
+| `ui` | `{helpSeen: bool}` | `{helpSeen: false}` | **P10.** UI preferences. `helpSeen` stops the first-boot HOW TO PLAY overlay; additive field, so pre-P10 saves merge cleanly. |
 
 ### Storage contract
 
@@ -403,6 +419,7 @@ are now backed by a persistent player profile saved to
 | `buyBoardReroll(nowMs)` | `board-reroll` | **P8.** Charges the escalating price, persists the day's counter. |
 | `noteHullRepair(points)` | `ship-hull` | **P8.** Lifetime stat for the shipyard sink. |
 | `touch(nowMs)` | — | **P8.** Heartbeat for the offline report; does not emit. |
+| `markHelpSeen()` | `ui` | **P10.** Records that the manual has been read (idempotent). `hasSeenHelp()` reads it. |
 | Reads: `getEffects()`, `getRepInfo()`, `getBoardState()`, `crewSlots()`, `warpCapacity()`, `discoveredSectorIds()`, `oreCounts()`, `getStats()`, `activeMissionsSnapshot()` | — | **P8.** The scenes' only view onto the meta layer. |
 
 ---

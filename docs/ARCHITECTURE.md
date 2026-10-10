@@ -347,7 +347,22 @@ PixiView no longer holds any game state fields (no `boardCells`, `_tweens`, `_pa
 
 ### `src/input.js`
 
-Keyboard + touch wiring. Translates raw DOM events into `GameState` verbs. Arrow keys, space (hard drop), and swipe gestures (mobile) are all bound here. Touch-gesture support (added in PR #55): swipe left/right to move, swipe up to rotate, swipe down to soft/hard drop (`SWIPE_PX = 24`, fast-swipe threshold `FAST_SWIPE_MS = 140`). `touch-action` is disabled on the canvas to prevent browser scroll/zoom gestures from stealing game input.
+Keyboard + touch wiring. Translates raw DOM events into `GameState` verbs. Arrow keys, space (hard drop), and swipe gestures (mobile) are all bound here. Touch-gesture support (added in PR #55): swipe left/right to move, swipe up to rotate, swipe down to soft/hard drop (`SWIPE_PX = 24`, fast-swipe threshold `FAST_SWIPE_MS = 140`). `touch-action` is disabled on the canvas to prevent browser scroll/zoom gestures from stealing game input. Since P10 it also takes an `isPaused()` predicate (from `main.js`) so a paused shift cannot be nudged by stray keys or swipes; `defense-input.js` takes the same predicate.
+
+### The P10 shell — help, dialogs, hotkeys, next-step hints
+
+| Module | Owns | Read by |
+|---|---|---|
+| `src/help-content.js` (pure) | The five-page HOW TO PLAY manual as frozen data (`HELP_PAGES`), unit-tested for shape + coverage | `help-overlay.js` |
+| `src/results-hints.js` (pure) | `nextStepHints(summary)` — which station bay consumes the haul the player just earned | `results-scene.js` (NEXT lines) |
+| `src/hotkeys.js` | Global key routing (`H`/`?`, `ESC`, `1`–`6`, `M`, `P`) with a `getContext()` seam; movement keys stay in `input.js` | `main.js` |
+| `src/scenes/help-overlay.js` | Paged manual overlay (prev/next/dots/CLOSE, first-run `START SHIFT` CTA); lazy-built on `uiRoot` | `PixiView` (`showHelp`), hub `? HELP`, pause menu |
+| `src/scenes/modal-dialog.js` | Generic title/body/buttons dialog (`cancel()` = ESC → the `role: 'cancel'` button); pause menu + reset confirmation | `PixiView` (`showDialog`), `main.js` |
+
+Both overlays are registered with the `SceneManager` (`help`, `dialog`) so
+resize fan-out reaches them; both are lazy-built like `ResultsScene` so they
+layer above run HUD chrome. `MetaState.ui.helpSeen` is an additive save field
+(`markHelpSeen()` / `hasSeenHelp()`).
 
 ### `src/pixi-starfield.js`
 
@@ -364,7 +379,8 @@ Exports `createPixiStarfield(app, { width, height, backdropTexture }) → { cont
 - Constructs `GameState`, `PixiView`, `Audio`, `MetaState`, `Persistence`.
 - Calls `view.init()` (async), `view.createBoard()`, `view.createPreviews()`.
 - Wires `view.onStartGame({ mission, ... })` → builds a `RunLedger` for the run → `state.configure(...)` → `state.start()`. Tears down any stale ledger from a quit-early run before the new one attaches.
-- Wires `state.on('game-over')` → `ledger.summary(state)` → `view.showResultsScreen(summary, { onContinue })`. CONTINUE applies the reward envelope (`meta.applyMissionReward(...)`) + returns to the hub. If the run started without a mission (sandbox boot) the results overlay is skipped.
+- Wires `state.on('game-over')` → `ledger.summary(state)` → `view.showResultsScreen(summary, { onContinue })`. CONTINUE applies the settlement (`meta.applySettlement(...)`) + returns to the hub (which re-opens the MISSION BOARD). If the run started without a mission (sandbox boot) the results overlay is skipped. A `user-exit` reason settles `won: false` (P10).
+- Owns the P10 pause/help/dialog wiring: the `paused` flag that gates both run loops and both input binders, the pause menu, the first-boot manual, the hotkey actions, and the reset confirmation.
 
 This is the one file allowed to glue state and view together. Keep it thin.
 

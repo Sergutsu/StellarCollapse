@@ -147,6 +147,47 @@ Out of scope for P9: scrolling in the left bay (everything still fits by shrinki
 rows), bodies as dispatch targets (PLOT COURSE still acts on sectors), candlestick
 or multi-good overlay charts, and a station-log surface for the lifetime stats.
 
+## Shipped (P10 — Understandability & navigation)
+
+Goal: the game explains itself, cannot be mis-clicked into a corner, and every
+path into a shift obeys the same rules. Four player-facing defects, all in the
+shell rather than the mechanics (see [ADR-0012](adr/0012-onboarding-pause-and-unified-dispatch.md)):
+
+- [x] **The MISSION BOARD is reachable — and is the boot surface.**
+      `_openMissionBoard()` had zero call sites since P2: the pillar-2 deploy
+      modal built itself and stayed hidden forever. It now opens at boot, after
+      every settled shift, from the planner's MISSION BOARD button, and on the
+      `M` hotkey; a hand-dismissal (`CLOSE` / dim / ESC) is respected across tab
+      flips. The core loop (BOARD → SHIFT → REPORT → BOARD) is closed.
+- [x] **HOW TO PLAY manual.** Five paged sections (loop / dispatching /
+      minigames / station / controls) in pure `src/help-content.js`, rendered by
+      `src/scenes/help-overlay.js`. First boot opens it over the board with a
+      `START SHIFT` CTA (`ui.helpSeen` save field); after that it lives on the
+      new top-bar `? HELP` button (the dead settings gear is cut), the `H`/`?`
+      hotkey, and the pause menu's HOW TO SHIFT.
+- [x] **Pause with a priced abort.** ESC / `⏸ PAUSE (ESC)` / combat `PAUSE`
+      freeze both run loops and offer RESUME / HOW TO SHIFT / ABORT SHIFT.
+      Aborting settles `won: false` (0.35× rep, +6 hull wear) instead of full
+      win-rate pay; `RESET PROFILE` now asks before wiping. Bomb/snake arming
+      timers keep wall-clock time through a pause (documented).
+- [x] **One dispatch path.** Board quick-ACCEPT auto-locks the first free ship +
+      crew onto the same manual job shape as planner DISPATCH — fit bonuses,
+      crew XP and hull wear apply to every shift. Flying solo (no free assets)
+      still works at base rate and says so in the ticker.
+- [x] **Navigation polish.** Global hotkeys (`1`–`6`, `M`, `P`, `ESC`, `H`),
+      narrative names in the planner's contract list, `SHIPYARD` tab label,
+      next-step hints on the mission report (`src/results-hints.js`), and
+      one-line resource explainers on the top-bar chips.
+- [x] **Tests** 390 → 417: `results-hints`, `help-content`, `hotkeys`,
+      `ui.helpSeen`, `DefenseState.endGameEarly`, plus smoke coverage for the
+      board lifecycle, quick-ACCEPT job locking, the help overlay, the dialog,
+      the results report — and a `main.js` boot smoke that runs the real
+      orchestrator against the headless Pixi.
+
+Out of scope for P10: cycle-accurate pause for special arming timers, video or
+guided tutorial rails (the manual is the single source of truth), and a
+station-log surface for the lifetime stats.
+
 ## Known issues (carry across phases)
 
 Capture real defects the team has spotted that aren't scoped to any single
@@ -162,6 +203,11 @@ when it's addressed.
   deleting the MISSION LOG panel entirely (the highscore system is gone;
   gameplay is about mission-run resources, not a leaderboard). Dispatcher card
   now sits directly beneath the mission grid in a single centered panel.
+- ~~**The MISSION BOARD modal was unreachable.**~~ `_openMissionBoard()` had no
+  callers, so the documented boot surface and ACCEPT cards never rendered.
+  Fixed in P10: the board opens at boot / after shifts / from the planner and
+  `M`, with dismissal respected. See
+  [ADR-0012](adr/0012-onboarding-pause-and-unified-dispatch.md).
 
 ## Now (P2 — Hub scaffolding, shipping)
 

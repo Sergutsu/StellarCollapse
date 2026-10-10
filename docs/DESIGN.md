@@ -19,6 +19,7 @@ Short casual sessions stack into a longer idle/meta progression. You can play on
 3. **Every tile you clear is a resource.** There is no junk colour. Red is Pyrite, blue is Cryonite, and so on. Scoring and resource-tally are the same event fired twice.
 4. **The puzzle and the meta are separate economies.** Puzzle difficulty doesn't get "easier" because you bought upgrades. Upgrades change the **shape** of a run (bomb radius, snake length, starting level), never the scoring multiplier.
 5. **No feature flags in production.** When something ships, it ships on the root URL. No `?engine=*`, no beta toggles, no shadow-DOM fallback to "the old version."
+6. **The game teaches itself.** A first-run HOW TO PLAY manual, next-step hints on the mission report, one-line resource explainers, and honest ticker feedback replace a wiki (P10, [ADR-0012](adr/0012-onboarding-pause-and-unified-dispatch.md)). Every destructive action asks first; every run can be paused and left. If a screen needs external docs to operate, the screen is wrong.
 
 ---
 

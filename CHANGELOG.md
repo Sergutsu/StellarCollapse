@@ -10,6 +10,25 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ### Added
 
+- **P10 — understandability & navigation.** The game finally explains itself and can't be mis-clicked into a corner:
+  - **HOW TO PLAY manual.** A paged in-game field manual (THE LOOP · DISPATCHING · THE MINIGAMES · THE STATION · CONTROLS & HOTKEYS) opened by the new top-bar `? HELP` button, the `H` / `?` hotkey, or the pause menu's HOW TO SHIFT. On **first boot** it opens over the MISSION BOARD with a `START SHIFT` CTA; the `ui.helpSeen` flag (an additive save field) stops it from re-opening. Copy lives in the pure, tested `src/help-content.js`.
+  - **Pause menu replaces instant exit.** `ESC` (or the in-run `PAUSE` button on both puzzle and combat scenes) freezes the shift and offers RESUME / HOW TO SHIFT / ABORT SHIFT. Combat shifts — which previously had no way out at all on touch — get a PAUSE button too. **Aborting now settles as a failed run** (reduced rep, +6 hull wear), matching the idle RETURN rule, instead of paying full win-rate rep for ten seconds of play.
+  - **Global hotkeys.** `ESC` close/pause · `H`/`?` manual · `1`–`6` hub tabs · `M` MISSION BOARD · `P` pause. Wired through the new context-aware `src/hotkeys.js`.
+  - **RESET asks first.** Wiping the profile takes a confirmation dialog now — one stray click can no longer delete a save.
+  - **Results screen says what to do next.** Context-aware NEXT hints (pure `src/results-hints.js`): hull damage → SHIPYARD, ore → MARKET refinery, a found warp cell → STAR MAP, a crew level-up → CREW.
+- **The MISSION BOARD is reachable again (and is the boot surface).** `_openMissionBoard()` had zero call sites — the pillar-2 "click a card" deploy surface was built and never shown. The board now opens at boot, after every settled shift, via the planner's MISSION BOARD button, or the `M` hotkey; closing it by hand is respected across tab flips. The core loop (BOARD → SHIFT → REPORT → BOARD) is closed.
+
+### Changed
+
+- **One dispatch path for every shift.** Board quick-ACCEPT now locks the first free ship + crew onto the same manual dispatch job as planner DISPATCH, so ship fit, crew XP and hull wear apply everywhere ("the number the planner quotes is the number that lands" now holds for both entry points). With no free assets the shift still launches — flown solo at base rate, and the news ticker says so.
+- **Planner contract rows show narrative names** (`T5 · Black Hole Anomaly` instead of `T5 · RESEARCH · HARD`); type + difficulty stay in the outcome card.
+- **`FLEET UPGRADE` tab renamed `SHIPYARD`** to match its own side-panel header and the docs' vocabulary.
+- In-run top controls: `⎋ Exit Mission` → `⏸ PAUSE (ESC)` (the abort lives inside the pause menu).
+
+### Removed
+
+- **The dead settings gear** in the hub top bar (no handler since P2). Cut in favor of `? HELP`.
+
 - **P9 — the hub's left column is now contextual per tab.** STAR MAP, BUILD/UPGRADE and MARKET can each take over the bay that used to hold only ACTIVE MISSIONS / ACTIVE RESEARCH: a tab opts in with `usesSidePanel` + `sidePanelTitle` and implements `layoutSide({width,height})`, building into the hub-provided `side.list`. The hub still owns the frame, so ADR-0010 holds. See [`docs/UI-HUB.md`](docs/UI-HUB.md) §3a.
 - **STAR MAP reads as a star system.** Planets are shaded spheres with type-specific surfaces (Ocean / Terrestrial / Desert / Gas Giant / Ice Giant: atmosphere halo, latitude bands, continents, ice caps, ring systems for the giants, limb light) and a night side rotated toward the central star; moons are cratered discs. Classification sub-labels, a selection reticle and a highlighted orbit ring make the picked body obvious, and the backdrop speckle was thinned so the system — not the sky — is the subject.
 - **SYSTEM DATA board in the left panel**, with a `SYSTEM INDEX` of every body in the system (tap to select). It replaces the floating panel that used to swim around the map chasing the body it described.
