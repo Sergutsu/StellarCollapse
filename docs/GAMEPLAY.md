@@ -1,36 +1,25 @@
-# Gameplay Spec — Clicker / Idle (ADR-0013)
+# Gameplay Spec — dispatcher game + STELLAR CORE clicker (ADR-0014)
 
-> **Current shipped game.** Tunables live in `src/clicker-state.js`
-> (`GENERATORS`, `UPGRADES`, `RESEARCH`, `SECTORS`, `SHIPS`, `CREW`,
-> `PRESTIGE_UPGRADES`). The pre-conversion minigame spec is preserved below
-> the conversion table for reference.
+> **Current shipped game:** the original dispatcher game (spec below),
+> plus the clicker/idle layer merged into the hub as the STELLAR CORE tab
+> (hotkey `7`, `src/scenes/tabs/core-tab.js` on `src/clicker-state.js`).
+> It shares MetaState's wallet and ticks on every hub tab + offline.
 
-## Conversion table (every mechanic)
+## The clicker layer (every mechanic, converted — alongside the originals)
 
-| Before | Clicker / idle form |
+| Mechanic | Clicker / idle form in STELLAR CORE |
 |---|---|
-| Stellar click-match (click a 4+ run) | Click the star: combo multiplier, 7% CRIT ×5, ore drops, golden-star events |
+| Stellar click-match (click a 4+ run) | Click the star: combo multiplier, 7% CRIT x5, ore drops, golden-star events |
 | Auto-Match (clear on lock) | Auto-Matcher generator |
-| Falling pieces, gravity, lines, drop-speed levels | Generator tiers & output/sec; ×2 milestone every 10 owned; Star Level from lifetime stardust |
-| Miner (edge-falling minerals, 6×6 core) | Mining Drones + Core Extractors fill Core %; **Collapse Core** burst payout |
+| Falling pieces, gravity, lines, levels | Generator tiers & output/sec; x2 milestone every 10 owned; Star Level |
+| Miner (edge-falling minerals, 6x6 core) | Mining Drones + Core Extractors fill Core %; **Collapse Core** burst payout |
 | Bomb / Snake specials | Bomb Blast & Snake Chain consumables (rare ore) + Bomb Reactor / Snake Conduit generators |
-| Defense (paddle/ball/invaders/boss) | Idle turret DPS vs endless waves; clicks damage the wave; boss every 10 waves; no game over |
-| Missions + daily board | Production/click/wave/collapse **contracts**, incl. daily contract |
-| Idle dispatch + offline | All generators tick from timestamps; offline at 50% for up to 8h (upgrade: 75% / 16h) |
-| Market / refinery | Sell 6 ores at daily prices, refine ore → minerals (reuses `economy.js`) |
-| Research tree | Timed real-time projects (progress offline) |
-| Crew / fleet / hull wear | Crew = generator/global boosts; ships = permanent multipliers bought with credits |
-| Star map / warp / reputation | Chart sectors with warp (rep-gated) for permanent production bonuses |
-| Score | Lifetime stardust → Star Level |
-| Game over / abort | Removed — idle games stall, they don't top out |
-| — (genre standard, new) | **Supernova** prestige: Dark Matter (+10% production each) + prestige upgrades |
+| Defense (paddle/invaders/boss) | Idle turret waves; clicks damage the wave; boss every 10 waves; no game over |
+| Missions + daily board | Core contracts (auto-pay into the shared wallet) alongside the mission board |
+| Market / refinery / research / crew / ships / sectors | The original tabs — and research + charted sectors multiply core production |
+| Idle dispatch + offline | The core ticks on every hub tab; capped offline progress on return |
+| — (genre standard, new) | **Supernova** prestige: Dark Matter (+10% production each) |
 
-## Loop
-Click → buy generators (×1/×10/×100/MAX) → fill & collapse the Core, clear
-waves → sell/refine ore → contracts, research, crew, ships, sectors →
-Supernova → repeat faster. Autosaves locally; offline progress on return.
-
----
 # Gameplay Spec
 
 > **Canonical source of truth for tunable numbers.** `src/constants.js` mirrors this file. When you tune a number, update both in the same PR.

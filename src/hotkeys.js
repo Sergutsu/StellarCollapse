@@ -21,6 +21,7 @@ const TAB_KEYS = Object.freeze({
     '4': 3,
     '5': 4,
     '6': 5,
+    '7': 6,
 });
 
 export function bindHotkeys({ getContext, actions = {} } = {}) {
@@ -69,4 +70,4 @@ export function bindHotkeys({ getContext, actions = {} } = {}) {
 }
 
 /** The bottom-nav order the numeric hotkeys map to (1 → first tab). */
-export const HOTKEY_TAB_ORDER = Object.freeze(['star-map', 'missions', 'build', 'research', 'crew', 'market']);
+export const HOTKEY_TAB_ORDER = Object.freeze(['star-map', 'missions', 'build', 'research', 'crew', 'market', 'core']);

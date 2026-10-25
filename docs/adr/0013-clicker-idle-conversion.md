@@ -1,7 +1,7 @@
 # ADR-0013: Convert all mechanics to clicker / idle
 
 ## Status
-Accepted (supersedes the playable roles of ADR-0001's minigame scenes for the shipped entry point).
+Superseded by ADR-0014 (the DOM replacement was reverted; the conversion design was merged into the hub instead).
 
 ## Decision
 `index.html` now loads `src/clicker-main.js` (DOM) backed by the pure, tested

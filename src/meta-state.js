@@ -154,6 +154,7 @@ export function starterProfile() {
         ui: {
             helpSeen: false,
         },
+        clicker: null,
     };
     // Starter crew are veterans: seed their XP at their level threshold so
     // the CREW tab's bar reads 0% toward the next level instead of showing
@@ -294,7 +295,23 @@ export class MetaState {
             lastTickAt: this._data.lastTickAt || Date.now(),
             research: this.getResearchState(),
             ui: { helpSeen: !!(this._data.ui && this._data.ui.helpSeen) },
+            // ADR-0014: clicker/idle core slice (stardust, generators, core,
+            // waves, prestige). Wallet fields inside it are a cache — the
+            // top-level credits/minerals/warp/ores/reputation are canonical.
+            clicker: this._data.clicker ? JSON.parse(JSON.stringify(this._data.clicker)) : null,
         };
+    }
+
+    /** Saved clicker-core state (defensive copy), or null on a fresh profile. */
+    getClickerSave() {
+        return this._data.clicker ? JSON.parse(JSON.stringify(this._data.clicker)) : null;
+    }
+
+    /** Persist the clicker-core state. Emits change so the profile saves. */
+    saveClickerState(save) {
+        if (!save || typeof save !== 'object') return;
+        this._data.clicker = JSON.parse(JSON.stringify(save));
+        this._changed('clicker', {});
     }
 
     // ---- writes ------------------------------------------------------
@@ -1188,6 +1205,11 @@ export class MetaState {
             if (Number.isFinite(inc.maxConcurrent)) {
                 base.research.maxConcurrent = Math.max(1, Math.floor(inc.maxConcurrent));
             }
+        }
+
+        // ADR-0014: clicker-core slice (additive; older saves keep null).
+        if (incoming.clicker && typeof incoming.clicker === 'object') {
+            try { base.clicker = JSON.parse(JSON.stringify(incoming.clicker)); } catch { base.clicker = null; }
         }
 
         // P10: UI preferences (additive; a save from before this field

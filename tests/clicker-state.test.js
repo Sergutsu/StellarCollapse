@@ -69,3 +69,25 @@ describe('clicker conversion', () => {
   });
   it('fmt abbreviates large numbers', () => { assert.equal(fmt(1500), '1.50K'); assert.equal(fmt(2_500_000), '2.50M'); });
 });
+
+describe('merged hub wallet (ADR-0014)', () => {
+  it('adoptWallet + walletDeltas report only earned integer deltas', () => {
+    const g = make(null); g.adoptWallet({ credits: 100, minerals: 20, warp: 1, rep: 0, ores: { red: 3 } });
+    assert.deepEqual(g.walletDeltas(), { credits: 0, minerals: 0, warp: 0, rep: 0, ores: {} });
+    g.s.credits += 55; g.s.ores.red += 2.7;
+    const d = g.walletDeltas();
+    assert.equal(d.credits, 55); assert.equal(d.ores.red, 2); // fraction stays in the clicker
+    assert.deepEqual(g.walletDeltas().ores, {});
+  });
+  it('externalMult (station research/sectors) scales production', () => {
+    const g = make(rich()); g.buyGenerator('siphon', 1); const base = g.productionPerSec();
+    g.externalMult = 2; assert.ok(Math.abs(g.productionPerSec() - base * 2) < 1e-9);
+  });
+  it('clicker slice round-trips through MetaState', async () => {
+    const { MetaState } = await import('../src/meta-state.js');
+    const meta = new MetaState(); assert.equal(meta.getClickerSave(), null);
+    meta.saveClickerState({ stardust: 42, gens: { siphon: 3 } });
+    const reloaded = new MetaState(meta.snapshot());
+    assert.equal(reloaded.getClickerSave().stardust, 42);
+  });
+});

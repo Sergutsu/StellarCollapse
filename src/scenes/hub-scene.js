@@ -320,6 +320,13 @@ export class HubScene {
             researchTab.tick(deltaMs);
         }
 
+        // ADR-0014: the clicker core is idle — it produces on every hub
+        // tab, not just its own (avoid double-tick when it is active).
+        const coreTab = this._nodes?.tabs?.core;
+        if (coreTab && this._nodes.activeTabId !== 'core' && typeof coreTab.tick === 'function') {
+            coreTab.tick(deltaMs);
+        }
+
         // Live update research projects in left column when visible
         if (this._nodes?.researchProjects?.container.visible) {
             this._refreshResearchProjectsPanel();

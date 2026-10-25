@@ -178,6 +178,7 @@ export class ClickerState {
     for (const id of this.s.ships) { const sh = SHIPS.find(x => x.id === id); if (!sh) continue; if (sh.dps) m.dps *= sh.mult; else if (sh.ore) m.ore *= sh.mult; else if (sh.sell) m.sell *= sh.mult; else m.global *= sh.mult; }
     for (const id of this.s.crew) { const c = CREW.find(x => x.id === id); if (!c) continue; if (!c.gen) m.global *= c.x; else { m.gen[c.gen] = (m.gen[c.gen] || 1) * c.x; if (c.gen2) m.gen[c.gen2] = (m.gen[c.gen2] || 1) * c.x; if (c.gen === 'turret') m.dps *= c.x; } }
     m.global *= 1 + this.s.darkMatter * 0.10; // each Dark Matter +10% forever
+    if (Number.isFinite(this.externalMult) && this.externalMult > 0) m.global *= this.externalMult; // station research/sectors (set by hub tab)
     // generator milestones: every 10 owned doubles that generator
     return m;
   }
@@ -264,7 +265,26 @@ export class ClickerState {
     this.s = fresh; this._rollContracts(); return dm; }
   buyPrestige(id) { const u = PRESTIGE_UPGRADES.find(x => x.id === id); if (!u || this.s.prestigeUpgrades.includes(id) || this.s.darkMatter < u.cost) return false; this.s.darkMatter -= u.cost; this.s.prestigeUpgrades.push(id); return true; }
 
-  // ---- tick / offline ----
+  // ---- merged hub wallet (ADR-0014) ----
+  // The clicker adopts the station wallet as its own: credits, minerals,
+  // warp, reputation and the ore hold ARE MetaState's, so generators and
+  // Defense waves pay into the same economy the hub tabs spend from.
+  adoptWallet({ credits = 0, minerals = 0, warp = 0, rep = 0, ores = {} } = {}) {
+    this.s.credits = n(credits); this.s.minerals = n(minerals); this.s.warp = n(warp); this.s.rep = n(rep);
+    for (const k of Object.keys(this.s.ores)) this.s.ores[k] = n(ores[k]);
+    this._synced = this._walletFloors();
+  }
+  _walletFloors() {
+    const ores = {}; for (const k of Object.keys(this.s.ores)) ores[k] = Math.floor(this.s.ores[k]);
+    return { credits: Math.floor(this.s.credits), minerals: Math.floor(this.s.minerals), warp: Math.floor(this.s.warp), rep: Math.floor(this.s.rep), ores };
+  }
+  /** Integer wallet deltas since adoptWallet()/last call; advances the sync point. Fractional ore stays in the clicker. */
+  walletDeltas() {
+    if (!this._synced) { this._synced = this._walletFloors(); return { credits: 0, minerals: 0, warp: 0, rep: 0, ores: {} }; }
+    const cur = this._walletFloors(); const d = { credits: cur.credits - this._synced.credits, minerals: cur.minerals - this._synced.minerals, warp: cur.warp - this._synced.warp, rep: cur.rep - this._synced.rep, ores: {} };
+    for (const k of Object.keys(cur.ores)) { const v = cur.ores[k] - (this._synced.ores[k] || 0); if (v) d.ores[k] = v; }
+    this._synced = cur; return d;
+  }
   tick(dtSec) {
     if (!(dtSec > 0)) return;
     const pps = this.productionPerSec();
