@@ -3,7 +3,7 @@
 // stateless functions for state derivation (availability, remaining time, etc.).
 // No DOM, no timers, fully testable with node --test.
 
-export const HEX_R = 22;
+export const HEX_R = 18;
 
 // Visual tokens for node states (used by the tab for colors)
 export const NODE_STATE = Object.freeze({
@@ -15,179 +15,294 @@ export const NODE_STATE = Object.freeze({
 
 // Category columns (order matters for layout)
 export const CATEGORIES = Object.freeze([
-    { id: 'propulsion', label: 'Propulsion',         nx: 0.12 },
-    { id: 'extraction', label: 'Resource Extraction', nx: 0.38 },
-    { id: 'defense',    label: 'Defense',             nx: 0.64 },
-    { id: 'economics',  label: 'Economics',           nx: 0.88 },
+    { id: 'propulsion', label: 'Propulsion', nx: 0.12 },
+    { id: 'extraction', label: 'Extraction', nx: 0.38 },
+    { id: 'defense',    label: 'Defense',    nx: 0.64 },
+    { id: 'economics',  label: 'Economics',  nx: 0.88 },
 ]);
 
-// Core tech tree definition.
-// `time` is human display only. `durationSec` is the canonical duration used for ticking.
+// Core tech tree definition: 20 nodes across 4 columns and 5 tiers.
+// Fast idle-clicker durations: Tier 1: 20s, Tier 2: 45s, Tier 3: 90s, Tier 4: 180s, Tier 5: 300s.
+// All 4 disciplines start immediately available at Tier 1 (0 prerequisites).
 export const NODES = Object.freeze([
-    // Propulsion
+    // Propulsion (nx: 0.12)
     {
         id: 'fuel-cell',
         category: 'propulsion',
         name: 'Compact Fuel Cell',
         level: 1,
-        ny: 0.78,
+        ny: 0.86,
         glyph: '[]',
-        effect: 'Doubles fleet fuel reserves. Enables longer missions.',
-        cost: { minerals: 300, credits: 500 },
-        time: '9m 00s',
-        durationSec: 9 * 60,
+        effect: 'Doubles fleet warp capacity and expands fleet berths. (+2 warp capacity, +2 fleet berths)',
+        cost: { minerals: 250, credits: 400 },
+        time: '0m 20s',
+        durationSec: 20,
     },
     {
         id: 'warp-coils',
         category: 'propulsion',
         name: 'Warp Coils',
         level: 2,
-        ny: 0.50,
+        ny: 0.69,
         glyph: '~~',
-        effect: 'Cut warp-cell consumption for long-range plots by 1.',
-        cost: { minerals: 500, credits: 900 },
-        time: '22m 30s',
-        durationSec: Math.floor(((3 * 3600) + (45 * 60)) / 10),
+        effect: 'Reduces sector jump costs by 1 warp cell and provides +2 fleet berths.',
+        cost: { minerals: 450, credits: 750 },
+        time: '0m 45s',
+        durationSec: 45,
     },
     {
         id: 'ion-thrusters',
         category: 'propulsion',
         name: 'Ion Thrusters',
         level: 3,
-        ny: 0.22,
+        ny: 0.52,
         glyph: '>>',
-        effect: 'Increase fleet cruise speed. Reduces mission ETA by 8%.',
-        cost: { minerals: 600, credits: 1200 },
-        time: '30m 00s',
-        durationSec: Math.floor((5 * 3600) / 10),
+        effect: 'Advanced ion propulsion stream reduces mission ETA by 8%.',
+        cost: { minerals: 700, credits: 1200 },
+        time: '1m 30s',
+        durationSec: 90,
+    },
+    {
+        id: 'slipstream-drive',
+        category: 'propulsion',
+        name: 'Slipstream Drive',
+        level: 4,
+        ny: 0.35,
+        glyph: '=>',
+        effect: 'Sub-space conduits reduce mission ETA by an extra 12% and grant +1 warp capacity.',
+        cost: { minerals: 1100, credits: 2000 },
+        time: '3m 00s',
+        durationSec: 180,
+    },
+    {
+        id: 'hyperdrive-matrix',
+        category: 'propulsion',
+        name: 'Hyperdrive Matrix',
+        level: 5,
+        ny: 0.18,
+        glyph: '><',
+        effect: 'Tachyon matrix reduces mission ETA by 15% and grants +2 fleet berths.',
+        cost: { minerals: 1800, credits: 3500 },
+        time: '5m 00s',
+        durationSec: 300,
     },
 
-    // Resource Extraction
+    // Resource Extraction (nx: 0.38)
     {
         id: 'deep-scanner',
         category: 'extraction',
         name: 'Deep Scanner',
         level: 1,
-        ny: 0.84,
+        ny: 0.86,
         glyph: '()',
-        effect: 'Reveals rare-ore bonus tiles on the mining board.',
-        cost: { minerals: 400, credits: 800 },
-        time: '12m 00s',
-        durationSec: Math.floor((2 * 3600) / 10),
+        effect: 'Reveals rare-ore bonus seams on mining boards. +5% ore yield.',
+        cost: { minerals: 200, credits: 350 },
+        time: '0m 20s',
+        durationSec: 20,
     },
     {
         id: 'refinery',
         category: 'extraction',
         name: 'Refinery Throughput',
         level: 2,
-        ny: 0.58,
+        ny: 0.69,
         glyph: 'Rf',
-        effect: 'Refinery converts 15% more ore per hour.',
-        cost: { minerals: 700, credits: 1300 },
-        time: '30m 00s',
-        durationSec: Math.floor((5 * 3600) / 10),
+        effect: 'Optimized catalytic converters lift mineral refinery throughput by +15%.',
+        cost: { minerals: 500, credits: 800 },
+        time: '0m 45s',
+        durationSec: 45,
     },
     {
         id: 'mining-laser',
         category: 'extraction',
         name: 'Advanced Mining Laser',
-        level: 4,
-        ny: 0.30,
+        level: 3,
+        ny: 0.52,
         glyph: '//',
-        effect: '+12% ore yield on every run; rare seams bank one extra hazard ore.',
-        cost: { minerals: 800, credits: 1500 },
-        time: '39m 00s',
-        durationSec: Math.floor(((6 * 3600) + (30 * 60)) / 10),
+        effect: '+12% ore yield on all operations; banks +1 extra hazard ore per run.',
+        cost: { minerals: 750, credits: 1300 },
+        time: '1m 30s',
+        durationSec: 90,
+    },
+    {
+        id: 'plasma-extractor',
+        category: 'extraction',
+        name: 'Plasma Extractor',
+        level: 4,
+        ny: 0.35,
+        glyph: 'PX',
+        effect: 'Superheated plasma drill lifts ore yield by +15% and refining throughput by +15%.',
+        cost: { minerals: 1200, credits: 2100 },
+        time: '3m 00s',
+        durationSec: 180,
+    },
+    {
+        id: 'matter-siphon',
+        category: 'extraction',
+        name: 'Matter Siphon',
+        level: 5,
+        ny: 0.18,
+        glyph: 'MS',
+        effect: 'Direct stellar accretion siphons +20% ore yield and +2 hazard ore banked per run.',
+        cost: { minerals: 2000, credits: 3600 },
+        time: '5m 00s',
+        durationSec: 300,
     },
 
-    // Defense
+    // Defense (nx: 0.64)
     {
         id: 'hull-plating',
         category: 'defense',
         name: 'Hull Plating',
-        level: 2,
-        ny: 0.26,
+        level: 1,
+        ny: 0.86,
         glyph: '##',
-        effect: 'Fleet hull takes 12% less damage on high-risk missions.',
-        cost: { minerals: 650, credits: 1100 },
-        time: '25m 30s',
-        durationSec: Math.floor(((4 * 3600) + (15 * 60)) / 10),
+        effect: 'Reinforced composite hull absorbs impact wear. Hull damage reduced by 12%.',
+        cost: { minerals: 220, credits: 380 },
+        time: '0m 20s',
+        durationSec: 20,
     },
     {
         id: 'shield-array',
         category: 'defense',
         name: 'Shield Array',
-        level: 1,
-        ny: 0.54,
-        glyph: '()',
-        effect: 'Equip shield array on cruiser-class ships. Blocks one hull hit per run.',
-        cost: { minerals: 900, credits: 1700 },
-        time: '42m 00s',
-        durationSec: Math.floor((7 * 3600) / 10),
+        level: 2,
+        ny: 0.69,
+        glyph: '((',
+        effect: 'Cruiser-grade deflector shields absorb 1 hull hit per run. Grants +1 fleet berth.',
+        cost: { minerals: 480, credits: 850 },
+        time: '0m 45s',
+        durationSec: 45,
     },
     {
         id: 'countermeasures',
         category: 'defense',
         name: 'Countermeasures',
-        level: 1,
-        ny: 0.82,
+        level: 3,
+        ny: 0.52,
         glyph: '!!',
-        effect: 'One extra paid mission-board reroll each day, plus hardened hulls.',
-        cost: { minerals: 1100, credits: 2200 },
-        time: '57m 00s',
-        durationSec: Math.floor(((9 * 3600) + (30 * 60)) / 10),
+        effect: 'Hardened electronic warfare suites reduce hull wear by 6% and grant +1 daily board reroll.',
+        cost: { minerals: 800, credits: 1400 },
+        time: '1m 30s',
+        durationSec: 90,
+    },
+    {
+        id: 'reactive-armor',
+        category: 'defense',
+        name: 'Reactive Armor',
+        level: 4,
+        ny: 0.35,
+        glyph: 'RA',
+        effect: 'Smart nanite lattice mitigates catastrophic structural wear. Hull wear reduced by 15%.',
+        cost: { minerals: 1300, credits: 2200 },
+        time: '3m 00s',
+        durationSec: 180,
+    },
+    {
+        id: 'aegis-protocol',
+        category: 'defense',
+        name: 'Aegis Protocol',
+        level: 5,
+        ny: 0.18,
+        glyph: 'AP',
+        effect: 'Automated station defense umbrella absorbs +1 hull hit per run and grants +1 daily board reroll.',
+        cost: { minerals: 2100, credits: 3800 },
+        time: '5m 00s',
+        durationSec: 300,
     },
 
-    // Economics
-    {
-        id: 'reputation-boost',
-        category: 'economics',
-        name: 'Reputation Programs',
-        level: 1,
-        ny: 0.86,
-        glyph: '**',
-        effect: 'Reputation gain +10% per completed mission.',
-        cost: { minerals: 700, credits: 1800 },
-        time: '34m 30s',
-        durationSec: Math.floor(((5 * 3600) + (45 * 60)) / 10),
-    },
+    // Economics (nx: 0.88)
     {
         id: 'trade-compact',
         category: 'economics',
         name: 'Trade Compact',
         level: 1,
-        ny: 0.60,
+        ny: 0.86,
         glyph: '$$',
-        effect: 'MARKET tab prices 6% more favorable on sell orders.',
-        cost: { minerals: 450, credits: 1400 },
-        time: '18m 00s',
-        durationSec: Math.floor((3 * 3600) / 10),
+        effect: 'Favorable guild terms: Market sell orders +6% credits, buy orders −3% discount.',
+        cost: { minerals: 200, credits: 350 },
+        time: '0m 20s',
+        durationSec: 20,
     },
     {
         id: 'habitat-extension',
         category: 'economics',
         name: 'Habitat Extension',
         level: 2,
-        ny: 0.32,
+        ny: 0.69,
         glyph: 'Hb',
-        effect: '+1 crew slot on NOVA STATION. Unlocks tier-II contracts.',
-        cost: { minerals: 550, credits: 1000 },
-        time: '27m 00s',
-        durationSec: Math.floor(((4 * 3600) + (30 * 60)) / 10),
+        effect: 'Station expansion grants +1 crew slot, +1 fleet berth, and +1 concurrent research slot.',
+        cost: { minerals: 450, credits: 800 },
+        time: '0m 45s',
+        durationSec: 45,
+    },
+    {
+        id: 'reputation-boost',
+        category: 'economics',
+        name: 'Reputation Programs',
+        level: 3,
+        ny: 0.52,
+        glyph: '**',
+        effect: 'Public diplomatic relations lift reputation gains by +10% across all missions.',
+        cost: { minerals: 750, credits: 1350 },
+        time: '1m 30s',
+        durationSec: 90,
+    },
+    {
+        id: 'orbital-exchange',
+        category: 'economics',
+        name: 'Orbital Exchange',
+        level: 4,
+        ny: 0.35,
+        glyph: 'OE',
+        effect: 'Interstellar commodities exchange: Market sells +10%, buys −5%, and +1 crew slot.',
+        cost: { minerals: 1250, credits: 2300 },
+        time: '3m 00s',
+        durationSec: 180,
+    },
+    {
+        id: 'stellar-harmonizer',
+        category: 'economics',
+        name: 'Stellar Harmonizer',
+        level: 5,
+        ny: 0.18,
+        glyph: 'SH',
+        effect: 'Harness galactic resonance: Reputation gain +20% and unlocks +1 concurrent research slot.',
+        cost: { minerals: 2200, credits: 4000 },
+        time: '5m 00s',
+        durationSec: 300,
     },
 ]);
 
 // Prerequisite edges (from -> to). Used for both rendering and availability checks.
 export const EDGES = Object.freeze([
+    // Propulsion chain
     { from: 'fuel-cell',         to: 'warp-coils' },
     { from: 'warp-coils',        to: 'ion-thrusters' },
+    { from: 'ion-thrusters',     to: 'slipstream-drive' },
+    { from: 'slipstream-drive',  to: 'hyperdrive-matrix' },
+
+    // Extraction chain
     { from: 'deep-scanner',      to: 'refinery' },
     { from: 'refinery',          to: 'mining-laser' },
-    { from: 'warp-coils',        to: 'mining-laser' },
+    { from: 'mining-laser',      to: 'plasma-extractor' },
+    { from: 'plasma-extractor',  to: 'matter-siphon' },
+
+    // Defense chain
     { from: 'hull-plating',      to: 'shield-array' },
     { from: 'shield-array',      to: 'countermeasures' },
+    { from: 'countermeasures',   to: 'reactive-armor' },
+    { from: 'reactive-armor',    to: 'aegis-protocol' },
+
+    // Economics chain
     { from: 'trade-compact',     to: 'habitat-extension' },
-    { from: 'reputation-boost',  to: 'trade-compact' },
+    { from: 'habitat-extension', to: 'reputation-boost' },
+    { from: 'reputation-boost',  to: 'orbital-exchange' },
+    { from: 'orbital-exchange',  to: 'stellar-harmonizer' },
+
+    // Cross-discipline synergies
+    { from: 'warp-coils',        to: 'mining-laser' },
+    { from: 'habitat-extension', to: 'shield-array' },
 ]);
 
 // --- Pure helper functions ---
@@ -213,20 +328,38 @@ export function isNodeAvailable(nodeId, completedIds = []) {
 }
 
 /**
+ * Returns the array of missing prerequisite node IDs for a given node.
+ */
+export function getMissingPrerequisites(nodeId, completedIds = []) {
+    const prereqs = getPrerequisites(nodeId);
+    return prereqs.filter(p => !completedIds.includes(p));
+}
+
+/**
+ * Returns user-friendly names for missing prerequisite nodes.
+ */
+export function getMissingPrerequisiteNames(nodeId, completedIds = []) {
+    const missing = getMissingPrerequisites(nodeId, completedIds);
+    return missing.map(id => getNode(id)?.name || id);
+}
+
+/**
  * Convert a node into a runtime view for the UI.
- * This is the main function the tab will call.
+ * Supports both multi-research activeResearches array and single researching object.
  */
 export function getNodeView(nodeId, researchState) {
     const node = getNode(nodeId);
     if (!node) return null;
 
     const completed = researchState?.completed || [];
-    const researching = researchState?.researching;
+    const activeResearches = researchState?.activeResearches || [];
+    const isActive = activeResearches.some(r => r && r.nodeId === nodeId) ||
+                     (researchState?.researching?.nodeId === nodeId);
 
     let state = 'locked';
     if (completed.includes(nodeId)) {
         state = 'completed';
-    } else if (researching && researching.nodeId === nodeId) {
+    } else if (isActive) {
         state = 'researching';
     } else if (isNodeAvailable(nodeId, completed)) {
         state = 'available';
@@ -240,7 +373,7 @@ export function getNodeView(nodeId, researchState) {
 
 /**
  * Returns how many milliseconds remain for a researching project.
- * Returns 0 if not researching or already finished.
+ * Supports both multi-research project record and legacy researching record.
  */
 export function getRemainingMs(researching, now = Date.now()) {
     if (!researching) return 0;
@@ -248,21 +381,22 @@ export function getRemainingMs(researching, now = Date.now()) {
     const node = getNode(researching.nodeId);
     if (!node) return 0;
 
-    const elapsed = now - researching.startedAt;
-    const remaining = (node.durationSec * 1000) - elapsed;
-    return Math.max(0, remaining);
+    const effectiveMs = getEffectiveProgressMs(researching, now);
+    const totalMs = (node.durationSec || 0) * 1000;
+    return Math.max(0, totalMs - effectiveMs);
 }
 
 /**
  * Returns progress (0..1) for a researching node.
+ * Supports both multi-research project record and legacy researching record.
  */
 export function getResearchProgress(researching, now = Date.now()) {
     if (!researching) return 0;
     const node = getNode(researching.nodeId);
-    if (!node || node.durationSec === 0) return 0;
+    if (!node || !node.durationSec) return 0;
 
-    const elapsed = now - researching.startedAt;
-    return Math.min(1, Math.max(0, elapsed / (node.durationSec * 1000)));
+    const effectiveMs = getEffectiveProgressMs(researching, now);
+    return Math.min(1, Math.max(0, effectiveMs / (node.durationSec * 1000)));
 }
 
 /**
@@ -350,6 +484,7 @@ export const BASE_EFFECTS = Object.freeze({
 // One entry per tech node. `summary` is the short line the RESEARCH tab
 // prints in its ACTIVE BONUSES strip once the node is online.
 export const EFFECTS_BY_NODE = Object.freeze({
+    // Original 12 nodes (values preserved 100% identically)
     'fuel-cell':         Object.freeze({ mods: Object.freeze({ warpCapacity: 2, fleetSlots: 2 }),                summary: '+2 warp capacity · +2 fleet berths' }),
     'warp-coils':        Object.freeze({ mods: Object.freeze({ warpCostDelta: -1, fleetSlots: 2 }),              summary: 'Sector jumps cost 1 less warp · +2 berths' }),
     'ion-thrusters':     Object.freeze({ mods: Object.freeze({ etaMultiplier: 0.92 }),                           summary: 'Mission ETA −8%' }),
@@ -362,6 +497,16 @@ export const EFFECTS_BY_NODE = Object.freeze({
     'reputation-boost':  Object.freeze({ mods: Object.freeze({ repMultiplier: 1.10 }),                           summary: 'Reputation gain +10%' }),
     'trade-compact':     Object.freeze({ mods: Object.freeze({ marketSellBonus: 0.06, marketBuyDiscount: 0.03 }), summary: 'Market sells +6% · buys −3%' }),
     'habitat-extension': Object.freeze({ mods: Object.freeze({ crewSlots: 1, fleetSlots: 1, researchSlots: 1 }), summary: '+1 crew slot · +1 berth · +1 research slot' }),
+
+    // 8 Expanded tech nodes
+    'slipstream-drive':   Object.freeze({ mods: Object.freeze({ etaMultiplier: 0.88, warpCapacity: 1 }),         summary: 'Mission ETA −12% · +1 warp capacity' }),
+    'hyperdrive-matrix':  Object.freeze({ mods: Object.freeze({ etaMultiplier: 0.85, fleetSlots: 2 }),           summary: 'Mission ETA −15% · +2 fleet berths' }),
+    'plasma-extractor':   Object.freeze({ mods: Object.freeze({ oreYieldMultiplier: 1.15, mineralYieldMultiplier: 1.15 }), summary: 'Ore yield +15% · refining +15%' }),
+    'matter-siphon':      Object.freeze({ mods: Object.freeze({ oreYieldMultiplier: 1.20, rareOreBonus: 2 }),    summary: 'Ore yield +20% · +2 hazard ore per run' }),
+    'reactive-armor':     Object.freeze({ mods: Object.freeze({ hullDamageMultiplier: 0.85 }),                   summary: 'Hull wear −15%' }),
+    'aegis-protocol':     Object.freeze({ mods: Object.freeze({ shieldCharges: 1, riskRerolls: 1 }),              summary: 'Absorbs +1 hull hit · +1 board reroll/day' }),
+    'orbital-exchange':   Object.freeze({ mods: Object.freeze({ marketSellBonus: 0.10, marketBuyDiscount: 0.05, crewSlots: 1 }), summary: 'Market sells +10% · buys −5% · +1 crew slot' }),
+    'stellar-harmonizer': Object.freeze({ mods: Object.freeze({ repMultiplier: 1.20, researchSlots: 1 }),        summary: 'Reputation gain +20% · +1 research slot' }),
 });
 
 // Which fields combine multiplicatively. Everything else numeric adds.

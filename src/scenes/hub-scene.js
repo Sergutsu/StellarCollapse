@@ -72,6 +72,7 @@ import {
     getAllNodes,
     getResearchProgressForProject,
     getRemainingMsForProject,
+    EFFECTS_BY_NODE,
 } from '../research.js';
 import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
 import { CrewTab } from './tabs/crew-tab.js';
@@ -326,6 +327,21 @@ export class HubScene {
             this._refreshMissionBoardMeta();
         }
 
+        // Auto-complete finished research & push announcement to ticker
+        if (this.meta && typeof this.meta.checkResearchCompletions === 'function') {
+            const completedIds = this.meta.checkResearchCompletions(now);
+            if (completedIds && completedIds.length > 0) {
+                for (const cid of completedIds) {
+                    const node = getAllNodes().find(n => n.id === cid);
+                    const name = node ? node.name : cid;
+                    const fx = EFFECTS_BY_NODE[cid]?.summary || 'New technology online';
+                    this.pushNews(`🔬 Research Online: ${name}! (${fx})`);
+                }
+                this._refreshResearchProjectsPanel();
+                this._nodes?.tabs?.research?._refreshFromMeta?.();
+            }
+        }
+
         // Forward tick to live tabs (Research needs it for live progress)
         const activeTab = this._nodes?.tabs?.[this._nodes.activeTabId];
         if (activeTab && typeof activeTab.tick === 'function') {
@@ -358,14 +374,7 @@ export class HubScene {
         const activeSurge = coreTab?.game?.getActiveSurge?.();
         if (activeSurge?.id === 'quantum') {
             // Quantum surge: advance active researches by extra 2x elapsed ms (total 3x)
-            const rState = this.meta?.getResearchState?.();
-            if (rState?.activeResearches?.length) {
-                for (const proj of rState.activeResearches) {
-                    if (proj.startedAt > 0) {
-                        proj.accumulatedMs = (proj.accumulatedMs || 0) + (deltaMs || 16) * 2;
-                    }
-                }
-            }
+            this.meta?.accelerateResearch?.((deltaMs || 16) * 2);
         }
         if (activeSurge?.id === 'solar') {
             // Solar ion drift: advance idle missions by extra elapsed ms (2x speed)
@@ -2116,8 +2125,17 @@ export class HubScene {
                 title.position.set(10, 8);
                 slot.addChild(title);
 
-                const progress = getResearchProgressForProject(project, node, Date.now());
                 const remainingMs = getRemainingMsForProject(project, node, Date.now());
+                if (remainingMs <= 0) {
+                    this.meta.completeResearch(project.nodeId);
+                    const name = node ? node.name : project.nodeId;
+                    const fx = EFFECTS_BY_NODE[project.nodeId]?.summary || 'Online';
+                    this.pushNews(`🔬 Research Online: ${name}! (${fx})`);
+                    this._refreshResearchProjectsPanel();
+                    this._nodes?.tabs?.research?._refreshFromMeta?.();
+                    return;
+                }
+                const progress = getResearchProgressForProject(project, node, Date.now());
                 const totalSec = Math.ceil(remainingMs / 1000);
                 const min = Math.floor(totalSec / 60);
                 const sec = totalSec % 60;

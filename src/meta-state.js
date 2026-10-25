@@ -12,7 +12,7 @@
 // wall-time autonomous missions. Shape remains additive for future phases.
 
 import { Emitter } from './emitter.js';
-import { resolveEffects } from './research.js';
+import { resolveEffects, getNode, getEffectiveProgressMs } from './research.js';
 import { applyStationBonuses, plotCourse, SECTOR_IDS } from './star-map.js';
 import { tierForRep, repInfo } from './reputation.js';
 import { awardCrewXp, xpForLevel, crewSlotLimit, fleetSlotLimit } from './crew.js';
@@ -168,6 +168,7 @@ export class MetaState {
         this._emitter = new Emitter();
         this._data = initial ? this._merge(starterProfile(), initial) : starterProfile();
         this._syncAssetStatuses();
+        this.checkResearchCompletions();
     }
 
     on(event, handler)  { return this._emitter.on(event, handler); }
@@ -604,24 +605,104 @@ export class MetaState {
 
     // ---- Research (tech tree) - multiple concurrent projects ------------
 
+    /**
+     * Automatically completes any active research project whose required duration has elapsed.
+     * Emits 'research-complete' for every finished project.
+     * @returns {string[]} array of completed node IDs
+     */
+    checkResearchCompletions(now = Date.now()) {
+        const current = this._data.research;
+        if (!current || !Array.isArray(current.activeResearches) || current.activeResearches.length === 0) {
+            return [];
+        }
+
+        const completedNow = [];
+        const remainingActive = [];
+
+        for (const project of current.activeResearches) {
+            if (!project || !project.nodeId) continue;
+            const node = getNode(project.nodeId);
+            if (!node) {
+                remainingActive.push(project);
+                continue;
+            }
+            const effectiveMs = getEffectiveProgressMs(project, now);
+            const totalMs = (node.durationSec || 0) * 1000;
+            if (effectiveMs >= totalMs) {
+                completedNow.push(project.nodeId);
+            } else {
+                remainingActive.push(project);
+            }
+        }
+
+        if (completedNow.length === 0) return [];
+
+        const completedSet = new Set(current.completed || []);
+        for (const id of completedNow) {
+            completedSet.add(id);
+        }
+
+        this._data.research = {
+            ...current,
+            completed: Array.from(completedSet),
+            activeResearches: remainingActive,
+        };
+
+        this._touchLastTick();
+        for (const id of completedNow) {
+            this._changed('research-complete', { nodeId: id });
+        }
+        return completedNow;
+    }
+
+    /**
+     * Add bonus research progress ms (used by Stellar Core Quantum Surge).
+     */
+    accelerateResearch(bonusMs = 0) {
+        const ms = Math.max(0, Math.floor(bonusMs));
+        if (ms <= 0) return;
+        const current = this._data.research;
+        if (!current || !Array.isArray(current.activeResearches) || current.activeResearches.length === 0) return;
+        let touched = false;
+        for (const proj of current.activeResearches) {
+            if (proj && proj.startedAt > 0) {
+                proj.accumulatedMs = (proj.accumulatedMs || 0) + ms;
+                touched = true;
+            }
+        }
+        if (touched) {
+            this._touchLastTick();
+        }
+    }
+
     getResearchState() {
+        this.checkResearchCompletions();
         const r = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };
+        const completed = r.completed || [];
+        const baseSlots = r.maxConcurrent ?? 2;
+        const bonusSlots = resolveEffects(completed).researchSlots || 0;
         return {
-            completed: [...(r.completed || [])],
-            activeResearches: (r.activeResearches || []).map(r => ({ ...r })),
-            maxConcurrent: r.maxConcurrent ?? 2,
+            completed: [...completed],
+            activeResearches: (r.activeResearches || []).map(p => ({ ...p })),
+            maxConcurrent: baseSlots + bonusSlots,
+            baseConcurrent: baseSlots,
         };
     }
 
     /** Start researching a node in a free slot (if available) */
     startResearch(nodeId) {
         if (!nodeId) return;
+        this.checkResearchCompletions();
         const current = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };
 
         if (current.completed.includes(nodeId)) return;
         if (current.activeResearches.some(r => r.nodeId === nodeId)) return;
 
-        if (current.activeResearches.length >= (current.maxConcurrent ?? 2)) return;
+        const baseSlots = current.maxConcurrent ?? 2;
+        const bonusSlots = resolveEffects(current.completed || []).researchSlots || 0;
+        const effectiveMax = baseSlots + bonusSlots;
+
+        if (current.activeResearches.length >= effectiveMax) return;
 
         const newResearch = {
             nodeId,
@@ -647,7 +728,7 @@ export class MetaState {
         if (idx === -1) return;
 
         const project = current.activeResearches[idx];
-        const elapsed = Math.max(0, Date.now() - project.startedAt);
+        const elapsed = project.startedAt > 0 ? Math.max(0, Date.now() - project.startedAt) : 0;
         const newAccumulated = (project.accumulatedMs || 0) + elapsed;
 
         const updated = [...current.activeResearches];
@@ -694,7 +775,7 @@ export class MetaState {
         this._changed('research-resume', { nodeId });
     }
 
-    /** Mark a research as completed (called by UI when timer expires) */
+    /** Mark a research as completed */
     completeResearch(nodeId) {
         if (!nodeId) return;
         const current = this._data.research || { completed: [], activeResearches: [], maxConcurrent: 2 };

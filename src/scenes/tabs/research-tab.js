@@ -18,7 +18,10 @@ import {
     getResearchProgress,
     getRemainingMs,
     isNodeAvailable,
+    getMissingPrerequisites,
+    getMissingPrerequisiteNames,
     getAllNodes,
+    getNode,
     getPrerequisites,
     activeEffectSummaries,
     RESEARCH_CATEGORIES as CATEGORIES,
@@ -44,7 +47,7 @@ const NODE_STATE = Object.freeze({
     completed:  { stroke: COLOR_EMERALD_300, fill: 0x042f1f, label: 'Completed',         labelColor: COLOR_EMERALD_300, icon: COLOR_EMERALD_300 },
 });
 
-const HEX_R = 22; // outer radius of a hex node in world pixels.
+const HEX_R = 18; // outer radius of a hex node in world pixels.
 
 function drawHex(g, r, { stroke, fill }) {
     g.clear();
@@ -67,7 +70,7 @@ export class ResearchTab {
         this.root.visible = false;
         this.parent.addChild(this.root);
         this._nodes = null;
-        this._selectedId = 'mining-laser'; // Default selection
+        this._selectedId = 'fuel-cell'; // Default selection (T1 immediately available)
     }
 
     // ----------------------------------------------------------------
@@ -166,7 +169,7 @@ export class ResearchTab {
                 text: view.glyph,
                 style: new TextStyle({
                     fontFamily: 'Inter, sans-serif',
-                    fontSize: 12,
+                    fontSize: 10,
                     fontWeight: '800',
                     fill: state.icon,
                 }),
@@ -178,35 +181,35 @@ export class ResearchTab {
                 text: `L${view.level}`,
                 style: new TextStyle({
                     fontFamily: 'Inter, sans-serif',
-                    fontSize: 9,
+                    fontSize: 8,
                     fontWeight: '700',
                     fill: COLOR_SLATE_200,
-                    stroke: { color: 0x020617, width: 3, alpha: 0.9 },
+                    stroke: { color: 0x020617, width: 2, alpha: 0.9 },
                 }),
             });
             lvl.anchor.set(0.5);
-            lvl.position.set(0, HEX_R + 2);
+            lvl.position.set(0, HEX_R + 1);
             container.addChild(lvl);
 
             const nameText = new Text({
                 text: view.name,
                 style: new TextStyle({
                     fontFamily: 'Inter, sans-serif',
-                    fontSize: 10,
+                    fontSize: 9,
                     fill: COLOR_SLATE_400,
-                    stroke: { color: 0x020617, width: 3, alpha: 0.85 },
+                    stroke: { color: 0x020617, width: 2, alpha: 0.85 },
                     align: 'center',
                     wordWrap: true,
-                    wordWrapWidth: 110,
+                    wordWrapWidth: 85,
                 }),
             });
             nameText.anchor.set(0.5, 0);
-            nameText.position.set(0, HEX_R + 14);
+            nameText.position.set(0, HEX_R + 10);
             container.addChild(nameText);
 
             // Store the id for later lookup instead of the full static node
             container.on('pointertap', () => this._onNodeTapped({ id: view.id }));
-            container.hitArea = new Rectangle(-HEX_R, -HEX_R, HEX_R * 2, HEX_R * 2 + 20);
+            container.hitArea = new Rectangle(-HEX_R, -HEX_R, HEX_R * 2, HEX_R * 2 + 18);
             root.addChild(container);
 
             return { node: view, container, hex, glyph, lvl, nameText };
@@ -240,7 +243,7 @@ export class ResearchTab {
 
     _buildDetail() {
         const container = new Container();
-        const panel = drawHologramPanel(260, 210, { accent: COLOR_AMBER_500 });
+        const panel = drawHologramPanel(260, 224, { accent: COLOR_AMBER_500 });
         container.addChild(panel);
 
         const header = panelLabel('RESEARCH NODE', COLOR_AMBER_300, { size: 11 });
@@ -268,19 +271,33 @@ export class ResearchTab {
                 fill: COLOR_CYAN_300,
             }),
         });
-        status.position.set(12, 48);
+        status.position.set(12, 46);
         panel.addChild(status);
+
+        const prereqLine = new Text({
+            text: '',
+            style: new TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 10,
+                fontWeight: '600',
+                fill: COLOR_ROSE_300,
+                wordWrap: true,
+                wordWrapWidth: 236,
+            }),
+        });
+        prereqLine.position.set(12, 62);
+        panel.addChild(prereqLine);
 
         // Cost row: "<minerals> minerals   <credits> credits   <time>"
         const costLine = new Text({
             text: '',
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
-                fontSize: 11,
+                fontSize: 10,
                 fill: COLOR_SLATE_200,
             }),
         });
-        costLine.position.set(12, 70);
+        costLine.position.set(12, 78);
         panel.addChild(costLine);
 
         // Progress bar (only visible when state = researching).
@@ -297,7 +314,7 @@ export class ResearchTab {
                 fill: COLOR_AMBER_300,
             }),
         });
-        progressText.position.set(12, 90);
+        progressText.position.set(12, 94);
         panel.addChild(progressText);
 
         // Effect blurb.
@@ -305,27 +322,27 @@ export class ResearchTab {
             text: '',
             style: new TextStyle({
                 fontFamily: 'Inter, sans-serif',
-                fontSize: 11,
+                fontSize: 10,
                 fill: COLOR_SLATE_400,
                 wordWrap: true,
                 wordWrapWidth: 236,
                 lineHeight: 14,
             }),
         });
-        effect.position.set(12, 112);
+        effect.position.set(12, 114);
         panel.addChild(effect);
 
-        // CTA button (INITIATE / CANCEL / RESUME).
+        // CTA button (INITIATE / CANCEL / RESUME / REQUIRES).
         const cta = buildStartButton({
             text: 'INITIATE RESEARCH',
-            width: 200,
+            width: 220,
             height: 30,
             onTap: () => this._onResearchCta(),
         });
-        cta.container.position.set(12, 170);
+        cta.container.position.set(12, 180);
         panel.addChild(cta.container);
 
-        return { container, panel, header, name, status, costLine, progressBg, progressFill, progressText, effect, cta, width: 260, height: 210 };
+        return { container, panel, header, name, status, prereqLine, costLine, progressBg, progressFill, progressText, effect, cta, width: 260, height: 224 };
     }
 
     _buildBonuses() {
@@ -451,57 +468,76 @@ export class ResearchTab {
     tick(deltaMs) {
         if (!this._nodes) return;
 
-        const researchState = this._getCurrentResearchState();
-        if (researchState.researching) {
-            // Always refresh when something is researching (live progress + tree colors)
-            this._refreshDetail();
-
-            // Auto-complete when the research timer expires
-            const remaining = getRemainingMs(researchState.researching, Date.now());
-            if (remaining <= 0) {
-                if (this.meta && typeof this.meta.completeResearch === 'function') {
-                    this.meta.completeResearch(researchState.researching.nodeId);
-                }
-                // Force one more refresh after completion
-                this._refreshDetail();
+        if (this.meta && typeof this.meta.checkResearchCompletions === 'function') {
+            const completed = this.meta.checkResearchCompletions(Date.now());
+            if (completed && completed.length > 0) {
+                this._refreshFromMeta();
+                return;
             }
+        }
+
+        const researchState = this._getCurrentResearchState();
+        if (researchState.activeResearches?.length > 0 || researchState.researching) {
+            this._refreshDetail();
         }
     }
 
     _onResearchCta() {
         if (!this.meta || !this._selectedId) return;
 
-        const node = getAllNodes().find(n => n.id === this._selectedId);
+        const node = getNode(this._selectedId);
         if (!node) return;
 
         const researchState = this.meta.getResearchState();
-        const isActive = researchState.activeResearches?.some(r => r.nodeId === this._selectedId);
+        const activeResearches = researchState.activeResearches || [];
+        const project = activeResearches.find(r => r && r.nodeId === this._selectedId);
 
-        if (isActive) {
-            // Currently researching → Cancel (pause with progress)
-            this.meta.cancelResearch(this._selectedId);
-        } else {
-            // Not active → try to start or resume
-            const isPaused = researchState.activeResearches?.some(r => r.nodeId === this._selectedId && r.startedAt === 0);
-
-            if (isPaused) {
-                this.meta.resumeResearch(this._selectedId);
-            } else {
-                // Normal start
-                const canAfford =
-                    (this.meta.getHubResource('minerals') || 0) >= (node.cost?.minerals || 0) &&
-                    (this.meta.getHubResource('credits') || 0) >= (node.cost?.credits || 0);
-
-                if (!canAfford) return;
-
-                if (node.cost?.minerals) this.meta.setHubResource('minerals', this.meta.getHubResource('minerals') - node.cost.minerals);
-                if (node.cost?.credits)  this.meta.setHubResource('credits',  this.meta.getHubResource('credits')  - node.cost.credits);
-
-                this.meta.startResearch(this._selectedId);
+        if (project) {
+            const remaining = getRemainingMs(project, Date.now());
+            if (remaining <= 0) {
+                this.meta.completeResearch(this._selectedId);
+                this._refreshFromMeta();
+                return;
             }
+            if (project.startedAt > 0) {
+                this.meta.cancelResearch(this._selectedId);
+            } else {
+                this.meta.resumeResearch(this._selectedId);
+            }
+            this._refreshDetail();
+            return;
         }
 
-        this._refreshDetail();
+        if (researchState.completed?.includes(this._selectedId)) {
+            return;
+        }
+
+        const completed = researchState.completed || [];
+        if (!isNodeAvailable(this._selectedId, completed)) {
+            // Jump to first missing prerequisite!
+            const missing = getMissingPrerequisites(this._selectedId, completed);
+            if (missing.length > 0) {
+                this._selectedId = missing[0];
+                this._refreshDetail();
+            }
+            return;
+        }
+
+        // Available! Check resources
+        const curMinerals = this.meta.getHubResource('minerals') || 0;
+        const curCredits = this.meta.getHubResource('credits') || 0;
+        const costMinerals = node.cost?.minerals || 0;
+        const costCredits = node.cost?.credits || 0;
+
+        if (curMinerals < costMinerals || curCredits < costCredits) {
+            return;
+        }
+
+        if (costMinerals > 0) this.meta.setHubResource('minerals', curMinerals - costMinerals);
+        if (costCredits > 0) this.meta.setHubResource('credits', curCredits - costCredits);
+
+        this.meta.startResearch(this._selectedId);
+        this._refreshFromMeta();
     }
 
     _refreshDetail() {
@@ -512,71 +548,105 @@ export class ResearchTab {
         const view = this._selectedId ? getNodeView(this._selectedId, researchState) : null;
         if (!view) return;
 
+        const completed = researchState.completed || [];
+        const activeResearches = researchState.activeResearches || [];
+        const activeProject = activeResearches.find(r => r && r.nodeId === this._selectedId) ||
+                              (researchState.researching?.nodeId === this._selectedId ? researchState.researching : null);
+
         const state = NODE_STATE[view.state] || NODE_STATE.locked;
         const d = n.detail;
 
-        d.name.text = `${view.name} Lvl ${view.level}`;
+        d.name.text = `${view.name} (T${view.level})`;
         d.status.text = state.label;
         d.status.style.fill = state.labelColor;
+
+        // Prerequisite text
+        const missing = getMissingPrerequisiteNames(view.id, completed);
+        if (view.state === 'locked' && missing.length > 0) {
+            d.prereqLine.text = `Requires: ${missing.join(', ')}`;
+            d.prereqLine.visible = true;
+        } else {
+            d.prereqLine.text = '';
+            d.prereqLine.visible = false;
+        }
 
         const costParts = [];
         if (view.cost?.minerals) costParts.push(`${view.cost.minerals} minerals`);
         if (view.cost?.credits)  costParts.push(`${view.cost.credits} credits`);
         if (view.time)           costParts.push(view.time);
-        d.costLine.text = costParts.join('   \u00B7   ');
-        d.costLine.visible = view.state !== 'completed';
+        d.costLine.text = view.state === 'completed'
+            ? 'ONLINE · ALL BONUSES ACTIVE'
+            : costParts.join('   \u00B7   ');
+        d.costLine.style.fill = view.state === 'completed' ? COLOR_EMERALD_300 : COLOR_SLATE_200;
+        d.costLine.visible = true;
 
         d.effect.text = view.effect || '';
-        const effectY = view.state === 'researching' ? 112 : 94;
+        const effectY = (view.state === 'researching') ? 116 : (d.prereqLine.visible ? 104 : 96);
         d.effect.position.set(12, effectY);
 
         // Live progress bar for researching state
-        const showProgress = view.state === 'researching';
+        const showProgress = view.state === 'researching' && activeProject;
         d.progressBg.clear();
         d.progressFill.clear();
         d.progressText.text = '';
-        if (showProgress && this.meta) {
-            const pct = getResearchProgress(researchState.researching, Date.now());
+        if (showProgress) {
+            const pct = getResearchProgress(activeProject, Date.now());
             const barW = 236;
             const barX = 12;
-            const barY = 88;
+            const barY = 96;
             d.progressBg.roundRect(barX, barY, barW, 6, 3).fill({ color: 0x1e293b, alpha: 0.9 });
             d.progressBg.roundRect(barX, barY, barW, 6, 3).stroke({ color: COLOR_AMBER_300, width: 1, alpha: 0.4 });
-            d.progressFill.roundRect(barX, barY, barW * pct, 6, 3).fill({ color: COLOR_AMBER_300, alpha: 0.9 });
+            d.progressFill.roundRect(barX, barY, Math.max(2, barW * pct), 6, 3).fill({ color: COLOR_AMBER_300, alpha: 0.9 });
 
-            const remainingMs = getRemainingMs(researchState.researching, Date.now());
+            const remainingMs = getRemainingMs(activeProject, Date.now());
             const totalSec = Math.ceil(remainingMs / 1000);
             const min = Math.floor(totalSec / 60);
             const sec = totalSec % 60;
             const timeStr = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
-            d.progressText.text = `${Math.round(pct * 100)}%  \u00B7  ${timeStr}`;
-            d.progressText.position.set(12, 96);
+            const isPaused = activeProject.startedAt === 0;
+            d.progressText.text = isPaused
+                ? `${Math.round(pct * 100)}%  ·  PAUSED`
+                : `${Math.round(pct * 100)}%  ·  ${timeStr}`;
+            d.progressText.position.set(12, 104);
         }
 
-        // CTA based on live state (support cancel/resume for multi-research)
+        // CTA based on live state
         let ctaText = 'INITIATE RESEARCH';
-        let ctaAction = 'initiate';
+        let ctaAlpha = 1.0;
+        let ctaVisible = true;
 
         if (view.state === 'available') {
-            ctaText = 'INITIATE RESEARCH';
-            ctaAction = 'initiate';
+            const curMinerals = this.meta ? (this.meta.getHubResource('minerals') || 0) : 0;
+            const curCredits = this.meta ? (this.meta.getHubResource('credits') || 0) : 0;
+            const canAfford = curMinerals >= (view.cost?.minerals || 0) && curCredits >= (view.cost?.credits || 0);
+            ctaText = canAfford ? 'INITIATE RESEARCH' : 'INSUFFICIENT RESOURCES';
+            ctaAlpha = canAfford ? 1.0 : 0.55;
+            ctaVisible = true;
         } else if (view.state === 'locked') {
-            ctaText = 'PREREQUISITES LOCKED';
-            ctaAction = 'locked';
+            ctaText = missing.length > 0 ? `REQUIRES: ${missing[0].toUpperCase()}` : 'PREREQUISITES LOCKED';
+            ctaAlpha = 0.85;
+            ctaVisible = true;
         } else if (view.state === 'researching') {
-            ctaText = 'CANCEL RESEARCH';
-            ctaAction = 'cancel';
+            const remainingMs = activeProject ? getRemainingMs(activeProject, Date.now()) : 999;
+            if (remainingMs <= 0) {
+                ctaText = 'COMPLETE RESEARCH';
+                ctaAlpha = 1.0;
+            } else if (activeProject?.startedAt === 0) {
+                ctaText = 'RESUME RESEARCH';
+                ctaAlpha = 1.0;
+            } else {
+                ctaText = 'CANCEL (PAUSE)';
+                ctaAlpha = 0.9;
+            }
+            ctaVisible = true;
         } else if (view.state === 'completed') {
             ctaText = 'COMPLETED';
+            ctaVisible = false;
         }
 
         d.cta.label.text = ctaText;
-        d.cta.container.visible = view.state !== 'completed';
-        d.cta.container.alpha = (view.state === 'locked') ? 0.45 : 1.0;
-
-        // Store action for the button handler
-        d.cta._currentAction = ctaAction;
-        d.cta._currentNodeId = view.id;
+        d.cta.container.visible = ctaVisible;
+        d.cta.container.alpha = ctaAlpha;
 
         // Update all node visuals based on live state
         n.nodes.forEach(({ node, hex }) => {

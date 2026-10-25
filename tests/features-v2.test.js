@@ -138,16 +138,43 @@ describe('features v2: stellar core surges and prestige bounty', () => {
   });
 });
 
-describe('features v2: research 10x faster and celestial naming', () => {
-  it('research durations are 10x faster than original specifications', () => {
+describe('features v2: research snappy durations, tree expansion, and celestial naming', () => {
+  it('research durations are fast and snappy for idle-clicker pacing', () => {
     const nodes = getAllNodes();
+    assert.equal(nodes.length, 20, 'tech tree should have 20 nodes total');
+
     const ion = nodes.find(n => n.id === 'ion-thrusters');
     assert.ok(ion);
-    assert.equal(ion.durationSec, 1800); // was 18000 (5h), now 30 min (1800s)
+    assert.equal(ion.durationSec, 90, 'Tier 3 should take 90s');
 
     const warpCoils = nodes.find(n => n.id === 'warp-coils');
     assert.ok(warpCoils);
-    assert.equal(warpCoils.durationSec, 1350); // was 13500 (3h 45m), now 22m 30s (1350s)
+    assert.equal(warpCoils.durationSec, 45, 'Tier 2 should take 45s');
+
+    const fuelCell = nodes.find(n => n.id === 'fuel-cell');
+    assert.ok(fuelCell);
+    assert.equal(fuelCell.durationSec, 20, 'Tier 1 should take 20s');
+  });
+
+  it('all 4 branches have immediate Tier 1 entry points with 0 prerequisites', () => {
+    const nodes = getAllNodes();
+    const t1Nodes = nodes.filter(n => n.level === 1);
+    assert.equal(t1Nodes.length, 4, 'should have 4 tier 1 entry points');
+    for (const t1 of t1Nodes) {
+      assert.equal(t1.durationSec, 20);
+    }
+  });
+
+  it('metaState auto-completes finished research projects on tick or check', () => {
+    const meta = new MetaState();
+    meta.startResearch('fuel-cell');
+    assert.equal(meta.getResearchState().activeResearches.length, 1);
+
+    // Fast-forward 25 seconds
+    const completed = meta.checkResearchCompletions(Date.now() + 25000);
+    assert.deepEqual(completed, ['fuel-cell']);
+    assert.equal(meta.getResearchState().activeResearches.length, 0);
+    assert.ok(meta.getResearchState().completed.includes('fuel-cell'));
   });
 
   it('procedural star system generates evocative sci-fi celestial names', () => {
