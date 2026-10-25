@@ -1,14 +1,10 @@
-# Stellar Venture
+# Stellar Venture — Clicker / Idle
 
-> Previously **Stellar Collapse**. Renamed with the pivot to a hybrid
-> casual/idle space-dispatcher game; repo URL stays `Sergutsu/StellarCollapse`.
-> See [ADR-0006](docs/adr/0006-rename-stellar-venture.md) for context.
-
-You are the **Chief Dispatcher** of a fringe outpost. Missions come in, you pick which rock is worth the fuel, and the puzzle is the shift: match 4+ runs, stack falling blocks, chain snakes and bombs, bank the ore. Short runs stack into an idle meta-loop (hub, rep tier, upgrades) landing in phases after the core puzzle.
-
-### ▶ [**Play Now**](https://sergutsu.github.io/StellarCollapse/)
-
-*(First-time setup: see [Enabling GitHub Pages](#enabling-github-pages) below — Pages needs to be turned on once in repo settings before the Play link goes live.)*
+> Previously **Stellar Collapse**. Now a full **clicker/idle** game (ADR-0013):
+> click the star, buy generators that play every old minigame for you, collapse
+> cores, idle through Defense waves, trade/refine/research, chart sectors, then
+> **Supernova** for Dark Matter and do it all faster. Every former mechanic was
+> converted — see the mapping table in `docs/GAMEPLAY.md`.
 
 ### Docs
 

@@ -8,6 +8,18 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed — CLICKER / IDLE CONVERSION (ADR-0013)
+
+- **The whole game is now a clicker/idle game.** `index.html` loads the new DOM front-end (`src/clicker-main.js`) over the pure, tested engine `src/clicker-state.js` (16 new tests). Every mechanic was converted, none left active/manual-only:
+  - Stellar click-match → **click the star** (combo meter, CRIT ×5, ore drops, golden stars)
+  - Auto-Match → **Auto-Matcher generators**; falling pieces/lines/levels → generator tiers, ×2 milestones every 10 owned, Star Level
+  - Miner → drones/extractors fill the **Core**, **Collapse** pays a burst; Bomb/Snake specials → consumables + Bomb Reactor / Snake Conduit
+  - Defense → **idle turret waves** with a boss every 10 waves (clicking also damages the wave; no game over)
+  - Missions/daily board → **contracts** (incl. a daily); market/refinery reused from `economy.js`; research is real-time (offline too); crew/ships/sectors/reputation are permanent clicker progression
+  - Idle dispatch/offline → **all production ticks offline** (8h cap at 50%, upgradeable)
+  - New idle-genre prestige: **SUPERNOVA** for Dark Matter (+10% each, forever) and prestige upgrades.
+- Saves are local (`stellar-venture-clicker-v1`), autosaved every 5s and on tab hide. The former Pixi minigames remain in-tree as legacy/reference modules; they are no longer the shipped entry point.
+
 ### Added
 
 - **P10 — understandability & navigation.** The game finally explains itself and can't be mis-clicked into a corner:
