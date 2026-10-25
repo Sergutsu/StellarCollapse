@@ -8,6 +8,13 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Fixed — responsive interface (no more overlapping panels)
+
+- **Breakpoint hub layout** (`src/responsive.js`, unit-tested): >=1080px keeps the three-column hub; 720–1079px stacks the center over side-by-side bays; <720px stacks everything in one column. Panels keep readable size instead of the whole desktop surface being shrunk.
+- **Scrollable column band:** when stacked content is taller than the viewport, the hub masks the band and scrolls it — mouse wheel, a draggable scrollbar thumb, and ▲/▼ buttons for touch. Star Map keeps wheel-zoom. Top bar drops its badge and shrinks chips on narrow screens; the bottom nav wraps to two rows (4+3) on compact; the mission-board modal, results, help and dialogs scale-to-fit instead of clipping off-screen. STELLAR CORE compresses its rhythm and wraps long readouts on short panels.
+- Hub smoke now runs 11 viewports down to 320x568.
+
+
 ### Fixed / Changed — reset, contextual columns, STELLAR CORE redesign
 
 - **RESET PROFILE actually resets.** The pagehide/visibility savers used to re-save the old profile after the wipe, resurrecting it on reload (fleet stuck unavailable). Savers are now suppressed during a wipe, storage (incl. the legacy clicker key) is cleared, and `MetaState.resetProfile()` restores the starter profile — 5 Standby ships, Available crew, no active missions, clicker cleared.

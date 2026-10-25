@@ -260,8 +260,10 @@ export class HelpOverlay {
         const h = (screen && screen.height) ?? this.app?.screen?.height ?? 720;
         r.dim.clear();
         r.dim.rect(0, 0, Math.max(1, w), Math.max(1, h)).fill({ color: 0x020617, alpha: 0.78 });
-        r.panel.x = Math.round((w - r.panelW) / 2);
-        r.panel.y = Math.round((h - r.panelH) / 2);
+        const s = Math.min(1, Math.max(0.3, (w - 24) / r.panelW), Math.max(0.3, (h - 24) / r.panelH));
+        r.panel.scale.set(s);
+        r.panel.x = Math.round((w - r.panelW * s) / 2);
+        r.panel.y = Math.round((h - r.panelH * s) / 2);
     }
 
     /** Test seam: fire the n-th body-adjacent control by name. */

@@ -148,17 +148,24 @@ export class StellarCoreTab {
 
   _layoutCenter() {
     const n = this._nodes; if (!n) return; const w = this._w, cx = w / 2;
+    // Shorter panels (stacked breakpoints) compress the rhythm so the
+    // upgrades never spill past the panel's bottom edge.
+    const dy = this._h < 640 ? -42 : 0;
     n.title.position.set(cx, 12);
     n.stardust.position.set(cx, 44);
     n.perSec.position.set(cx, 80);
-    n.starWrap.position.set(cx, 205);
-    n.combo.position.set(cx, 318);
-    n.clickInfo.position.set(cx, 346);
-    n.masteryBar.position.set(30, 378);
-    n.coreLabel.position.set(30, 402); n.coreBar.position.set(30, 426);
-    n.waveLabel.position.set(30, 452); n.waveBar.position.set(30, 476);
-    n.upHeader.position.set(30, 508);
-    n.upRows.forEach((r, i) => { const y = 536 + i * 42; r.label.position.set(30, y + 5); r.btn.container.position.set(w - 148, y); });
+    n.starWrap.position.set(cx, 205 + dy);
+    n.combo.position.set(cx, 318 + dy);
+    n.clickInfo.position.set(cx, 346 + dy);
+    n.masteryBar.position.set(30, 378 + dy);
+    n.coreLabel.position.set(30, 402 + dy); n.coreBar.position.set(30, 426 + dy);
+    n.waveLabel.position.set(30, 452 + dy); n.waveBar.position.set(30, 476 + dy);
+    n.upHeader.position.set(30, 508 + dy);
+    n.upRows.forEach((r, i) => { const y = 536 + dy + i * 42; r.label.position.set(30, y + 5); r.btn.container.position.set(w - 148, y); });
+    // Long readouts wrap inside the panel instead of running off its edge.
+    const wrapW = Math.max(220, w - 40);
+    for (const t of [n.perSec, n.combo, n.clickInfo, n.coreLabel, n.waveLabel]) { t.style.wordWrapWidth = wrapW; t.style.align = 'center'; }
+    n.coreLabel.style.align = 'left'; n.waveLabel.style.align = 'left';
   }
   _visibleUpgrades() { return UPGRADES.filter(u => !this.game.s.upgrades.includes(u.id) && (u.req?.(this.game) ?? true)).slice(0, 2); }
   _bar(g, w, frac, color) { g.clear(); g.roundRect(0, 0, w, 16, 6).fill({ color: 0x020617 }); g.roundRect(0, 0, Math.max(4, Math.min(1, frac) * w), 16, 6).fill({ color }); }
