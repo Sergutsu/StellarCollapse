@@ -276,6 +276,8 @@ export function buildSimpleButton({
     textColor = BUTTON_DEFAULT_TEXT,
     onTap,
 }) {
+    let w = width;
+    let h = height;
     const container = new Container();
     container.eventMode = 'static';
     container.cursor = 'pointer';
@@ -284,8 +286,8 @@ export function buildSimpleButton({
     const bg = new Graphics();
     const draw = (hover = false) => {
         bg.clear();
-        const cut = Math.max(4, Math.floor(Math.min(width, height) * 0.22));
-        const pts = _angledPoints(0, 0, width, height, cut);
+        const cut = Math.max(4, Math.floor(Math.min(w, h) * 0.22));
+        const pts = _angledPoints(0, 0, w, h, cut);
         bg.poly(pts).fill({ color: hover ? 0x1e293b : 0x0f172a, alpha: 0.85 });
         bg.poly(pts).stroke({ color: accentColor, width: 1.2, alpha: hover ? 0.8 : 0.5 });
     };
@@ -296,24 +298,34 @@ export function buildSimpleButton({
         text,
         style: new TextStyle({
             fontFamily: 'Inter, "Segoe UI", sans-serif',
-            fontSize: Math.max(9, Math.floor(height * 0.36)),
+            fontSize: Math.max(9, Math.floor(h * 0.36)),
             fontWeight: '700',
             letterSpacing: 1.5,
             fill: textColor,
         }),
     });
     label.anchor.set(0.5);
-    label.x = width / 2;
-    label.y = height / 2;
+    label.x = w / 2;
+    label.y = h / 2;
     container.addChild(label);
 
     container.on('pointerover', () => draw(true));
     container.on('pointerout', () => draw(false));
     container.on('pointertap', () => onTap?.());
-    const self = { container, bg, label, width, height };
+    const self = { container, bg, label, width: w, height: h };
     self.setAccent = (newAccent) => {
         accent = newAccent;
         accentColor = _resolveAccentColor(accent);
+        draw(false);
+    };
+    self.resize = (newW, newH = h) => {
+        w = newW;
+        h = newH;
+        self.width = w;
+        self.height = h;
+        label.x = w / 2;
+        label.y = h / 2;
+        label.style.fontSize = Math.max(9, Math.floor(h * 0.36));
         draw(false);
     };
     return self;

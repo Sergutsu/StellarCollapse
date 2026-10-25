@@ -2611,33 +2611,38 @@ export class HubScene {
         // Dispatcher badge sits just under the brand, left-aligned.
         topBar.dispatcherBadge.position.set(starX + 22, h / 2 + topBar.brand.height / 2 - 2);
 
-        // Help + reset sit at the far right edge (P10: help replaced the
-        // dead settings gear).
-        topBar.help.position.set(w - 30, h / 2);
-        topBar.reset.position.set(w - 100, h / 2);
-
-        // Resource chips flex between the dispatcher badge and the controls.
-        // The REP chip is wider because it carries the rank title. On
-        // medium/compact the badge drops out and chips shrink so nothing
-        // collides with the brand or the help/reset controls.
         const mode = hubViewportMode(w);
         topBar.dispatcherBadge.visible = mode === 'wide';
         topBar.brand.scale.set(mode === 'wide' ? 1 : mode === 'medium' ? 0.85 : 0.68);
-        const chipGap = mode === 'wide' ? 14 : 8;
-        const chipW = mode === 'wide' ? 88 : mode === 'medium' ? 72 : 58;
-        const repW = mode === 'wide' ? 132 : mode === 'medium' ? 104 : 82;
+
+        // Help + reset sit at the far right edge
+        const compact = mode === 'compact';
+        topBar.help.position.set(compact ? w - 20 : w - 30, h / 2);
+        topBar.reset.position.set(compact ? w - 68 : w - 100, h / 2);
+
+        const brandW = (topBar.brand.width || 80) * (mode === 'wide' ? 1 : mode === 'medium' ? 0.85 : 0.68);
+        const brandRight = starX + 22 + brandW;
+        const controlsLeft = compact ? w - 85 : w - 145;
+        const availForChips = Math.max(60, controlsLeft - brandRight - 12);
+
+        const chipGap = mode === 'wide' ? 14 : mode === 'medium' ? 8 : 6;
+        const chipW = mode === 'wide' ? 88 : mode === 'medium' ? 72 : 54;
+        const repW = mode === 'wide' ? 132 : mode === 'medium' ? 104 : 76;
         const widths = topBar.chips.map((chip) => (chip.wide ? repW : chipW));
-        const stripW = widths.reduce((sum, cw) => sum + cw, 0) + (widths.length - 1) * chipGap;
-        const stripRight = w - 150;
-        const stripLeft = stripRight - stripW;
+        const rawStripW = widths.reduce((sum, cw) => sum + cw, 0) + (widths.length - 1) * chipGap;
+        const chipScale = Math.min(1, Math.max(0.62, availForChips / rawStripW));
+        const stripW = rawStripW * chipScale;
+        const stripLeft = Math.max(brandRight + 8, controlsLeft - stripW);
+
         let cursor = stripLeft;
         topBar.chips.forEach((chip, i) => {
             const cw = widths[i];
-            chip.container.position.set(cursor, h / 2 - 18);
+            chip.container.scale.set(chipScale);
+            chip.container.position.set(cursor, h / 2 - 18 * chipScale);
             redrawTechChip(chip.frame, cw, 36, { accent: chip.color });
             chip.labelText.position.set(10, 10);
             chip.valueText.position.set(10, 22);
-            cursor += cw + chipGap;
+            cursor += (cw + chipGap) * chipScale;
         });
     }
 

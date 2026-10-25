@@ -32,15 +32,19 @@ export function computeHubRects({ shellW = 1200, bandH = 600, activeTabId = '' }
   }
   if (mode === 'medium') {
     const sideW = Math.floor((shellW - GAP) / 2);
-    return { mode, contentH: 560 + GAP + 500,
-      center: { x: 0, y: 0, w: shellW, h: 560 },
-      left:   { x: 0, y: 560 + GAP, w: sideW, h: 500 },
-      right:  { x: sideW + GAP, y: 560 + GAP, w: shellW - sideW - GAP, h: 500 } };
+    const centerH = activeTabId === 'core' ? 660 : 560;
+    const sideH = activeTabId === 'core' ? 560 : 500;
+    return { mode, contentH: centerH + GAP + sideH,
+      center: { x: 0, y: 0, w: shellW, h: centerH },
+      left:   { x: 0, y: centerH + GAP, w: sideW, h: sideH },
+      right:  { x: sideW + GAP, y: centerH + GAP, w: shellW - sideW - GAP, h: sideH } };
   }
-  return { mode, contentH: 560 + GAP + 540 + GAP + 540,
-    center: { x: 0, y: 0, w: shellW, h: 560 },
-    left:   { x: 0, y: 560 + GAP, w: shellW, h: 540 },
-    right:  { x: 0, y: 560 + GAP + 540 + GAP, w: shellW, h: 540 } };
+  const centerH = activeTabId === 'core' ? 660 : 560;
+  const sideH = activeTabId === 'core' ? 560 : 540;
+  return { mode, contentH: centerH + GAP + sideH + GAP + sideH,
+    center: { x: 0, y: 0, w: shellW, h: centerH },
+    left:   { x: 0, y: centerH + GAP, w: shellW, h: sideH },
+    right:  { x: 0, y: centerH + GAP + sideH + GAP, w: shellW, h: sideH } };
 }
 
 /** True if two rects intersect (shared edges don't count). */

@@ -24,5 +24,9 @@ describe('responsive hub layout', () => {
   it('core gets a taller center on short wide screens instead of squashing', () => {
     const r = computeHubRects({ shellW: 1280, bandH: 420, activeTabId: 'core' });
     assert.ok(r.center.h >= 660 && r.contentH >= 660);
+    const rMed = computeHubRects({ shellW: 900, bandH: 420, activeTabId: 'core' });
+    assert.ok(rMed.center.h >= 660 && rMed.contentH > 660);
+    const rCompact = computeHubRects({ shellW: 390, bandH: 420, activeTabId: 'core' });
+    assert.ok(rCompact.center.h >= 660 && rCompact.contentH > 1000);
   });
 });

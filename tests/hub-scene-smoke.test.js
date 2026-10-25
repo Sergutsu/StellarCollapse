@@ -487,6 +487,32 @@ describe('hub scene smoke (executed against a headless Pixi)', { skip: !HOOK_AVA
         assert.equal(results.visible, false);
     });
 
+    it('STELLAR CORE: lays out responsively across breakpoints without text or button overlap', () => {
+        const { hub, app, uiRoot } = bootHub();
+        hub._setActiveTab('core');
+        const core = hub._nodes.tabs.core;
+        assert.ok(core.visible, 'core is visible');
+
+        for (const [w, h] of VIEWPORTS) {
+            app.screen.width = w;
+            app.screen.height = h;
+            hub.layout({ width: w, height: h });
+            const bad = nonFiniteGeometry(uiRoot);
+            assert.deepEqual(bad, [], `finite geometry on core tab at ${w}x${h}`);
+
+            // Stardust label must not wrap into multiple lines across the star
+            assert.equal(core._nodes.stardust.style.wordWrap, false);
+
+            // Generator sub text and button must not overlap in right panel
+            core._nodes.genRows.forEach((row, i) => {
+                if (row.btn.container.position.x === 0) {
+                    assert.ok(row.btn.container.position.y > row.sub.position.y + 12,
+                        `row ${i} button below sub text at ${w}x${h}`);
+                }
+            });
+        }
+    });
+
     it('tears down without leaving a scene graph behind', () => {
         const { hub, uiRoot } = bootHub();
         hub._setActiveTab('market');
