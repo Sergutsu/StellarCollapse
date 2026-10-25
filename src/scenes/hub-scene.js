@@ -214,7 +214,7 @@ export class HubScene {
         this._offlineSummary = null;
         this._welcomeBanner = null;
         this._lastBoardMetaRefresh = 0;
-        this._idleMissions = [];
+        this._localFallbackJobs = [];
         this._idleMissionSeq = 1;
         // MANUAL is the default dispatch mode: pressing DISPATCH immediately
         // launches the selected mission's playable minigame. IDLE is opt-in.
@@ -254,8 +254,19 @@ export class HubScene {
     }
 
     // ----------------------------------------------------------------
-    // Scene manager contract
+    // Scene manager contract & missions access
     // ----------------------------------------------------------------
+
+    get _idleMissions() {
+        if (!this.meta?.activeMissionsSnapshot) return this._localFallbackJobs || [];
+        return this.meta.activeMissionsSnapshot().filter((j) => j.dispatchMode === 'idle');
+    }
+
+    set _idleMissions(val) {
+        if (!this.meta) {
+            this._localFallbackJobs = Array.isArray(val) ? val : [];
+        }
+    }
 
     get visible() {
         return !!(this._nodes && this._nodes.root.visible);
@@ -1964,11 +1975,12 @@ export class HubScene {
             };
 
             // P4: persist via MetaState (auto-saves + emits change)
-            this.meta?.addActiveMission(job);
-            // Local cache will be refreshed from meta in the change handler + explicit refresh below
-            this._idleMissions.push(job);
-            this.meta?.setShipStatus(ship.id, 'On Mission');
-            this.meta?.setCrewStatus(crew.id, 'On Mission');
+            if (this.meta) {
+                this.meta.addActiveMission(job);
+            } else {
+                if (!this._localFallbackJobs) this._localFallbackJobs = [];
+                this._localFallbackJobs.push(job);
+            }
         } else {
             // Manual: the same job shape via the shared builder (P10), so
             // quick-ACCEPT and planner DISPATCH settle identically.
@@ -1987,14 +1999,11 @@ export class HubScene {
     // job row so they are immediately available for the next dispatch.
     completeManualMission(missionId) {
         if (!missionId) return;
-        const idx = this._idleMissions.findIndex(
-            (j) => j.missionId === missionId && j.dispatchMode === 'manual' && !j.claimed,
-        );
-        if (idx === -1) return;
-        const job = this._idleMissions[idx];
-        this._idleMissions.splice(idx, 1);
-        if (job.shipId) this.meta?.setShipStatus(job.shipId, 'Standby');
-        if (job.crewId) this.meta?.setCrewStatus(job.crewId, 'Available');
+        if (this.meta) {
+            this.meta.completeManualMission(missionId);
+        } else if (this._localFallbackJobs) {
+            this._localFallbackJobs = this._localFallbackJobs.filter((j) => j.missionId !== missionId);
+        }
         this._refreshActiveIdleMissions();
         this._refreshMissionPlanner();
         this._refreshFleetCrewPanel();
@@ -2265,62 +2274,8 @@ export class HubScene {
     }
 
     _reconcileIdleMissionState() {
-        if (!this.meta) return;
-
-        // P4: primary source of truth is now the persisted list in MetaState.
-        // Hydrate local working copy from meta (defensive deep-ish copy).
-        const persisted = this.meta.activeMissionsSnapshot ? this.meta.activeMissionsSnapshot() : [];
-        // Merge any local-only jobs that haven't been persisted yet (race on first dispatch)
-        const localOnly = this._idleMissions.filter((j) => !persisted.some((p) => p.id === j.id));
-        this._idleMissions = [...persisted, ...localOnly];
-
-        const fleet = this.meta.fleetSnapshot();
-        const crew = this.meta.crewSnapshot();
-        const fleetById = new Map(fleet.map((ship) => [ship.id, ship]));
-        const crewById = new Map(crew.map((member) => [member.id, member]));
-        const validJobs = [];
-        const usedShips = new Set();
-        const usedCrew = new Set();
-
-        for (const job of this._idleMissions) {
-            if (!fleetById.has(job.shipId) || !crewById.has(job.crewId)) {
-                continue;
-            }
-            if (usedShips.has(job.shipId) || usedCrew.has(job.crewId)) {
-                continue;
-            }
-            validJobs.push(job);
-            usedShips.add(job.shipId);
-            usedCrew.add(job.crewId);
-        }
-        this._idleMissions = validJobs;
-
-        // Only fabricate recovery placeholders for truly orphaned "On Mission" assets
-        // (defensive; real jobs should come from persisted activeMissions).
-        const orphanShips = fleet.filter((ship) => ship.status === 'On Mission' && !usedShips.has(ship.id));
-        const orphanCrew = crew.filter((member) => member.status === 'On Mission' && !usedCrew.has(member.id));
-        const pairCount = Math.min(orphanShips.length, orphanCrew.length);
-        for (let i = 0; i < pairCount; i += 1) {
-            const ship = orphanShips[i];
-            const member = orphanCrew[i];
-            const rec = makeRecoveryJob(ship, member, this._idleMissionSeq++);
-            this._idleMissions.push(rec);
-            usedShips.add(ship.id);
-            usedCrew.add(member.id);
-            // Also persist the recovery so it survives the next reload
-            this.meta.addActiveMission?.(rec);
-        }
-
-        for (const ship of fleet) {
-            const onMission = usedShips.has(ship.id);
-            const next = onMission ? 'On Mission' : 'Standby';
-            if (ship.status !== next) this.meta.setShipStatus(ship.id, next);
-        }
-        for (const member of crew) {
-            const onMission = usedCrew.has(member.id);
-            const next = onMission ? 'On Mission' : 'Available';
-            if (member.status !== next) this.meta.setCrewStatus(member.id, next);
-        }
+        // MetaState is the single authoritative source of truth for active missions,
+        // fleet status, and crew status. No local reconciliation or recovery jobs needed.
     }
 
     _buildActiveIdleRow(job, w, remainingSec, done) {
@@ -2380,22 +2335,19 @@ export class HubScene {
         const settlement = this._settleJob(job, { aborted: true });
         if (this.meta) {
             this.meta.settleActiveMission(jobId, settlement);
-            if (job.shipId) this.meta.setShipStatus(job.shipId, 'Standby');
-            if (job.crewId) this.meta.setCrewStatus(job.crewId, 'Available');
+        } else if (this._localFallbackJobs) {
+            this._localFallbackJobs = this._localFallbackJobs.filter((m) => m.id !== jobId);
         }
         this.pushNews(`${job.title} returned early \u2014 ${settlement.credits.toLocaleString('en-US')} CR salvaged.`);
 
-        // Keep local cache in sync (meta change handler will also refresh)
-        this._idleMissions = this._idleMissions.filter((m) => m.id !== jobId);
         this._refreshActiveIdleMissions();
         this._refreshMissionPlanner();
         this._refreshFleetCrewPanel();
     }
 
     _claimIdleMission(jobId) {
-        const idx = this._idleMissions.findIndex((m) => m.id === jobId);
-        if (idx < 0) return null;
-        const job = this._idleMissions[idx];
+        const job = this._idleMissions.find((m) => m.id === jobId);
+        if (!job) return null;
 
         // P8: one settlement covers credits, ores, rep, crew XP, hull wear
         // and any warp cell the fleet brought home. `applySettlement`
@@ -2404,12 +2356,11 @@ export class HubScene {
         const settlement = this._settleJob(job, { aborted: false });
         if (this.meta) {
             this.meta.settleActiveMission(jobId, settlement);
-            if (job.shipId) this.meta.setShipStatus(job.shipId, 'Standby');
-            if (job.crewId) this.meta.setCrewStatus(job.crewId, 'Available');
+        } else if (this._localFallbackJobs) {
+            this._localFallbackJobs = this._localFallbackJobs.filter((m) => m.id !== jobId);
         }
         this._announceSettlement(settlement);
 
-        this._idleMissions.splice(idx, 1);
         this._refreshActiveIdleMissions();
         this._refreshMissionPlanner();
         this._refreshFleetCrewPanel();
@@ -2486,7 +2437,8 @@ export class HubScene {
      */
     getPendingManualDispatch(missionId) {
         if (!missionId) return null;
-        return this._idleMissions.find(
+        const all = this.meta?.activeMissionsSnapshot ? this.meta.activeMissionsSnapshot() : (this._localFallbackJobs || []);
+        return all.find(
             (j) => j.missionId === missionId && j.dispatchMode === 'manual' && !j.claimed,
         ) || null;
     }
@@ -2561,9 +2513,12 @@ export class HubScene {
             endsAt: now + priced.etaSec * 1000,
             claimed: false,
         };
-        this._idleMissions.push(job);
-        if (ship) this.meta?.setShipStatus(ship.id, 'On Mission');
-        if (crew) this.meta?.setCrewStatus(crew.id, 'On Mission');
+        if (this.meta) {
+            this.meta.addActiveMission(job);
+        } else {
+            if (!this._localFallbackJobs) this._localFallbackJobs = [];
+            this._localFallbackJobs.push(job);
+        }
         return job;
     }
 

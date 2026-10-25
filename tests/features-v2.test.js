@@ -27,6 +27,88 @@ describe('features v2: mission recovery and asset freeing', () => {
     assert.equal(meta.fleetSnapshot().find(s => s.id === ship.id).status, 'Standby');
     assert.equal(meta.crewSnapshot().find(c => c.id === crew.id).status, 'Available');
   });
+
+  it('heals corrupted save with ghost recovery jobs and locked ships/crew on load', () => {
+    // Construct corrupted save matching the user screenshot
+    const corruptedSave = {
+      fleet: [
+        { id: 'ship-1', name: 'Nyx-I', className: 'Scout', hull: 100, status: 'On Mission' },
+        { id: 'ship-2', name: 'Aegis-Delta', className: 'Defense', hull: 95, status: 'On Mission' },
+        { id: 'ship-3', name: 'Prospector', className: 'Resource', hull: 93, status: 'On Mission' },
+        { id: 'ship-4', name: 'Gaia-Line', className: 'Terraform', hull: 97, status: 'On Mission' },
+        { id: 'ship-5', name: 'Mercury Arc', className: 'Trade', hull: 94, status: 'On Mission' },
+        { id: 'ship-built-1', name: 'Scout-01', className: 'Scout', hull: 100, status: 'Standby' },
+        { id: 'ship-built-2', name: 'Defender-02', className: 'Defense', hull: 100, status: 'Standby' },
+      ],
+      crew: [
+        { id: 'crew-1', name: 'V. Draeven', role: 'Captain', level: 4, status: 'On Mission' },
+        { id: 'crew-2', name: 'T. Halveri', role: 'Engineer', level: 3, status: 'On Mission' },
+        { id: 'crew-3', name: 'K. Saros', role: 'Navigator', level: 2, status: 'On Mission' },
+        { id: 'crew-4', name: 'L. Marrow', role: 'Tactician', level: 3, status: 'On Mission' },
+        { id: 'crew-5', name: 'I. Nadir', role: 'Quartermaster', level: 2, status: 'On Mission' },
+      ],
+      activeMissions: [
+        { id: 'dispatch-recovered-1', offerId: 'recovered-assignment', title: 'Recovered Idle Assignment', type: 'recovery', shipId: 'ship-5', crewId: 'crew-5', claimed: false },
+        { id: 'dispatch-recovered-2', offerId: 'recovered-assignment', title: 'Recovered Idle Assignment', type: 'recovery', shipId: 'ship-4', crewId: 'crew-4', claimed: false },
+        { id: 'dispatch-recovered-3', offerId: 'recovered-assignment', title: 'Recovered Idle Assignment', type: 'recovery', shipId: 'ship-3', crewId: 'crew-3', claimed: false },
+        { id: 'dispatch-recovered-4', offerId: 'recovered-assignment', title: 'Recovered Idle Assignment', type: 'recovery', shipId: 'ship-1', crewId: 'crew-2', claimed: false },
+        { id: 'dispatch-recovered-5', offerId: 'recovered-assignment', title: 'Recovered Idle Assignment', type: 'recovery', shipId: 'ship-2', crewId: 'crew-1', claimed: false },
+      ],
+    };
+
+    const healedMeta = new MetaState(corruptedSave);
+
+    // Ghost recovery jobs must be completely purged
+    assert.equal(healedMeta.activeMissionsSnapshot().length, 0, 'all ghost recovery jobs purged');
+
+    // All ships and crew must be free
+    const fleet = healedMeta.fleetSnapshot();
+    for (const ship of fleet) {
+      assert.equal(ship.status, 'Standby', `Ship ${ship.name} should be Standby, got ${ship.status}`);
+    }
+
+    const crew = healedMeta.crewSnapshot();
+    for (const member of crew) {
+      assert.equal(member.status, 'Available', `Crew ${member.name} should be Available, got ${member.status}`);
+    }
+  });
+
+  it('allows repeated dispatch, claim, and immediate re-dispatch without asset leaks', () => {
+    const meta = new MetaState();
+    const ship = meta.fleetSnapshot()[0];
+    const crew = meta.crewSnapshot()[0];
+
+    for (let cycle = 1; cycle <= 5; cycle++) {
+      // 1. Dispatch
+      const jobId = `job-cycle-${cycle}`;
+      meta.addActiveMission({
+        id: jobId,
+        title: `Mining Run ${cycle}`,
+        shipId: ship.id,
+        crewId: crew.id,
+        rewardCredits: 500,
+        startedAt: Date.now(),
+        etaSec: 10,
+        endsAt: Date.now() + 10000,
+      });
+
+      assert.equal(meta.fleetSnapshot().find(s => s.id === ship.id).status, 'On Mission');
+      assert.equal(meta.crewSnapshot().find(c => c.id === crew.id).status, 'On Mission');
+      assert.equal(meta.activeMissionsSnapshot().length, 1);
+
+      // 2. Claim / Settle
+      meta.settleActiveMission(jobId, {
+        shipId: ship.id,
+        crewId: crew.id,
+        credits: 500,
+        ores: { red: 2 },
+      });
+
+      assert.equal(meta.activeMissionsSnapshot().length, 0);
+      assert.equal(meta.fleetSnapshot().find(s => s.id === ship.id).status, 'Standby');
+      assert.equal(meta.crewSnapshot().find(c => c.id === crew.id).status, 'Available');
+    }
+  });
 });
 
 describe('features v2: stellar core surges and prestige bounty', () => {

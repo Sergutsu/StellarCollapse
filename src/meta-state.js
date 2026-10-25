@@ -167,6 +167,7 @@ export class MetaState {
     constructor(initial = null) {
         this._emitter = new Emitter();
         this._data = initial ? this._merge(starterProfile(), initial) : starterProfile();
+        this._syncAssetStatuses();
     }
 
     on(event, handler)  { return this._emitter.on(event, handler); }
@@ -191,8 +192,36 @@ export class MetaState {
         return this._data.ores[color] ?? 0;
     }
 
-    fleetSnapshot() { return this._data.fleet.map((s) => ({ ...s })); }
-    crewSnapshot()  { return this._data.crew.map((c)  => ({ ...c })); }
+    fleetSnapshot() {
+        const activeShipIds = new Set((this._data.activeMissions || []).map((m) => m.shipId).filter(Boolean));
+        return (this._data.fleet || []).map((s) => ({
+            ...s,
+            status: activeShipIds.has(s.id) || s.status === 'On Mission' ? 'On Mission' : 'Standby',
+        }));
+    }
+
+    crewSnapshot() {
+        const activeCrewIds = new Set((this._data.activeMissions || []).map((m) => m.crewId).filter(Boolean));
+        return (this._data.crew || []).map((c) => ({
+            ...c,
+            status: activeCrewIds.has(c.id) || c.status === 'On Mission' ? 'On Mission' : 'Available',
+        }));
+    }
+
+    _syncAssetStatuses() {
+        const activeShipIds = new Set((this._data.activeMissions || []).map((m) => m.shipId).filter(Boolean));
+        const activeCrewIds = new Set((this._data.activeMissions || []).map((m) => m.crewId).filter(Boolean));
+        if (Array.isArray(this._data.fleet)) {
+            for (const s of this._data.fleet) {
+                if (s) s.status = activeShipIds.has(s.id) ? 'On Mission' : 'Standby';
+            }
+        }
+        if (Array.isArray(this._data.crew)) {
+            for (const c of this._data.crew) {
+                if (c) c.status = activeCrewIds.has(c.id) ? 'On Mission' : 'Available';
+            }
+        }
+    }
 
     // ---- P8 meta reads ----------------------------------------------
     //
@@ -488,7 +517,8 @@ export class MetaState {
 
     addActiveMission(job = {}) {
         if (!job || !job.id || !job.shipId || !job.crewId) return;
-        if (this._data.activeMissions.some((j) => j.id === job.id)) return;
+        const current = this._data.activeMissions || [];
+        if (current.some((j) => j.id === job.id)) return;
 
         const normalized = {
             id: String(job.id),
@@ -513,10 +543,8 @@ export class MetaState {
             claimed: false,
         };
 
-        this._data.activeMissions = [...(this._data.activeMissions || []), normalized];
-        // Self-contained: the act of dispatching also marks the assets unavailable
-        this.setShipStatus(normalized.shipId, 'On Mission');
-        this.setCrewStatus(normalized.crewId, 'On Mission');
+        this._data.activeMissions = [...current, normalized];
+        this._syncAssetStatuses();
         this._touchLastTick();
         this._changed('active-mission-add', { id: normalized.id });
     }
@@ -527,12 +555,12 @@ export class MetaState {
         const job = this._data.activeMissions[idx];
 
         if (partialCredits > 0) {
-            this.addCredits(partialCredits);
+            this._rawAddCredits(partialCredits);
         }
-        this.setShipStatus(job.shipId, 'Standby');
-        this.setCrewStatus(job.crewId, 'Available');
-
-        this._data.activeMissions = this._data.activeMissions.filter((j) => j.id !== id);
+        this._data.activeMissions = (this._data.activeMissions || []).filter((j) => j.id !== id);
+        this._syncAssetStatuses();
+        if (job.shipId) this._rawSetShipStatus(job.shipId, 'Standby');
+        if (job.crewId) this._rawSetCrewStatus(job.crewId, 'Available');
         this._touchLastTick();
         this._changed('active-mission-abort', { id, partialCredits });
     }
@@ -543,9 +571,8 @@ export class MetaState {
         const job = this._data.activeMissions[idx];
 
         if (credits > 0) {
-            this.addCredits(credits);
+            this._rawAddCredits(credits);
         }
-        // Apply ores using the same safe pattern as applyMissionReward
         for (const color of ORE_IDS) {
             const n = ores[color];
             if (n) {
@@ -553,12 +580,26 @@ export class MetaState {
             }
         }
 
-        this.setShipStatus(job.shipId, 'Standby');
-        this.setCrewStatus(job.crewId, 'Available');
-
-        this._data.activeMissions = this._data.activeMissions.filter((j) => j.id !== id);
+        this._data.activeMissions = (this._data.activeMissions || []).filter((j) => j.id !== id);
+        this._syncAssetStatuses();
+        if (job.shipId) this._rawSetShipStatus(job.shipId, 'Standby');
+        if (job.crewId) this._rawSetCrewStatus(job.crewId, 'Available');
         this._touchLastTick();
         this._changed('active-mission-claim', { id, credits, ores });
+    }
+
+    completeManualMission(missionId) {
+        if (!missionId) return;
+        const jobs = this._data.activeMissions || [];
+        const matches = jobs.filter((j) => j.missionId === missionId || j.id === missionId);
+        this._data.activeMissions = jobs.filter((j) => j.missionId !== missionId && j.id !== missionId);
+        this._syncAssetStatuses();
+        for (const m of matches) {
+            if (m.shipId) this._rawSetShipStatus(m.shipId, 'Standby');
+            if (m.crewId) this._rawSetCrewStatus(m.crewId, 'Available');
+        }
+        this._touchLastTick();
+        this._changed('manual-mission-complete', { missionId });
     }
 
     // ---- Research (tech tree) - multiple concurrent projects ------------
@@ -856,6 +897,15 @@ export class MetaState {
      */
     applySettlement(settlement = {}) {
         const detail = this._rawApplySettlement(settlement);
+        if (settlement?.missionId) {
+            const jobs = this._data.activeMissions || [];
+            this._data.activeMissions = jobs.filter((j) => j.missionId !== settlement.missionId && j.id !== settlement.missionId);
+        }
+        const shipId = settlement?.shipId;
+        const crewId = settlement?.crewId;
+        this._syncAssetStatuses();
+        if (shipId) this._rawSetShipStatus(shipId, 'Standby');
+        if (crewId) this._rawSetCrewStatus(crewId, 'Available');
         this._touchLastTick();
         this._changed('settlement', detail);
         return this.getRepInfo();
@@ -871,19 +921,20 @@ export class MetaState {
      */
     settleActiveMission(jobId, settlement = {}) {
         const jobs = this._data.activeMissions || [];
-        const idx = jobs.findIndex((j) => j.id === jobId);
+        const idx = jobs.findIndex((j) => j.id === jobId || (settlement?.missionId && j.missionId === settlement.missionId));
         const job = idx >= 0 ? jobs[idx] : null;
 
         const detail = this._rawApplySettlement(settlement);
         const shipId = job?.shipId || settlement?.shipId;
         const crewId = job?.crewId || settlement?.crewId;
+
+        this._data.activeMissions = jobs.filter((j) => j.id !== jobId && (!job || j.id !== job.id));
+        this._syncAssetStatuses();
         if (shipId) this._rawSetShipStatus(shipId, 'Standby');
         if (crewId) this._rawSetCrewStatus(crewId, 'Available');
-        if (jobId) {
-            this._data.activeMissions = jobs.filter((j) => j.id !== jobId);
-        }
+
         this._touchLastTick();
-        this._changed('settlement', { ...detail, jobId: jobId || null });
+        this._changed('settlement', { ...detail, jobId: jobId || null, shipId, crewId });
         return this.getRepInfo();
     }
 
@@ -1166,16 +1217,33 @@ export class MetaState {
             base.completedMissionIds = incoming.completedMissionIds.filter((id) => typeof id === 'string');
         }
         if (Array.isArray(incoming.activeMissions)) {
-            // Accept any job-like objects; Hub + idle-clock treat unknown fields defensively.
+            const seenShips = new Set();
+            const seenCrew = new Set();
             base.activeMissions = incoming.activeMissions
-                .filter((j) => j && typeof j.id === 'string' && j.shipId && j.crewId)
+                .filter((j) => {
+                    if (!j || typeof j.id !== 'string') return false;
+                    // Purge ghost/recovery jobs from broken old saves
+                    if (j.type === 'recovery' || j.offerId === 'recovered-assignment' || String(j.id).startsWith('dispatch-recovered-')) {
+                        return false;
+                    }
+                    // Must have valid ship and crew present in fleet and crew
+                    if (!j.shipId || !base.fleet.some((s) => s.id === j.shipId)) return false;
+                    if (!j.crewId || !base.crew.some((c) => c.id === j.crewId)) return false;
+                    // Discard stale manual missions from prior sessions
+                    if (j.dispatchMode === 'manual') return false;
+                    // Deduplicate
+                    if (seenShips.has(j.shipId) || seenCrew.has(j.crewId)) return false;
+                    seenShips.add(j.shipId);
+                    seenCrew.add(j.crewId);
+                    return true;
+                })
                 .map((j) => ({
                     id: String(j.id),
                     offerId: j.offerId || j.missionId || null,
                     missionId: j.missionId || null,
                     title: String(j.title || 'Idle Assignment'),
                     type: j.type || 'Mining',
-                    dispatchMode: j.dispatchMode === 'manual' ? 'manual' : 'idle',
+                    dispatchMode: 'idle',
                     risk: Number.isFinite(j.risk) ? j.risk : 1,
                     rewardCredits: Math.max(0, Math.floor(j.rewardCredits || 0)),
                     rewardOres: {
@@ -1191,6 +1259,16 @@ export class MetaState {
                     endsAt: Number.isFinite(j.endsAt) ? j.endsAt : Date.now() + 60000,
                     claimed: !!j.claimed,
                 }));
+        }
+
+        // Authoritative reconciliation: strictly sync ship and crew statuses to valid activeMissions
+        const activeShipIds = new Set(base.activeMissions.map((m) => m.shipId));
+        const activeCrewIds = new Set(base.activeMissions.map((m) => m.crewId));
+        for (const s of base.fleet) {
+            s.status = activeShipIds.has(s.id) ? 'On Mission' : 'Standby';
+        }
+        for (const c of base.crew) {
+            c.status = activeCrewIds.has(c.id) ? 'On Mission' : 'Available';
         }
         if (Number.isFinite(incoming.lastTickAt)) {
             base.lastTickAt = incoming.lastTickAt;
