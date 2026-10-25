@@ -77,6 +77,7 @@ import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
 import { CrewTab } from './tabs/crew-tab.js';
 import { MarketTab } from './tabs/market-tab.js';
 import { StellarCoreTab } from './tabs/core-tab.js';
+import { computeHubRects, hubNavHeight, hubViewportMode } from '../responsive.js';
 
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
@@ -119,13 +120,13 @@ const HUB_NEWS_POOL = Object.freeze([
 // Hub bottom-nav tabs. Only MISSIONS is active; the rest render a
 // locked stub panel. `lockRep` is a placeholder gate until rep lands.
 const HUB_TABS = Object.freeze([
+    { id: 'core',       label: 'STELLAR CORE',  locked: false, colorKey: 'research' },
     { id: 'star-map',   label: 'STAR MAP',      locked: false, colorKey: 'starMap' },
     { id: 'missions',   label: 'MISSIONS',      locked: false, colorKey: 'missions' },
     { id: 'build',      label: 'SHIPYARD',      locked: false, colorKey: 'build' },
     { id: 'research',   label: 'RESEARCH',      locked: false, colorKey: 'research' },
     { id: 'crew',       label: 'CREW',          locked: false, colorKey: 'crew' },
     { id: 'market',     label: 'MARKET',        locked: false, colorKey: 'market' },
-    { id: 'core',       label: 'STELLAR CORE',  locked: false, colorKey: 'research' },
 ]);
 
 // Resource strip metadata. Numeric values come from MetaState at
@@ -392,6 +393,7 @@ export class HubScene {
         const sidePanel = this._buildSidePanel();               // shown when a tab owns it
         const centerPanel = this._buildCenter();
         const rightCol = this._buildFleetCrew();
+        const rightPanel = this._buildRightPanel();             // contextual right bay
         const bottomNav = this._buildBottomNav();
         const modal = this._buildMissionBoardModal();
 
@@ -405,7 +407,7 @@ export class HubScene {
         const researchTab = new ResearchTab({ parent: centerPanel.panel, meta: this.meta });
         const crewTab = new CrewTab({ parent: centerPanel.panel, meta: this.meta });
         const marketTab = new MarketTab({ parent: centerPanel.panel, meta: this.meta, side: sidePanel });
-        const coreTab = new StellarCoreTab({ parent: centerPanel.panel, meta: this.meta });
+        const coreTab = new StellarCoreTab({ parent: centerPanel.panel, meta: this.meta, side: sidePanel, right: rightPanel });
         const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab, crew: crewTab, market: marketTab, core: coreTab };
 
         root.addChild(topBar.container);
@@ -415,8 +417,41 @@ export class HubScene {
         root.addChild(sidePanel.container);        // tab-owned left panel (STAR MAP / BUILD / MARKET)
         root.addChild(centerPanel.container);
         root.addChild(rightCol.container);
+        root.addChild(rightPanel.container);
         root.addChild(bottomNav.container);
+        // Responsive scroll band: masks the column area so stacked panels
+        // scroll inside it instead of overlapping the nav / each other.
+        const scrollMask = new Graphics();
+        root.addChild(scrollMask);
+        const scrollBar = new Graphics();
+        scrollBar.eventMode = 'static'; scrollBar.cursor = 'pointer';
+        root.addChild(scrollBar);
+        const mkScrollBtn = (label, dy) => {
+            const b = new Text({ text: label, style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: '800', fill: 0x67e8f9 }) });
+            b.eventMode = 'static'; b.cursor = 'pointer'; b.visible = false;
+            b.on('pointertap', () => this._scrollBy(dy));
+            root.addChild(b); return b;
+        };
+        const scrollUp = mkScrollBtn('▲', -320);
+        const scrollDown = mkScrollBtn('▼', 320);
         root.addChild(modal.container);
+        for (const col of [leftCol, researchProjects, sidePanel, centerPanel, rightCol, rightPanel]) col.container.mask = scrollMask;
+        this._scrollY = 0; this._scrollBand = null;
+        root.on('wheel', (e) => {
+            if (this._nodes?.modal?.container.visible) return;
+            if (this._nodes?.activeTabId === 'star-map') return; // star map owns wheel-zoom
+            const dy = Number.isFinite(e?.deltaY) ? e.deltaY : 0;
+            if (dy) this._scrollBy(dy);
+        });
+        scrollBar.on('pointerdown', (e) => { this._scrollDrag = { y: e?.global?.y ?? 0, scrollY: this._scrollY || 0 }; });
+        scrollBar.on('pointermove', (e) => {
+            if (!this._scrollDrag || !this._scrollBand) return;
+            const band = this._scrollBand; const max = Math.max(0, band.contentH - band.bandH); if (!max) return;
+            this._scrollY = Math.max(0, Math.min(max, this._scrollDrag.scrollY + ((e?.global?.y ?? 0) - this._scrollDrag.y) * (band.contentH / Math.max(1, band.bandH))));
+            if (this.app?.screen) this._layoutShell(this.app.screen.width, this.app.screen.height);
+        });
+        scrollBar.on('pointerup', () => { this._scrollDrag = null; });
+        scrollBar.on('pointerupoutside', () => { this._scrollDrag = null; });
 
         this._nodes = {
             root,
@@ -427,7 +462,12 @@ export class HubScene {
             sidePanel,        // tab-owned alternative left column content
             centerPanel,
             rightCol,
+            rightPanel,
             bottomNav,
+            scrollMask,
+            scrollBar,
+            scrollUp,
+            scrollDown,
             modal,
             tabs,
             activeTabId: 'missions',
@@ -783,6 +823,58 @@ export class HubScene {
             // hidden tab's stale content is still mounted.
             ownerId: null,
         };
+    }
+
+    /**
+     * Right-hand contextual bay (mirror of the left side panel). Whoever
+     * owns it depends on the tab: STELLAR CORE parks its GENERATORS there,
+     * MISSIONS keeps the old FLEET & CREW column (a separate node), and
+     * every other tab gets a hub-computed relevance summary (contextBox).
+     */
+    _buildRightPanel() {
+        const bay = this._buildSidePanel();
+        bay.panelAccent = 'magenta';
+        bay.rightContext = null;
+        const contextBox = new Container();
+        const body = new Text({
+            text: '',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, lineHeight: 20, fill: colors.text.secondary, wordWrap: true, wordWrapWidth: HUB_COL_W - 48 }),
+        });
+        contextBox.addChild(body);
+        contextBox.visible = false;
+        bay.list.addChild(contextBox);
+        bay.contextBox = contextBox;
+        bay.contextBody = body;
+        return bay;
+    }
+
+    /** Relevance summary shown in the right bay on tabs that don't own it. */
+    _refreshRightContext(tabId) {
+        const bay = this._nodes?.rightPanel;
+        if (!bay?.contextBody) return;
+        const m = this.meta;
+        const lines = [];
+        if (m) {
+            const effects = m.getEffects?.() || {};
+            if (tabId === 'star-map') {
+                lines.push('🌀 WARP & SECTORS', `Warp cells held: ${m.getHubResource('warp')}`, `Sectors charted: ${(m.discoveredSectorIds?.() || []).length}`, '', 'Charting a sector pays a permanent station bonus — and multiplies STELLAR CORE production (+10% each).');
+            } else if (tabId === 'build') {
+                const fleet = m.fleetSnapshot();
+                lines.push('🚀 FLEET STATUS', ...fleet.map(s => `${s.name} — hull ${s.hull}% · ${s.status}`), '', 'Repair wear here before dispatching. Idle CORE ore feeds the MARKET refinery for minerals.');
+            } else if (tabId === 'research') {
+                lines.push('🔬 RESEARCH DESK', `Completed: ${(m.getResearchState?.().completed || []).length} nodes`, `Minerals: ${m.getHubResource('minerals')}`, '', 'Every completed node also boosts STELLAR CORE production (+5%). Active projects ride in the left bay.');
+            } else if (tabId === 'crew') {
+                const crew = m.crewSnapshot();
+                lines.push('🧑‍🚀 CREW DESK', ...crew.map(c => `${c.name} — ${c.role} Lv ${c.level} · ${c.status}`), '', 'Crew fly dispatches from MISSIONS; their levels raise contract pay.');
+            } else if (tabId === 'market') {
+                const ores = m.oreCounts();
+                lines.push('💱 YOUR HOLD', ...Object.entries(ores).map(([k, v]) => `${k}: ${v}`), `Minerals: ${m.getHubResource('minerals')} · Credits: ${m.credits}`, '', 'STELLAR CORE generators keep this hold filling — sell high, refine the rest.');
+            } else {
+                lines.push('⭐ STATION', `Credits: ${m.credits}`, `Minerals: ${m.getHubResource('minerals')}`, `Warp: ${m.getHubResource('warp')}`);
+            }
+        }
+        bay.contextBody.text = lines.join('\n');
+        bay.header.text = 'CONTEXT';
     }
 
     _buildCenter() {
@@ -1555,6 +1647,44 @@ export class HubScene {
                 n.sidePanel.ownerId = null;
             }
         }
+
+        // Right column is contextual too — FLEET & CREW is no longer a
+        // permanent fixture. MISSIONS (dispatching) keeps it; a tab that
+        // declares usesRightPanel (STELLAR CORE generators) owns the right
+        // bay; every other tab gets the relevance summary.
+        if (n.rightCol && n.rightPanel) {
+            const showFleetRight = tabId === 'missions';
+            const showTabRight = !showFleetRight && !!sideScene?.usesRightPanel;
+            n.rightCol.container.visible = showFleetRight;
+            n.rightPanel.container.visible = showTabRight || !showFleetRight;
+            if (showTabRight) {
+                if (n.rightPanel.ownerId !== tabId) {
+                    n.rightPanel.list.children.forEach((child) => { child.visible = false; });
+                }
+                n.rightPanel.ownerId = tabId;
+                n.rightPanel.header.text = sideScene.rightPanelTitle || 'PANEL';
+                this._layoutRightPanel();
+            } else if (!showFleetRight) {
+                if (n.rightPanel.ownerId !== 'context') {
+                    n.rightPanel.list.children.forEach((child) => { child.visible = false; });
+                    n.rightPanel.ownerId = 'context';
+                }
+                if (n.rightPanel.contextBox) n.rightPanel.contextBox.visible = true;
+                this._refreshRightContext(tabId);
+            } else {
+                n.rightPanel.ownerId = null;
+            }
+        }
+    }
+
+    /** Mirror of _layoutSidePanel for the right bay. */
+    _layoutRightPanel() {
+        const n = this._nodes;
+        const bay = n?.rightPanel;
+        if (!bay || !bay.ownerId || bay.ownerId === 'context') return;
+        const scene = n.tabs[bay.ownerId];
+        if (!scene || typeof scene.layoutRight !== 'function') return;
+        scene.layoutRight({ width: bay._w || HUB_COL_W, height: bay._h || 420 });
     }
 
     /**
@@ -2388,26 +2518,32 @@ export class HubScene {
     // Layout (run on every viewport change)
     // ----------------------------------------------------------------
 
+    _scrollBy(dy) {
+        const band = this._scrollBand; if (!band) return;
+        const max = Math.max(0, band.contentH - band.bandH); if (!max) return;
+        const next = Math.max(0, Math.min(max, (this._scrollY || 0) + dy));
+        if (next === this._scrollY) return;
+        this._scrollY = next;
+        if (this.app?.screen) this._layoutShell(this.app.screen.width, this.app.screen.height);
+    }
+
     _layoutShell(w, h) {
         const n = this._nodes;
         if (!n) return;
         const safeW = (typeof w === 'number' && Number.isFinite(w) && w > 0) ? w : HUB_MIN_LAYOUT_W;
         const safeH = (typeof h === 'number' && Number.isFinite(h) && h > 0) ? h : HUB_MIN_LAYOUT_H;
-        // Keep the desktop-first hub shell intact and scale it down as a
-        // single surface when the viewport is narrower than the layout's
-        // minimum width/height. This avoids panel overlap on phones while
-        // preserving one authoritative set of hub coordinates.
-        const scale = Math.min(safeW / HUB_MIN_LAYOUT_W, safeH / HUB_MIN_LAYOUT_H, 1);
-        const vw = Math.max(HUB_MIN_LAYOUT_W, safeW / scale);
-        const vh = Math.max(HUB_MIN_LAYOUT_H, safeH / scale);
-        n.root.scale.set(scale);
-        n.root.position.set(
-            Math.round((safeW - (vw * scale)) / 2),
-            Math.round((safeH - (vh * scale)) / 2),
-        );
+        // Responsive breakpoints (src/responsive.js): no more uniform
+        // shrink of a desktop surface. Panels keep readable size, stack
+        // below the center on medium/compact, and the column band scrolls
+        // (mask + wheel + scrollbar) when content is taller than it.
+        const vw = safeW, vh = safeH;
+        n.root.scale.set(1);
+        n.root.position.set(0, 0);
 
         const shellX = HUB_SURFACE_INSET;
-        const shellW = Math.max(HUB_MIN_LAYOUT_W - HUB_SURFACE_INSET * 2, vw - HUB_SURFACE_INSET * 2);
+        const shellW = Math.max(300, vw - HUB_SURFACE_INSET * 2);
+        const navH = hubNavHeight(vw);
+        const mode = hubViewportMode(vw);
 
         // --- Top bar: aligned to the same outer edges as middle panels.
         this._layoutTopBar(n.topBar, shellX, shellW, HUB_SURFACE_INSET_Y);
@@ -2415,26 +2551,49 @@ export class HubScene {
         // --- News ticker: aligned to shell width under top bar.
         this._layoutNewsTicker(n.news, shellX, shellW, HUB_SURFACE_INSET_Y + HUB_TOPBAR_H);
 
-        // --- Columns + center live in the middle band.
+        // --- Columns + center live in the scrollable middle band.
         const columnsY = HUB_SURFACE_INSET_Y + HUB_TOPBAR_H + HUB_NEWS_H + HUB_GUTTER;
-        const columnsH = Math.max(360, vh - columnsY - HUB_NAV_H - HUB_GUTTER - HUB_SURFACE_INSET_Y);
-        const leftX = shellX;
-        const rightX = Math.max(leftX + HUB_COL_W + HUB_GUTTER, shellX + shellW - HUB_COL_W);
-        // Center gets whatever is left; clamp to a minimum so cards
-        // don't overlap at narrow viewports.
-        const centerX = leftX + HUB_COL_W + HUB_GUTTER;
-        const centerW = Math.max(HUB_MIN_CENTER_W, rightX - centerX - HUB_GUTTER);
+        const bandH = Math.max(280, vh - columnsY - navH - HUB_GUTTER - HUB_SURFACE_INSET_Y);
+        const rects = computeHubRects({ shellW, bandH, activeTabId: n.activeTabId });
+        const maxScroll = Math.max(0, rects.contentH - bandH);
+        this._scrollY = Math.max(0, Math.min(maxScroll, this._scrollY || 0));
+        this._scrollBand = { bandY: columnsY, bandH, contentH: rects.contentH, mode };
+        const sy = this._scrollY;
+        const L = rects.left, C = rects.center, R = rects.right;
 
-        this._layoutColumnPanel(n.leftCol, leftX, columnsY, HUB_COL_W, columnsH);
-        this._layoutColumnPanel(n.researchProjects, leftX, columnsY, HUB_COL_W, columnsH);
-        this._layoutColumnPanel(n.sidePanel, leftX, columnsY, HUB_COL_W, columnsH);
+        this._layoutColumnPanel(n.leftCol, shellX + L.x, columnsY + L.y - sy, L.w, L.h);
+        this._layoutColumnPanel(n.researchProjects, shellX + L.x, columnsY + L.y - sy, L.w, L.h);
+        this._layoutColumnPanel(n.sidePanel, shellX + L.x, columnsY + L.y - sy, L.w, L.h);
         // The owning tab re-fits its own content after the frame is sized.
         this._layoutSidePanel();
-        this._layoutColumnPanel(n.rightCol, rightX, columnsY, HUB_COL_W, columnsH);
-        this._layoutCenterPanel(n.centerPanel, centerX, columnsY, centerW, columnsH);
+        this._layoutColumnPanel(n.rightCol, shellX + R.x, columnsY + R.y - sy, R.w, R.h);
+        this._layoutColumnPanel(n.rightPanel, shellX + R.x, columnsY + R.y - sy, R.w, R.h);
+        this._layoutRightPanel();
+        this._layoutCenterPanel(n.centerPanel, shellX + C.x, columnsY + C.y - sy, C.w, C.h);
+
+        // Mask + scrollbar for the band (hidden when nothing scrolls).
+        if (n.scrollMask) {
+            n.scrollMask.clear();
+            n.scrollMask.rect(shellX, columnsY, shellW, bandH).fill({ color: 0xffffff });
+        }
+        if (n.scrollBar) {
+            n.scrollBar.clear();
+            if (maxScroll > 0) {
+                const thumbH = Math.max(36, bandH * (bandH / rects.contentH));
+                const thumbY = columnsY + (bandH - thumbH) * (maxScroll ? sy / maxScroll : 0);
+                n.scrollBar.roundRect(shellX + shellW - 7, thumbY, 5, thumbH, 3).fill({ color: 0x22d3ee, alpha: 0.65 });
+                n.scrollBar.hitArea = new Rectangle(shellX + shellW - 14, columnsY, 14, bandH);
+            }
+        }
+        if (n.scrollUp && n.scrollDown) {
+            const showArrows = maxScroll > 0;
+            n.scrollUp.visible = showArrows; n.scrollDown.visible = showArrows;
+            n.scrollUp.position.set(shellX + shellW - 26, columnsY + 2);
+            n.scrollDown.position.set(shellX + shellW - 26, columnsY + bandH - 24);
+        }
 
         // --- Bottom nav: aligned to shell width, pinned to bottom.
-        this._layoutBottomNav(n.bottomNav, shellX, shellW, vh - HUB_SURFACE_INSET_Y - HUB_NAV_H, HUB_NAV_H);
+        this._layoutBottomNav(n.bottomNav, shellX, shellW, vh - HUB_SURFACE_INSET_Y - navH, navH);
 
         // --- Modal is centered on the viewport. Panel clamps to viewport.
         this._layoutModal(n.modal, vw, vh);
@@ -2458,10 +2617,15 @@ export class HubScene {
         topBar.reset.position.set(w - 100, h / 2);
 
         // Resource chips flex between the dispatcher badge and the controls.
-        // The REP chip is wider because it carries the rank title.
-        const chipGap = 14;
-        const chipW = 88;
-        const repW = 132;
+        // The REP chip is wider because it carries the rank title. On
+        // medium/compact the badge drops out and chips shrink so nothing
+        // collides with the brand or the help/reset controls.
+        const mode = hubViewportMode(w);
+        topBar.dispatcherBadge.visible = mode === 'wide';
+        topBar.brand.scale.set(mode === 'wide' ? 1 : mode === 'medium' ? 0.85 : 0.68);
+        const chipGap = mode === 'wide' ? 14 : 8;
+        const chipW = mode === 'wide' ? 88 : mode === 'medium' ? 72 : 58;
+        const repW = mode === 'wide' ? 132 : mode === 'medium' ? 104 : 82;
         const widths = topBar.chips.map((chip) => (chip.wide ? repW : chipW));
         const stripW = widths.reduce((sum, cw) => sum + cw, 0) + (widths.length - 1) * chipGap;
         const stripRight = w - 150;
@@ -2615,21 +2779,35 @@ export class HubScene {
         let cursorX = pad + Math.round((totalInner - contentW) / 2);
         if (!Number.isFinite(cursorX)) cursorX = pad;
 
+        // Compact: two rows (4 + 3) at near-full size instead of seven
+        // tabs crushed into one row with unreadable labels.
+        const compact = w < 720;
+        const perRow = compact ? 4 : nav.tabs.length;
+        const rows = compact ? 2 : 1;
+        const rowH = compact ? Math.floor((h - 12) / 2) : tabH;
         nav.tabs.forEach((t, i) => {
             const btnW = baseWidths[i];
             const rawH = t?.bg?.height;
             const btnH = (typeof rawH === 'number' && Number.isFinite(rawH) && rawH > 0) ? rawH : 40;
-            const slotW = btnW * groupScale;
-            const s = Math.min(slotW / btnW, tabH / btnH);
+            const row = compact ? Math.floor(i / perRow) : 0;
+            const colInRow = compact ? i % perRow : i;
+            const inThisRow = compact ? Math.min(perRow, nav.tabs.length - row * perRow) : nav.tabs.length;
+            const rowBaseW = baseWidths.slice(row * perRow, row * perRow + inThisRow).reduce((a, b) => a + b, 0) + gap * Math.max(0, inThisRow - 1);
+            const rowScale = rowBaseW > totalInner ? totalInner / rowBaseW : 1;
+            const slotW = btnW * (compact ? rowScale : groupScale);
+            const s = Math.min(slotW / btnW, rowH / btnH);
             t.container.scale.set(s);
             const scaledW = btnW * s;
             const scaledH = btnH * s;
-            t.container.position.set(cursorX + Math.round((slotW - scaledW) / 2), 6 + Math.round((tabH - scaledH) / 2));
+            const rowStartX = pad + Math.round((totalInner - rowBaseW * (compact ? rowScale : groupScale)) / 2);
+            const beforeInRow = baseWidths.slice(row * perRow, row * perRow + colInRow).reduce((a, b) => a + b * (compact ? rowScale : groupScale), 0);
+            const xInRow = rowStartX + beforeInRow + colInRow * gap * (compact ? rowScale : groupScale);
+            t.container.position.set(xInRow + Math.round((slotW - scaledW) / 2), 6 + row * rowH + Math.round((rowH - scaledH) / 2));
             t.container.__width = slotW;
-            t.container.__height = tabH;
+            t.container.__height = rowH;
             t.container.hitArea = new Rectangle(0, 0, btnW, btnH);
             t.sublabel.position.set(btnW / 2, btnH / 2 + 12);
-            cursorX += slotW + gap * groupScale;
+            void rows;
         });
         // Re-apply the active-tab visual (depends on __width / __height).
         // Uses the highlight-only variant so a user-dismissed modal is
@@ -2642,12 +2820,19 @@ export class HubScene {
         modal.dim.rect(0, 0, w, h).fill({ color: colors.bg.base, alpha: 0.75 });
         modal.dim.hitArea = new Rectangle(0, 0, w, h);
 
-        const panelW = Math.min(700, Math.max(520, w - 80));
-        const panelH = Math.min(540, Math.max(420, h - 120));
+        const panelW = Math.min(700, Math.max(300, w - 24));
+        const panelH = Math.min(540, Math.max(320, h - 24));
         const px = Math.round((w - panelW) / 2);
         const py = Math.round((h - panelH) / 2);
         modal.panel.position.set(px, py);
         redrawTechPanel(modal.panel, panelW, panelH, { accent: 'cyan' });
+        // Cards are built at 594x374: scale them into whatever panel the
+        // viewport allows instead of overflowing it on small screens.
+        if (modal.cardsContainer) {
+            const cs = Math.min(1, Math.max(0.35, (panelW - 36) / 594), Math.max(0.35, (panelH - 170) / 374));
+            modal.cardsContainer.scale.set(cs);
+            modal.cardsContainer.position.set(18, 70);
+        }
 
         // Reroll + close buttons pinned to the bottom of the panel.
         const rerollW = modal.rerollButton.width;

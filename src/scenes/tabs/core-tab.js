@@ -1,44 +1,47 @@
 // StellarCoreTab (ADR-0014) — the clicker/idle layer, merged INTO the hub.
 //
-// The old interface stays exactly as it was (missions you fly yourself,
-// idle dispatch, market, research, crew, shipyard, star map). This tab adds
-// the clicker core beside them, sharing ONE wallet: generator/wave/contract
-// output lands in MetaState credits/minerals/warp/ores/reputation — the same
-// balances the other tabs spend — and completed research + charted sectors
-// feed back as a production multiplier here.
+// Layout (uses all three hub columns, like every other tab):
+//   LEFT bay   (CORE ACTIONS) — Collapse / Bomb / Snake / Trade / Supernova,
+//              core contracts, dark matter, status line.
+//   CENTER     — the star itself, big and centered: click it (old click-
+//              match with combo, CRITs, Click Mastery tiers and FEVER
+//              bursts at 25/50/100 combo), stardust + production readouts,
+//              Core and Defense-wave progress bars, next upgrades.
+//   RIGHT bay  (GENERATORS) — the eight automated minigames with buy
+//              buttons and a x1/x10/x100 toggle.
 //
-//   CLICK THE STAR (old click-match) · generators (Auto-Match / falling
-//   pieces / Miner / Defense, automated) · CORE COLLAPSE (Miner) ·
-//   BOMB / SNAKE (Collapsed specials) · idle Defense WAVES · clicker
-//   CONTRACTS · SUPERNOVA prestige (Dark Matter).
-//
-// Pure rules live in src/clicker-state.js; this file only renders + syncs.
+// One wallet: everything earned lands in MetaState (credits / minerals /
+// warp / ores / reputation) via adoptWallet/walletDeltas; station research,
+// charted sectors and completed missions multiply core production. Pure
+// rules live in src/clicker-state.js — this file only renders + syncs.
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { panelLabel, buildSimpleButton, drawStarShape } from '../../pixi-ui-kit.js';
 import { ClickerState, GENERATORS, UPGRADES, fmt } from '../../clicker-state.js';
 
-const AMBER = 0xfcd34d, CYAN = 0x67e8f9, WHITE = 0xe2e8f0, MUTED = 0x94a3b8, GREEN = 0x6ee7b7, RED = 0xfda4af;
-const txt = (text, size, fill, weight = '600') => new Text({ text, style: new TextStyle({ fontFamily: 'Inter, "Segoe UI", sans-serif', fontSize: size, fontWeight: weight, fill }) });
+const AMBER = 0xfcd34d, CYAN = 0x67e8f9, WHITE = 0xf1f5f9, MUTED = 0xa8bedd, GREEN = 0x6ee7b7, RED = 0xfb7185, PURPLE = 0xc4b5fd;
+const txt = (text, size, fill, weight = '600') => new Text({ text, style: new TextStyle({ fontFamily: 'Inter, "Segoe UI", sans-serif', fontSize: size, fontWeight: weight, fill, wordWrap: true }) });
+const ORE_ICON = { red: '🔴', blue: '🔵', green: '🟢', yellow: '🟡', bomb: '💣', snake: '🐍' };
 
 export class StellarCoreTab {
-  constructor({ parent, meta }) {
+  constructor({ parent, meta, side = null, right = null }) {
     if (!parent) throw new Error('StellarCoreTab: parent container is required');
     this.parent = parent; this.meta = meta;
+    this.usesSidePanel = true; this.sidePanelTitle = '⚡ CORE ACTIONS';
+    this.usesRightPanel = true; this.rightPanelTitle = '🏭 GENERATORS';
     this.root = new Container(); this.root.visible = false; this.parent.addChild(this.root);
+    this._sideList = side?.list || null; this._rightList = right?.list || null;
     this.game = new ClickerState(meta?.getClickerSave?.() || null);
     this._adoptWallet();
     this._offline = this.game.applyOffline();
-    this.buyQty = 1; this._nodes = null; this._refreshAt = 0; this._saveAt = 0; this._floatT = 0;
-    this._status = this._offline ? `Welcome back — the core produced ${fmt(this._offline.stardust)} ✦ while you were away.` : 'Click the star. Generators do the rest — even the old Defense waves.';
+    this.game.on('burst', ({ combo, burst }) => { this._status = `🔥 FEVER BURST ×${combo} combo! +${fmt(burst)} ✦`; this._float(`🔥 +${fmt(burst)}`); });
+    this.buyQty = 1; this._nodes = null; this._refreshAt = 0; this._saveAt = 0; this._animMs = 0; this._popMs = 0; this._w = 600; this._h = 520;
+    this._status = this._offline ? `👋 Welcome back — the core made ${fmt(this._offline.stardust)} ✦ while you were away.` : '⭐ Click the star! Fast clicks build combo → FEVER bursts.';
   }
   get visible() { return !!(this.root && this.root.visible); }
-  _adoptWallet() {
-    if (!this.meta) return;
-    this.game.adoptWallet({ credits: this.meta.credits, minerals: this.meta.getHubResource('minerals'), warp: this.meta.getHubResource('warp'), rep: this.meta.reputation, ores: this.meta.oreCounts() });
-  }
+
+  _adoptWallet() { if (this.meta) this.game.adoptWallet({ credits: this.meta.credits, minerals: this.meta.getHubResource('minerals'), warp: this.meta.getHubResource('warp'), rep: this.meta.reputation, ores: this.meta.oreCounts() }); }
   _syncWallet() {
-    if (!this.meta) return;
-    const d = this.game.walletDeltas();
+    if (!this.meta) return; const d = this.game.walletDeltas();
     if (d.credits) this.meta.addCredits(d.credits);
     if (d.minerals) this.meta.setHubResource('minerals', Math.max(0, (this.meta.getHubResource('minerals') || 0) + d.minerals));
     if (d.warp) this.meta.setHubResource('warp', Math.max(0, (this.meta.getHubResource('warp') || 0) + d.warp));
@@ -47,117 +50,149 @@ export class StellarCoreTab {
   }
   _stationMult() {
     if (!this.meta) return 1;
-    const research = this.meta.getResearchState?.().completed?.length || 0;
-    const sectors = this.meta.discoveredSectorIds?.().length || 0;
-    return 1 + research * 0.05 + sectors * 0.10;
+    return 1 + (this.meta.getResearchState?.().completed?.length || 0) * 0.05
+             + (this.meta.discoveredSectorIds?.().length || 0) * 0.10
+             + (this.meta.getStats?.().missionsCompleted || 0) * 0.02;
   }
-  show() { if (!this._nodes) this._build(); this._adoptWallet(); this._refresh(); this.root.visible = true; }
-  hide() { this.root.visible = false; this._save(); }
-  layout(screen) { if (!screen) return; const w = screen.width || 0, h = screen.height || 0; if (w > 0 && h > 0) { const s = Math.min(1, w / 780, h / 640); this.root.scale.set(Math.max(0.5, s)); } }
-  // No save here: hide() and the 5s tick already persist, and a MetaState
-  // change emitted mid-teardown would refresh sibling tabs that are
-  // already destroyed.
+  show() { if (!this._nodes) this._build(); this._adoptWallet(); if (this._nodes) { this._nodes.sideBox.visible = true; this._nodes.rightBox.visible = true; } this._refresh(); this.root.visible = true; }
+  hide() { this.root.visible = false; if (this._nodes) { this._nodes.sideBox.visible = false; this._nodes.rightBox.visible = false; } this._save(); }
+  layout(screen) { if (!screen) return; const w = screen.width || 0, h = screen.height || 0; if (w > 0 && h > 0) { this._w = w; this._h = h; this._layoutCenter(); } }
+  // The hub hides all bay children, then calls these on the new owner —
+  // so this is where bay content becomes visible (not only in show()).
+  layoutSide({ width = 276 } = {}) { this._sideW = width; if (this._nodes) this._nodes.sideBox.visible = true; }
+  layoutRight({ width = 276 } = {}) { this._rightW = width; if (this._nodes) this._nodes.rightBox.visible = true; }
   destroy() { if (this.root) this.root.destroy({ children: true }); this.root = null; this._nodes = null; }
   _save() { if (this.meta?.saveClickerState) { this.game.touch(); this.meta.saveClickerState(this.game.snapshot()); } }
 
   tick(deltaMs) {
     if (!this.game) return;
+    this._animMs += deltaMs || 0;
     this.game.externalMult = this._stationMult();
     this.game.tick(Math.min(5, (deltaMs || 0) / 1000));
     this._syncWallet();
     const now = Date.now();
-    if (this._floatT > 0 && this._nodes) { this._floatT -= deltaMs; this._nodes.floatText.alpha = Math.max(0, this._floatT / 900); this._nodes.floatText.y -= deltaMs * 0.04; }
     if (now - this._saveAt > 5000) { this._saveAt = now; this._save(); }
+    if (this._nodes && this.root.visible) this._animate();
     if (this.root.visible && now - this._refreshAt > 250) { this._refreshAt = now; this._refresh(); }
   }
+  _animate() {
+    const n = this._nodes; if (!n) return; const t = this._animMs / 1000;
+    this._popMs = Math.max(0, this._popMs - 16);
+    const pop = 1 + (this._popMs / 180) * 0.22;
+    n.starWrap.scale.set((1 + Math.sin(t * 2.2) * 0.045) * pop);
+    n.starWrap.rotation = Math.sin(t * 0.9) * 0.06;
+    n.orbit.rotation = t * 0.7;
+    n.halo.clear(); n.halo.circle(0, 0, 96 + Math.sin(t * 2.2) * 7).fill({ color: 0xfacc15, alpha: 0.07 });
+    n.floats.forEach(f => { if (f.alpha > 0) { f.y -= 1.6; f.alpha -= 0.016; } });
+  }
+  _float(text) { const n = this._nodes; if (!n) return; const f = n.floats.find(x => x.alpha <= 0) || n.floats[0]; f.text = text; f.alpha = 1; f.position.set(this._w / 2 - 40 + Math.random() * 50, this._h * 0.30); }
 
   _build() {
-    const n = { genRows: [], upRows: [], contractRows: [] };
-    const title = panelLabel('STELLAR CORE — CLICKER / IDLE', AMBER, { size: 15, weight: '800' }); title.position.set(16, 10); this.root.addChild(title);
-    n.wallet = txt('', 11, CYAN); n.wallet.position.set(16, 34); this.root.addChild(n.wallet);
+    const n = { genRows: [], upRows: [], floats: [] };
+    // ---------- CENTER ----------
+    const title = panelLabel('⭐ STELLAR CORE — CLICKER / IDLE', AMBER, { size: 19, weight: '800' }); title.anchor.set(0.5, 0); this.root.addChild(title); n.title = title;
+    n.stardust = txt('', 26, WHITE, '800'); n.stardust.anchor.set(0.5, 0); this.root.addChild(n.stardust);
+    n.perSec = txt('', 14, CYAN, '700'); n.perSec.anchor.set(0.5, 0); this.root.addChild(n.perSec);
+    const starWrap = new Container(); starWrap.eventMode = 'static'; starWrap.cursor = 'pointer';
+    n.halo = new Graphics(); starWrap.addChild(n.halo);
+    n.orbit = new Container();
+    for (let i = 0; i < 3; i++) { const s = drawStarShape(11, 0x7dd3fc); const a = (i / 3) * Math.PI * 2; s.position.set(Math.cos(a) * 104, Math.sin(a) * 104); n.orbit.addChild(s); }
+    starWrap.addChild(n.orbit);
+    starWrap.addChild(drawStarShape(78, 0xfacc15));
+    starWrap.addChild(drawStarShape(52, 0xfde68a));
+    this.root.addChild(starWrap); n.starWrap = starWrap;
+    starWrap.on('pointertap', () => { const r = this.game.clickStar(); this._popMs = 180; this._float(r.crit ? `💥 CRIT +${fmt(r.gain)}` : `+${fmt(r.gain)}`); this._syncWallet(); this._refresh(); });
+    for (let i = 0; i < 6; i++) { const f = txt('', 19, AMBER, '800'); f.alpha = 0; this.root.addChild(f); n.floats.push(f); }
+    n.combo = txt('', 17, RED, '800'); n.combo.anchor.set(0.5, 0); this.root.addChild(n.combo);
+    n.clickInfo = txt('', 14, WHITE, '700'); n.clickInfo.anchor.set(0.5, 0); this.root.addChild(n.clickInfo);
+    n.masteryBar = new Graphics(); this.root.addChild(n.masteryBar);
+    n.coreLabel = txt('', 14, WHITE, '700'); this.root.addChild(n.coreLabel);
+    n.coreBar = new Graphics(); this.root.addChild(n.coreBar);
+    n.waveLabel = txt('', 14, WHITE, '700'); this.root.addChild(n.waveLabel);
+    n.waveBar = new Graphics(); this.root.addChild(n.waveBar);
+    const uh = panelLabel('⬆ NEXT UPGRADES', CYAN, { size: 14, weight: '800' }); this.root.addChild(uh); n.upHeader = uh;
+    for (let i = 0; i < 2; i++) {
+      const label = txt('', 13, WHITE, '700'); this.root.addChild(label);
+      const b = buildSimpleButton({ text: 'BUY', width: 118, height: 34, accent: 'magenta', onTap: () => { const u = this._visibleUpgrades()[i]; if (u && this.game.buyUpgrade(u.id)) this._status = `⬆ ${u.name} installed!`; this._refresh(); } });
+      this.root.addChild(b.container); n.upRows.push({ label, btn: b });
+    }
 
-    // --- the star (old click-match) ---
-    const starWrap = new Container(); starWrap.position.set(130, 128); starWrap.eventMode = 'static'; starWrap.cursor = 'pointer';
-    const star = drawStarShape(62, 0xfacc15); starWrap.addChild(star); this.root.addChild(starWrap);
-    starWrap.on('pointertap', () => { const r = this.game.clickStar(); this._float(`+${fmt(r.gain)}${r.crit ? ' CRIT!' : ''}`); this._syncWallet(); this._refresh(); });
-    n.starWrap = starWrap;
-    n.floatText = txt('', 16, AMBER, '800'); n.floatText.alpha = 0; n.floatText.position.set(80, 60); this.root.addChild(n.floatText);
-    n.combo = txt('', 11, RED, '700'); n.combo.position.set(46, 202); this.root.addChild(n.combo);
-    n.status = txt('', 10, MUTED); n.status.position.set(16, 224); this.root.addChild(n.status);
+    // ---------- LEFT BAY: actions ----------
+    const sideBox = new Container(); sideBox.visible = false; this._sideList?.addChild(sideBox); n.sideBox = sideBox;
+    n.status = txt('', 12, MUTED); n.status.style.wordWrapWidth = 228; sideBox.addChild(n.status);
+    const mkSide = (label, y, accent, fn) => { const b = buildSimpleButton({ text: label, width: 228, height: 40, accent, onTap: () => { fn(); this._syncWallet(); this._refresh(); } }); b.container.position.set(0, y); sideBox.addChild(b.container); return b; };
+    n.collapseBtn = mkSide('⬢ COLLAPSE CORE', 66, 'cyan', () => { const p = this.game.collapseCore(); if (p) this._status = `⬢ CORE COLLAPSE! +${fmt(p)} ✦`; });
+    n.bombBtn = mkSide('💣 BOMB BLAST · 5 💣', 114, 'amber', () => { const p = this.game.useBomb(); if (p) this._status = `💣 Bomb blast +${fmt(p)} ✦ + wave damage!`; });
+    n.snakeBtn = mkSide('🐍 SNAKE CHAIN · 5 🐍', 162, 'green', () => { const p = this.game.useSnake(); if (p) this._status = `🐍 Snake chain +${fmt(p)} ✦ and +4 of every ore!`; });
+    n.tradeBtn = mkSide('🔁 500 ✦ → 50¢ + 20 💎', 210, 'magenta', () => { const r = this.game.convertStardust(); this._status = r ? '🔁 Traded stardust into the station wallet!' : 'Need 500 ✦ to trade.'; });
+    n.prestige = txt('', 12, PURPLE); n.prestige.style.wordWrapWidth = 228; n.prestige.position.set(0, 262); sideBox.addChild(n.prestige);
+    n.supernovaBtn = mkSide('💥 SUPERNOVA', 322, 'amber', () => { const dm = this.game.supernova(); if (dm) { this._status = `💥 SUPERNOVA! +${dm} 🌑 Dark Matter (each = +10% forever)`; this._adoptWallet(); } });
+    const ch = panelLabel('📋 CORE CONTRACTS', CYAN, { size: 13, weight: '800' }); ch.position.set(0, 378); sideBox.addChild(ch);
+    n.contracts = txt('', 12, MUTED); n.contracts.style.wordWrapWidth = 228; n.contracts.position.set(0, 402); sideBox.addChild(n.contracts);
 
-    // core + specials + waves (Miner / Collapsed / Defense)
-    n.coreLabel = txt('', 11, WHITE, '700'); n.coreLabel.position.set(16, 252); this.root.addChild(n.coreLabel);
-    n.coreBar = new Graphics(); n.coreBar.position.set(16, 272); this.root.addChild(n.coreBar);
-    const mk = (label, y, fn) => { const b = buildSimpleButton({ text: label, width: 232, height: 28, accent: 'amber', onTap: () => { fn(); this._syncWallet(); this._refresh(); } }); b.container.position.set(16, y); this.root.addChild(b.container); return b; };
-    n.collapseBtn = mk('⬢ COLLAPSE CORE', 282, () => { const p = this.game.collapseCore(); if (p) this._status = `⬢ CORE COLLAPSE! +${fmt(p)} ✦ (paid into the core)`; });
-    n.bombBtn = mk('💣 BOMB BLAST (5 bomb ore)', 316, () => { const p = this.game.useBomb(); if (p) this._status = `💣 Bomb blast +${fmt(p)} ✦`; });
-    n.snakeBtn = mk('🐍 SNAKE CHAIN (5 snake ore)', 350, () => { const p = this.game.useSnake(); if (p) this._status = `🐍 Snake chain +${fmt(p)} ✦ and +4 of every ore`; });
-    n.waveLabel = txt('', 11, WHITE, '700'); n.waveLabel.position.set(16, 388); this.root.addChild(n.waveLabel);
-    n.waveBar = new Graphics(); n.waveBar.position.set(16, 408); this.root.addChild(n.waveBar);
-    n.prestige = txt('', 10, MUTED); n.prestige.position.set(16, 432); this.root.addChild(n.prestige);
-    n.supernovaBtn = mk('💥 SUPERNOVA', 470, () => { const dm = this.game.supernova(); if (dm) { this._status = `💥 SUPERNOVA! +${dm} 🌑 Dark Matter — run reset, keep the power.`; this._adoptWallet(); } });
-    const note = txt('Research & charted sectors boost this\ncore. MARKET sells its ore. Missions\nstill fly from the MISSIONS tab.', 10, MUTED);
-    note.position.set(16, 512); this.root.addChild(note);
-
-    // --- generators (right column) ---
-    const gx = 272;
-    const gh = panelLabel('GENERATORS — the old minigames, automated', CYAN, { size: 12, weight: '800' }); gh.position.set(gx, 34); this.root.addChild(gh);
-    const qtyBtns = [1, 10, 100].map((q, i) => { const b = buildSimpleButton({ text: `×${q}`, width: 52, height: 22, onTap: () => { this.buyQty = q; this._refresh(); } }); b.container.position.set(gx + i * 58, 56); this.root.addChild(b.container); return b; });
-    n.qtyBtns = qtyBtns;
+    // ---------- RIGHT BAY: generators ----------
+    const rightBox = new Container(); rightBox.visible = false; this._rightList?.addChild(rightBox); n.rightBox = rightBox;
+    [1, 10, 100].forEach((q, i) => { const b = buildSimpleButton({ text: `BUY ×${q}`, width: 72, height: 30, accent: q === this.buyQty ? 'green' : 'cyan', onTap: () => { this.buyQty = q; this._refresh(); } }); b.container.position.set(i * 78, 0); rightBox.addChild(b.container); n['qty' + q] = b; });
     GENERATORS.forEach((g, i) => {
-      const y = 86 + i * 40;
-      const name = txt(`${g.icon} ${g.name}`, 11, WHITE, '700'); name.position.set(gx, y); this.root.addChild(name);
-      const sub = txt('', 9, MUTED); sub.position.set(gx, y + 14); this.root.addChild(sub);
-      const b = buildSimpleButton({ text: 'BUY', width: 104, height: 30, accent: 'green', onTap: () => { if (this.game.buyGenerator(g.id, this.buyQty)) this._status = `${g.name} online.`; this._refresh(); } });
-      b.container.position.set(gx + 356, y); this.root.addChild(b.container);
+      const y = 42 + i * 56;
+      const icon = txt(g.icon, 24, WHITE); icon.position.set(0, y); rightBox.addChild(icon);
+      const name = txt('', 13, WHITE, '800'); name.position.set(38, y); rightBox.addChild(name);
+      const sub = txt('', 11, MUTED); sub.position.set(38, y + 19); rightBox.addChild(sub);
+      const b = buildSimpleButton({ text: 'BUY', width: 228, height: 30, accent: 'green', onTap: () => { if (this.game.buyGenerator(g.id, this.buyQty)) this._status = `${g.icon} ${g.name} online!`; this._refresh(); } });
+      b.container.position.set(0, y + 24); rightBox.addChild(b.container);
+      // compact: button overlaps sub area; shift rows visually by keeping button thin
       n.genRows.push({ g, name, sub, btn: b });
     });
-    // upgrades (up to 4 visible)
-    const uh = panelLabel('UPGRADES', CYAN, { size: 12, weight: '800' }); uh.position.set(gx, 412); this.root.addChild(uh);
-    for (let i = 0; i < 4; i++) {
-      const y = 436 + i * 34;
-      const name = txt('', 10, WHITE, '700'); name.position.set(gx, y); this.root.addChild(name);
-      const b = buildSimpleButton({ text: 'BUY', width: 104, height: 26, accent: 'magenta', onTap: () => { const u = this._visibleUpgrades()[i]; if (u && this.game.buyUpgrade(u.id)) this._status = `${u.name} installed.`; this._refresh(); } });
-      b.container.position.set(gx + 356, y); this.root.addChild(b.container);
-      n.upRows.push({ name, btn: b });
-    }
-    // contracts
-    const ch = panelLabel('CORE CONTRACTS — pay into the shared wallet', CYAN, { size: 12, weight: '800' }); ch.position.set(gx, 578); this.root.addChild(ch);
-    // contracts sit under upgrades if room allows; rows are compact and rebuilt by _refresh text
-    for (let i = 0; i < 3; i++) {
-      const y = 600 + i * 0; // placeholder positions corrected in _layoutContracts
-      const name = txt('', 9, MUTED); name.position.set(gx, y); name.visible = false; this.root.addChild(name);
-      n.contractRows.push({ name, btn: null });
-    }
-    n.contractsLabel = txt('', 9, MUTED); n.contractsLabel.position.set(gx, 578); this.root.addChild(n.contractsLabel);
-    ch.visible = false;
-    this._nodes = n;
+    this._nodes = n; this._layoutCenter();
   }
-  _visibleUpgrades() { return UPGRADES.filter(u => !this.game.s.upgrades.includes(u.id) && (u.req?.(this.game) ?? true)).slice(0, 4); }
-  _float(text) { const n = this._nodes; if (!n) return; n.floatText.text = text; n.floatText.alpha = 1; n.floatText.position.set(78, 66); this._floatT = 900; }
-  _bar(g, w, frac, color) { g.clear(); g.rect(0, 0, w, 10).fill({ color: 0x020617 }); g.rect(0, 0, Math.max(0, Math.min(1, frac)) * w, 10).fill({ color }); }
+
+  _layoutCenter() {
+    const n = this._nodes; if (!n) return; const w = this._w, cx = w / 2;
+    // Shorter panels (stacked breakpoints) compress the rhythm so the
+    // upgrades never spill past the panel's bottom edge.
+    const dy = this._h < 640 ? -42 : 0;
+    n.title.position.set(cx, 12);
+    n.stardust.position.set(cx, 44);
+    n.perSec.position.set(cx, 80);
+    n.starWrap.position.set(cx, 205 + dy);
+    n.combo.position.set(cx, 318 + dy);
+    n.clickInfo.position.set(cx, 346 + dy);
+    n.masteryBar.position.set(30, 378 + dy);
+    n.coreLabel.position.set(30, 402 + dy); n.coreBar.position.set(30, 426 + dy);
+    n.waveLabel.position.set(30, 452 + dy); n.waveBar.position.set(30, 476 + dy);
+    n.upHeader.position.set(30, 508 + dy);
+    n.upRows.forEach((r, i) => { const y = 536 + dy + i * 42; r.label.position.set(30, y + 5); r.btn.container.position.set(w - 148, y); });
+    // Long readouts wrap inside the panel instead of running off its edge.
+    const wrapW = Math.max(220, w - 40);
+    for (const t of [n.perSec, n.combo, n.clickInfo, n.coreLabel, n.waveLabel]) { t.style.wordWrapWidth = wrapW; t.style.align = 'center'; }
+    n.coreLabel.style.align = 'left'; n.waveLabel.style.align = 'left';
+  }
+  _visibleUpgrades() { return UPGRADES.filter(u => !this.game.s.upgrades.includes(u.id) && (u.req?.(this.game) ?? true)).slice(0, 2); }
+  _bar(g, w, frac, color) { g.clear(); g.roundRect(0, 0, w, 16, 6).fill({ color: 0x020617 }); g.roundRect(0, 0, Math.max(4, Math.min(1, frac) * w), 16, 6).fill({ color }); }
   _refresh() {
-    const n = this._nodes; if (!n) return; const s = this.game.s;
-    n.wallet.text = `✦ ${fmt(s.stardust)} stardust · ${fmt(this.game.productionPerSec())}/s · 👆 ${fmt(this.game.clickPower())} · ⭐ Lv ${this.game.starLevel()} · 🌑 ${fmt(s.darkMatter)}`;
-    n.combo.text = s.combo > 1 ? `🔥 COMBO ×${this.game.comboMult().toFixed(2)} (${s.combo})` : 'Click fast: combo multiplies every click';
-    n.status.text = this._status.slice(0, 58);
-    n.coreLabel.text = `⬢ CORE ${Math.floor(s.core)}% (Miner drones fill it)`;
-    this._bar(n.coreBar, 232, s.core / 100, 0x38bdf8);
-    n.waveLabel.text = `🛡 Defense wave ${s.wave}${s.wave % 10 === 0 ? ' 👹 BOSS' : ''} · cleared ${s.wavesCleared}`;
-    this._bar(n.waveBar, 232, s.waveMaxHp ? s.waveHp / s.waveMaxHp : 0, 0xf87171);
-    const dm = this.game.darkMatterOnSupernova();
-    n.prestige.text = `Supernova ready: +${dm} 🌑\n(resets stardust/generators;\nkeeps Dark Matter & station)`;
-    n.genRows.forEach(({ g, name, sub, btn }) => {
-      const owned = s.gens[g.id] || 0; const cost = this.game.genCost(g, this.buyQty);
-      name.text = `${g.icon} ${g.name}  ×${owned}`;
-      sub.text = `${g.blurb} · ${fmt(this.game.genRate(g))}/s`;
-      btn.label.text = `BUY ×${this.buyQty} · ${fmt(cost)}✦`;
-    });
+    const n = this._nodes; if (!n) return; const s = this.game.s, w = this._w;
+    n.stardust.text = `✦ ${fmt(s.stardust)} STARDUST`;
+    n.perSec.text = `⚡ ${fmt(this.game.productionPerSec())}/s   ·   station boost ×${this._stationMult().toFixed(2)}   ·   ⭐ Lv ${this.game.starLevel()}   ·   🌑 ${fmt(s.darkMatter)}`;
+    n.combo.text = s.combo > 1 ? `🔥 COMBO ×${s.combo} — payout ×${this.game.comboMult().toFixed(2)}${s.combo < 25 ? ` · burst at 25!` : ''}` : '👆 Click fast — combo & FEVER bursts at 25/50/100!';
+    const tier = this.game.clickTier();
+    n.clickInfo.text = `👆 ${fmt(this.game.clickPower())} per click · Mastery Tier ${tier} (+${tier * 50}%) · next tier in ${50 - (s.totalClicks % 50)} clicks`;
+    this._bar(n.masteryBar, w - 60, (s.totalClicks % 50) / 50, 0xfacc15);
+    n.coreLabel.text = `⬢ MINER CORE ${Math.floor(s.core)}% — drones fill it, collapse pays big`;
+    this._bar(n.coreBar, w - 60, s.core / 100, 0x38bdf8);
+    n.waveLabel.text = `🛡 DEFENSE WAVE ${s.wave}${s.wave % 10 === 0 ? ' 👹 BOSS!' : ''} — ${fmt(Math.max(0, s.waveHp))}/${fmt(s.waveMaxHp)} HP · turrets ${fmt(this.game.dps())} DPS · cleared ${s.wavesCleared}`;
+    this._bar(n.waveBar, w - 60, s.waveMaxHp ? s.waveHp / s.waveMaxHp : 0, 0xfb7185);
     const ups = this._visibleUpgrades();
-    n.upRows.forEach((row, i) => { const u = ups[i]; row.name.visible = !!u; row.btn.container.visible = !!u; if (u) { row.name.text = `${u.icon} ${u.name} — ${u.desc}`; row.btn.label.text = `${fmt(u.cost)} ${u.curr}`; } });
-    const cs = s.contracts.slice(0, 3).map(c => { const p = c.need === 'clicks' ? this.game.s.clicksRun - (c.baseline || 0) : (c.progress || 0); return `${c.icon} ${c.name}: ${fmt(Math.min(p, c.target))}/${fmt(c.target)}${p >= c.target ? ' — CLAIM on click!' : ''}`; });
-    n.contractsLabel.text = ['CORE CONTRACTS — completed contracts auto-pay into the wallet:', ...cs].join('\n');
-    // Auto-claim completed contracts into the shared wallet — idle-game friendly.
-    for (const c of [...s.contracts]) { const p = c.need === 'clicks' ? s.clicksRun - (c.baseline || 0) : (c.progress || 0); if (p >= c.target) { const r = this.game.claimContract(c.uid); if (r) { this._status = `📋 Contract "${c.name}" auto-paid: ${Object.entries(r).map(([k, v]) => `+${v} ${k}`).join(' ')}`; this._syncWallet(); } } }
+    n.upRows.forEach((row, i) => { const u = ups[i]; const vis = !!u; row.label.visible = vis; row.btn.container.visible = vis; if (u) { row.label.text = `${u.icon} ${u.name} — ${u.desc}`; row.btn.label.text = `${fmt(u.cost)} ✦`; } });
+    n.status.text = this._status;
+    const dm = this.game.darkMatterOnSupernova();
+    n.prestige.text = `🌑 Dark Matter: ${fmt(s.darkMatter)} (each +10% forever)\n💥 Supernova now: +${dm} 🌑${dm < 1 ? ` (need ${fmt(50000)} ✦ this run)` : ''}`;
+    n.contracts.text = s.contracts.slice(0, 4).map(c => { const p = c.need === 'clicks' ? s.clicksRun - (c.baseline || 0) : (c.progress || 0); return `${c.icon} ${c.name}\n   ${fmt(Math.min(p, c.target))}/${fmt(c.target)}${p >= c.target ? ' ✔ paying…' : ''}`; }).join('\n');
+    for (const c of [...s.contracts]) { const p = c.need === 'clicks' ? s.clicksRun - (c.baseline || 0) : (c.progress || 0); if (p >= c.target) { const r = this.game.claimContract(c.uid); if (r) { this._status = `📋 Contract paid: ${Object.entries(r).map(([k, v]) => `+${v} ${k}`).join(' ')} (in wallet!)`; this._syncWallet(); } } }
+    n.genRows.forEach(({ g, name, sub, btn }) => {
+      const owned = s.gens[g.id] || 0;
+      name.text = `${g.name} ×${owned}`;
+      sub.text = `${fmt(this.game.genRate(g))}/s · ${ORE_ICON[g.ore]} ore`;
+      btn.label.text = `BUY ×${this.buyQty} — ${fmt(this.game.genCost(g, this.buyQty))} ✦`;
+    });
   }
 }

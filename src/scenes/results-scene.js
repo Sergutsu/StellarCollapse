@@ -393,8 +393,11 @@ export class ResultsScene {
         const h = (screen && screen.height) || this.app.screen.height;
         r.dim.clear();
         r.dim.rect(0, 0, w, h).fill({ color: 0x020617, alpha: 0.72 });
-        r.panel.x = Math.round((w - r.panelW) / 2);
-        r.panel.y = Math.round((h - r.panelH) / 2);
+        // Scale-to-fit on small viewports: the panel never clips off-screen.
+        const s = Math.min(1, Math.max(0.3, (w - 24) / r.panelW), Math.max(0.3, (h - 24) / r.panelH));
+        r.panel.scale.set(s);
+        r.panel.x = Math.round((w - r.panelW * s) / 2);
+        r.panel.y = Math.round((h - r.panelH * s) / 2);
     }
 
     show(summary, { onContinue } = {}) {

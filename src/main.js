@@ -43,7 +43,11 @@ async function boot() {
     // persistence is always on where the platform supports it.
     const persistence = new Persistence();
     const meta = new MetaState(persistence.load());
-    meta.on('change', () => { persistence.save(meta.snapshot()); });
+    // Set by RESET PROFILE: once a wipe starts, nothing may save again —
+    // the pagehide/visibility savers below used to resurrect the old
+    // profile on reload, so "reset" silently restored the old fleet.
+    let wipingProfile = false;
+    meta.on('change', () => { if (!wipingProfile) persistence.save(meta.snapshot()); });
     // Offline report has to be computed BEFORE the first `touch()`, since
     // the whole point is the gap between the last time the hub was alive
     // and now. Idle jobs store absolute end times, so nothing needs to be
@@ -91,6 +95,7 @@ async function boot() {
     meta.touch();
     window.setInterval(() => meta.touch(), 30_000);
     const stampAndSave = () => {
+        if (wipingProfile) return;
         meta.touch();
         persistence.save(meta.snapshot());
     };
@@ -415,7 +420,14 @@ async function boot() {
                     style: 'danger',
                     role: 'confirm',
                     onTap: () => {
+                        // Order matters: suppress every saver FIRST, then
+                        // wipe storage (incl. the legacy clicker key), so
+                        // the reload boots a true starter profile — fleet
+                        // Standby and available again.
+                        wipingProfile = true;
+                        meta.resetProfile();
                         persistence.clear();
+                        try { localStorage.removeItem('stellar-venture-clicker-v1'); } catch { /* no storage */ }
                         window.location.reload();
                     },
                 },

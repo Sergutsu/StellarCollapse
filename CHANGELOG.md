@@ -8,6 +8,21 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Fixed — responsive interface (no more overlapping panels)
+
+- **Breakpoint hub layout** (`src/responsive.js`, unit-tested): >=1080px keeps the three-column hub; 720–1079px stacks the center over side-by-side bays; <720px stacks everything in one column. Panels keep readable size instead of the whole desktop surface being shrunk.
+- **Scrollable column band:** when stacked content is taller than the viewport, the hub masks the band and scrolls it — mouse wheel, a draggable scrollbar thumb, and ▲/▼ buttons for touch. Star Map keeps wheel-zoom. Top bar drops its badge and shrinks chips on narrow screens; the bottom nav wraps to two rows (4+3) on compact; the mission-board modal, results, help and dialogs scale-to-fit instead of clipping off-screen. STELLAR CORE compresses its rhythm and wraps long readouts on short panels.
+- Hub smoke now runs 11 viewports down to 320x568.
+
+
+### Fixed / Changed — reset, contextual columns, STELLAR CORE redesign
+
+- **RESET PROFILE actually resets.** The pagehide/visibility savers used to re-save the old profile after the wipe, resurrecting it on reload (fleet stuck unavailable). Savers are now suppressed during a wipe, storage (incl. the legacy clicker key) is cleared, and `MetaState.resetProfile()` restores the starter profile — 5 Standby ships, Available crew, no active missions, clicker cleared.
+- **FLEET & CREW is no longer a permanent right column.** It shows only on MISSIONS (where dispatching needs it). Every other tab gets a relevant right bay: STELLAR CORE's generators, or a CONTEXT summary (fleet status on SHIPYARD, research desk, crew desk, market hold, sector/warp status). Left bays stay contextual as before, and STELLAR CORE now owns both bays (CORE ACTIONS left, GENERATORS right).
+- **STELLAR CORE rebuilt for readability, first in the nav bar** (hotkey `1`). The click star is big, centered and animated (pulse, orbiting stars, click pop, floating gains); fonts are 11–26px with icon-led rows; no more shrink-to-fit scaling. Clicking got a progression: **Click Mastery** tiers (+50% per 50 clicks), **FEVER bursts** at 25/50/100 combo paying idle production, and clicks now scale with 1% of your per-second output.
+- **More cross-resource play:** a `500 ✦ → 50¢ + 20 minerals` trade in CORE ACTIONS, and completed main-game missions now also multiply core production (+2% each), on top of research (+5%) and charted sectors (+10%). All core earnings still land in the shared MetaState wallet.
+
+
 ### Changed — STELLAR CORE: clicker/idle merged into the hub (ADR-0014, supersedes ADR-0013)
 
 - **The old game is back as the game — with the clicker inside it.** ADR-0013 briefly replaced the Pixi game with a standalone DOM clicker; that replacement is reverted (`index.html` boots `src/main.js` again, DOM front-end deleted) and the clicker is merged into the hub as a seventh bottom-nav tab, **STELLAR CORE** (hotkey `7`, in-game manual updated).
