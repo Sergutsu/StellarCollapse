@@ -201,6 +201,16 @@ class Rectangle {
     contains(x, y) { return x >= this.x && x <= this.x + this.width && y >= this.y && y <= this.y + this.height; }
 }
 
+class Circle {
+    constructor(x = 0, y = 0, radius = 0) { this.x = x; this.y = y; this.radius = radius; this.type = 'circle'; }
+    clone() { return new Circle(this.x, this.y, this.radius); }
+    contains(x, y) {
+        const dx = x - this.x;
+        const dy = y - this.y;
+        return (dx * dx + dy * dy) <= (this.radius * this.radius);
+    }
+}
+
 class FillGradient {
     constructor(x0 = 0, y0 = 0, x1 = 0, y1 = 1) { this.x0 = x0; this.y0 = y0; this.x1 = x1; this.y1 = y1; this.stops = []; }
     addColorStop(offset, color) { this.stops.push({ offset, color }); return this; }
@@ -240,7 +250,7 @@ class Application {
 }
 
 export {
-    Application, Assets, Container, FillGradient, Graphics, Point, Rectangle,
+    Application, Assets, Circle, Container, FillGradient, Graphics, Point, Rectangle,
     RenderTexture, Renderer, Sprite, Text, TextStyle, Texture,
 };
-export default { Application, Assets, Container, FillGradient, Graphics, Rectangle, RenderTexture, Sprite, Text, TextStyle };
+export default { Application, Assets, Circle, Container, FillGradient, Graphics, Rectangle, RenderTexture, Sprite, Text, TextStyle };

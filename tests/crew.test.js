@@ -23,6 +23,9 @@ import {
     shipFactor,
     shipMatchesType,
     roleMatchesType,
+    CREW_TRAITS,
+    INTERVIEW_SCENARIOS,
+    evaluateInterview,
 } from '../src/crew.js';
 import { resolveEffects } from '../src/research.js';
 
@@ -223,4 +226,23 @@ test('berth capacity never drops below the base and ignores junk input', () => {
     assert.equal(fleetSlotLimit({ fleetSlots: NaN }), BASE_FLEET_SLOTS);
     assert.equal(fleetSlotLimit({ fleetSlots: '3' }), BASE_FLEET_SLOTS, 'non-numeric ignored');
     assert.ok(fleetSlotLimit(null) >= 4, 'the four-ship starter fleet always fits');
+});
+
+test('candidate assessment minigame evaluates tactical synergy, discounts, and traits', () => {
+    assert.ok(Object.keys(CREW_TRAITS).length >= 5);
+    assert.ok(INTERVIEW_SCENARIOS.length >= 2);
+
+    const scientist = { id: 'c-1', name: 'A. Thorne', role: 'Scientist', level: 2 };
+    const resMatched = evaluateInterview(scientist, 'anomaly', 'scan');
+    assert.equal(resMatched.matched, true);
+    assert.equal(resMatched.discount, 0.25);
+    assert.ok(resMatched.xpBonus >= 100);
+    assert.equal(resMatched.trait.id, 'lucky_seam');
+    assert.ok(resMatched.summary.includes('EXCEPTIONAL SYNERGY'));
+
+    // Non-aligned choice yields standard outcome
+    const resMismatched = evaluateInterview(scientist, 'anomaly', 'brace');
+    assert.equal(resMismatched.matched, false);
+    assert.equal(resMismatched.discount, 0.05);
+    assert.ok(resMismatched.xpBonus > 0);
 });

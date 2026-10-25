@@ -875,9 +875,11 @@ export class MetaState {
         const job = idx >= 0 ? jobs[idx] : null;
 
         const detail = this._rawApplySettlement(settlement);
-        if (job) {
-            this._rawSetShipStatus(job.shipId, 'Standby');
-            this._rawSetCrewStatus(job.crewId, 'Available');
+        const shipId = job?.shipId || settlement?.shipId;
+        const crewId = job?.crewId || settlement?.crewId;
+        if (shipId) this._rawSetShipStatus(shipId, 'Standby');
+        if (crewId) this._rawSetCrewStatus(crewId, 'Available');
+        if (jobId) {
             this._data.activeMissions = jobs.filter((j) => j.id !== jobId);
         }
         this._touchLastTick();

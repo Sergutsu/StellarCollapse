@@ -14,7 +14,7 @@
 // warp / ores / reputation) via adoptWallet/walletDeltas; station research,
 // charted sectors and completed missions multiply core production. Pure
 // rules live in src/clicker-state.js — this file only renders + syncs.
-import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Container, Graphics, Text, TextStyle, Circle } from 'pixi.js';
 import { panelLabel, buildSimpleButton, drawStarShape } from '../../pixi-ui-kit.js';
 import { ClickerState, GENERATORS, UPGRADES, fmt } from '../../clicker-state.js';
 
@@ -178,6 +178,7 @@ export class StellarCoreTab {
     n.stardust = txt('', 26, WHITE, '800'); n.stardust.anchor.set(0.5, 0); this.root.addChild(n.stardust);
     n.perSec = txt('', 14, CYAN, '700'); n.perSec.anchor.set(0.5, 0); this.root.addChild(n.perSec);
     const starWrap = new Container(); starWrap.eventMode = 'static'; starWrap.cursor = 'pointer';
+    starWrap.hitArea = new Circle(0, 0, 115);
     n.halo = new Graphics(); starWrap.addChild(n.halo);
     n.orbit = new Container();
     for (let i = 0; i < 3; i++) { const s = drawStarShape(9, 0x7dd3fc); const a = (i / 3) * Math.PI * 2; s.position.set(Math.cos(a) * 82, Math.sin(a) * 82); n.orbit.addChild(s); }
@@ -185,7 +186,17 @@ export class StellarCoreTab {
     starWrap.addChild(drawStarShape(60, 0xfacc15));
     starWrap.addChild(drawStarShape(40, 0xfde68a));
     this.root.addChild(starWrap); n.starWrap = starWrap;
-    starWrap.on('pointertap', () => { const r = this.game.clickStar(); this._popMs = 180; this._float(r.crit ? `💥 CRIT +${fmt(r.gain)}` : `+${fmt(r.gain)}`); this._syncWallet(); this._refresh(); });
+    const onStarClick = () => {
+      const r = this.game.clickStar();
+      this._popMs = 180;
+      this._float(r.crit ? `💥 CRIT +${fmt(r.gain)}` : `+${fmt(r.gain)}`);
+      this._syncWallet();
+      if (this._nodes) {
+        this._nodes.stardust.text = `✦ ${fmt(this.game.s.stardust)} STARDUST`;
+        this._nodes.combo.text = this.game.s.combo > 1 ? `🔥 COMBO ×${this.game.s.combo} — payout ×${this.game.comboMult().toFixed(2)}` : '👆 Click fast — combo & FEVER bursts!';
+      }
+    };
+    starWrap.on('pointerdown', onStarClick);
     for (let i = 0; i < 6; i++) { const f = txt('', 19, AMBER, '800'); f.alpha = 0; this.root.addChild(f); n.floats.push(f); }
     n.combo = txt('', 17, RED, '800'); n.combo.anchor.set(0.5, 0); this.root.addChild(n.combo);
     n.clickInfo = txt('', 14, WHITE, '700'); n.clickInfo.anchor.set(0.5, 0); this.root.addChild(n.clickInfo);
@@ -210,7 +221,13 @@ export class StellarCoreTab {
     n.snakeBtn = mkSide('🐍 SNAKE CHAIN · 5 🐍', 'green', () => { const p = this.game.useSnake(); if (p) this._status = `🐍 Snake chain +${fmt(p)} ✦ and +4 of every ore!`; });
     n.tradeBtn = mkSide('🔁 500 ✦ → 50¢ + 20 💎', 'magenta', () => { const r = this.game.convertStardust(); this._status = r ? '🔁 Traded stardust into the station wallet!' : 'Need 500 ✦ to trade.'; });
     n.prestige = txt('', 12, PURPLE); n.prestige.style.wordWrap = true; n.prestige.style.wordWrapWidth = 228; sideBox.addChild(n.prestige);
-    n.supernovaBtn = mkSide('💥 SUPERNOVA', 'amber', () => { const dm = this.game.supernova(); if (dm) { this._status = `💥 SUPERNOVA! +${dm} 🌑 Dark Matter (each = +10% forever)`; this._adoptWallet(); } });
+    n.supernovaBtn = mkSide('💥 SUPERNOVA', 'amber', () => {
+      const dm = this.game.supernova();
+      if (dm) {
+        this._status = `💥 SUPERNOVA! +${dm} 🌑 Dark Matter & HUGE station windfall granted!`;
+        this._adoptWallet();
+      }
+    });
     const ch = panelLabel('📋 CORE CONTRACTS', CYAN, { size: 13, weight: '800' }); sideBox.addChild(ch); n.contractHeader = ch;
     n.contracts = txt('', 12, MUTED); n.contracts.style.wordWrap = true; n.contracts.style.wordWrapWidth = 228; sideBox.addChild(n.contracts);
 
@@ -305,9 +322,12 @@ export class StellarCoreTab {
     this._bar(n.waveBar, barW, s.waveMaxHp ? s.waveHp / s.waveMaxHp : 0, 0xfb7185);
     const ups = this._visibleUpgrades();
     n.upRows.forEach((row, i) => { const u = ups[i]; const vis = !!u; row.label.visible = vis; row.btn.container.visible = vis; if (u) { row.label.text = `${u.icon} ${u.name} — ${u.desc}`; row.btn.label.text = `${fmt(u.cost)} ✦`; } });
-    n.status.text = this._status;
+    const surge = this.game.getActiveSurge();
+    n.status.text = surge
+      ? `⚡ ${surge.name.toUpperCase()} (${surge.remainingSec}s)\n${surge.desc} [Switch to ${surge.tabLabel} Tab!]`
+      : this._status;
     const dm = this.game.darkMatterOnSupernova();
-    n.prestige.text = `🌑 Dark Matter: ${fmt(s.darkMatter)} (each +10% forever)\n💥 Supernova now: +${dm} 🌑${dm < 1 ? ` (need ${fmt(50000)} ✦ this run)` : ''}`;
+    n.prestige.text = `🌑 Dark Matter: ${fmt(s.darkMatter)} (each +10% forever)\n💥 Supernova now: +${dm} 🌑 + HUGE station bounty!${dm < 1 ? ` (need ${fmt(50000)} ✦ this run)` : ''}`;
     n.contracts.text = s.contracts.slice(0, 4).map(c => { const p = c.need === 'clicks' ? s.clicksRun - (c.baseline || 0) : (c.progress || 0); return `${c.icon} ${c.name}\n   ${fmt(Math.min(p, c.target))}/${fmt(c.target)}${p >= c.target ? ' ✔ paying…' : ''}`; }).join('\n');
     for (const c of [...s.contracts]) { const p = c.need === 'clicks' ? s.clicksRun - (c.baseline || 0) : (c.progress || 0); if (p >= c.target) { const r = this.game.claimContract(c.uid); if (r) { this._status = `📋 Contract paid: ${Object.entries(r).map(([k, v]) => `+${v} ${k}`).join(' ')} (in wallet!)`; this._syncWallet(); } } }
     n.genRows.forEach(({ g, name, sub, btn }) => {

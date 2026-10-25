@@ -32,6 +32,9 @@ import {
     DISMISS_RETURN,
     ROLE_AFFINITY,
     MAX_CREW_LEVEL,
+    CREW_TRAITS,
+    INTERVIEW_SCENARIOS,
+    evaluateInterview,
 } from '../../crew.js';
 
 const COLOR_CYAN_300 = 0x67e8f9;
@@ -222,6 +225,15 @@ export class CrewTab {
             lvl.position.set(6, 34);
             slot.addChild(lvl);
 
+            const interviewBtn = buildSimpleButton({
+                text: 'ASSESS',
+                width: 48,
+                height: 20,
+                accent: 'cyan',
+                onTap: () => this._startInterview(i),
+            });
+            slot.addChild(interviewBtn.container);
+
             const hireBtn = buildSimpleButton({
                 text: 'HIRE',
                 width: 52,
@@ -232,7 +244,7 @@ export class CrewTab {
             slot.addChild(hireBtn.container);
 
             recruitPanel.addChild(slot);
-            candidateSlots.push({ slot, bg, name, role, lvl, hireBtn });
+            candidateSlots.push({ slot, bg, name, role, lvl, hireBtn, interviewBtn });
         }
 
         const rerollBtn = buildSimpleButton({
@@ -244,6 +256,43 @@ export class CrewTab {
         });
         recruitPanel.addChild(rerollBtn.container);
 
+        // Assessment / Tactical Interview Panel
+        const assessmentPanel = new Container();
+        assessmentPanel.visible = false;
+        recruitPanel.addChild(assessmentPanel);
+
+        const assessTitle = panelLabel('', COLOR_AMBER_300, { size: 10, weight: '800' });
+        assessTitle.position.set(10, 8);
+        assessmentPanel.addChild(assessTitle);
+
+        const assessPrompt = panelLabel('', COLOR_SLATE_200, { size: 9 });
+        assessPrompt.position.set(10, 24);
+        assessPrompt.style.wordWrap = true;
+        assessPrompt.style.wordWrapWidth = 320;
+        assessmentPanel.addChild(assessPrompt);
+
+        const assessOptions = [];
+        for (let j = 0; j < 3; j++) {
+            const optBtn = buildSimpleButton({
+                text: '',
+                width: 280,
+                height: 22,
+                accent: 'cyan',
+                onTap: () => this._chooseInterviewOption(j),
+            });
+            assessmentPanel.addChild(optBtn.container);
+            assessOptions.push(optBtn);
+        }
+
+        const assessCancel = buildSimpleButton({
+            text: 'BACK',
+            width: 50,
+            height: 20,
+            accent: 'slate',
+            onTap: () => this._cancelInterview(),
+        });
+        assessmentPanel.addChild(assessCancel.container);
+
         this._nodes = {
             title,
             rosterPanel, rosterHeader, rosterCount, rosterList,
@@ -251,6 +300,7 @@ export class CrewTab {
             detailXp, xpBar, detailSkill, detailAffinity,
             statsContainer, dismissBtn,
             recruitPanel, recruitHeader, recruitCost, recruitStatus, candidateSlots, rerollBtn,
+            assessmentPanel, assessTitle, assessPrompt, assessOptions, assessCancel,
         };
     }
 
@@ -362,24 +412,76 @@ export class CrewTab {
             n.xpBar.visible = false;
         }
 
-        // Candidates. Each shows the price of the NEXT berth, and the
-        // HIRE button dims when the roster is full or credits run short.
-        this._candidates.forEach((cand, i) => {
-            const slot = n.candidateSlots[i];
-            slot.name.text = cand.name;
-            slot.role.text = cand.role;
-            const progress = crewProgress(cand);
-            slot.lvl.text = `Lv ${progress.level} \u00B7 ${(ROLE_AFFINITY[cand.role] || []).join('/') || 'general'}`;
-            const canHire = !full && credits >= cost;
-            slot.hireBtn.label.text = `${cost.toLocaleString('en-US')} CR`;
-            slot.hireBtn.container.alpha = canHire ? 1 : 0.35;
-            slot.hireBtn.container.eventMode = canHire ? 'static' : 'none';
-        });
+        // Candidates or Tactical Interview Assessment
+        if (this._activeInterview && n.assessmentPanel) {
+            n.assessmentPanel.visible = true;
+            n.candidateSlots.forEach((s) => { s.slot.visible = false; });
+            n.rerollBtn.container.visible = false;
+            const cand = this._candidates[this._activeInterview.candidateIndex];
+            const scenario = this._activeInterview.scenario;
+            n.assessTitle.text = `TACTICAL INTERVIEW: ${cand.name} (${cand.role} · Lv ${cand.level})`;
+            n.assessPrompt.text = scenario.prompt;
+            scenario.options.forEach((opt, idx) => {
+                const btn = n.assessOptions[idx];
+                if (btn) {
+                    btn.container.visible = true;
+                    btn.label.text = `[${idx + 1}] ${opt.label}`;
+                }
+            });
+        } else {
+            if (n.assessmentPanel) n.assessmentPanel.visible = false;
+            n.candidateSlots.forEach((s) => { s.slot.visible = true; });
+            n.rerollBtn.container.visible = true;
+
+            this._candidates.forEach((cand, i) => {
+                const slot = n.candidateSlots[i];
+                slot.name.text = cand.name;
+                slot.role.text = cand.role;
+                const progress = crewProgress(cand);
+                const traitText = cand.trait ? ` [${cand.trait.icon} ${cand.trait.name}]` : '';
+                slot.lvl.text = `Lv ${progress.level}${traitText} · ${(ROLE_AFFINITY[cand.role] || []).join('/') || 'general'}`;
+                const discount = cand._interviewResult ? cand._interviewResult.discount : 0;
+                const candCost = Math.max(0, Math.round(cost * (1 - discount)));
+                const canHire = !full && credits >= candCost;
+                slot.hireBtn.label.text = discount > 0 ? `${candCost} CR (-${Math.round(discount * 100)}%)` : `${cost.toLocaleString('en-US')} CR`;
+                slot.hireBtn.container.alpha = canHire ? 1 : 0.35;
+                slot.hireBtn.container.eventMode = canHire ? 'static' : 'none';
+                slot.interviewBtn.container.alpha = cand._interviewResult ? 0.45 : 1;
+            });
+        }
 
         n.recruitCost.text = `Berth ${crew.length + 1} costs ${cost.toLocaleString('en-US')} credits (have: ${credits.toLocaleString('en-US')})`;
         n.recruitCost.style.fill = !full && credits >= cost ? COLOR_EMERALD_300 : COLOR_ROSE_300;
         n.recruitStatus.text = this._status;
         n.recruitStatus.style.fill = full ? COLOR_ROSE_300 : COLOR_SLATE_400;
+    }
+
+    _startInterview(index) {
+        const cand = this._candidates[index];
+        if (!cand) return;
+        this._activeInterview = {
+            candidateIndex: index,
+            scenario: INTERVIEW_SCENARIOS[index % INTERVIEW_SCENARIOS.length],
+        };
+        this._refresh();
+    }
+
+    _cancelInterview() {
+        this._activeInterview = null;
+        this._refresh();
+    }
+
+    _chooseInterviewOption(optionIndex) {
+        if (!this._activeInterview) return;
+        const cand = this._candidates[this._activeInterview.candidateIndex];
+        const scenario = this._activeInterview.scenario;
+        const option = scenario.options[optionIndex];
+        const result = evaluateInterview(cand, scenario.id, option.id);
+        cand._interviewResult = result;
+        cand.trait = result.trait;
+        this._status = result.summary;
+        this._activeInterview = null;
+        this._refresh();
     }
 
     _hireCrew(index) {
@@ -393,19 +495,30 @@ export class CrewTab {
             this._refresh();
             return;
         }
-        const cost = hireCost(roster.length);
+        const baseCost = hireCost(roster.length);
+        const discount = cand._interviewResult ? cand._interviewResult.discount : 0;
+        const cost = Math.max(0, Math.round(baseCost * (1 - discount)));
         if (this.meta.credits < cost) {
             this._status = `Need ${cost.toLocaleString('en-US')} credits for this contract.`;
             this._refresh();
             return;
         }
         this.meta.addCredits(-cost);
-        this.meta.addCrew(cand);
+        const bonusXp = cand._interviewResult ? cand._interviewResult.xpBonus : 0;
+        const memberToAdd = {
+            id: cand.id,
+            name: cand.name,
+            role: cand.role,
+            level: cand.level,
+            xp: cand.xp + bonusXp,
+            trait: cand.trait?.id || null,
+        };
+        this.meta.addCrew(memberToAdd);
         this._candidates.splice(index, 1);
         const existing = new Set(this.meta.crewSnapshot().map((c) => c.id));
         this._candidates.splice(index, 0, _randomCandidate(existing));
-        this._selectedCrewId = cand.id;
-        this._status = `${cand.name} signed on as ${cand.role} for ${cost.toLocaleString('en-US')} credits.`;
+        this._selectedCrewId = memberToAdd.id;
+        this._status = `${memberToAdd.name} signed on as ${memberToAdd.role} for ${cost.toLocaleString('en-US')} CR! ${cand.trait ? `[Trait: ${cand.trait.name}]` : ''}`;
         this._refresh();
     }
 
@@ -465,8 +578,21 @@ export class CrewTab {
             s.bg.clear();
             s.bg.roundRect(0, 0, slotW, 60, 4).fill({ color: 0x0f172a, alpha: 0.8 });
             s.bg.roundRect(0, 0, slotW, 60, 4).stroke({ color: 0x334155, width: 1, alpha: 0.5 });
-            s.hireBtn.container.position.set(slotW - 58, 32);
+            if (s.interviewBtn) s.interviewBtn.container.position.set(Math.max(6, slotW - 110), 34);
+            s.hireBtn.container.position.set(slotW - 58, 34);
         });
+
+        if (n.assessmentPanel) {
+            n.assessmentPanel.position.set(14, 34);
+            n.assessPrompt.style.wordWrap = true;
+            n.assessPrompt.style.wordWrapWidth = detailW - 80;
+            const optW = Math.min(420, detailW - 100);
+            n.assessOptions.forEach((btn, idx) => {
+                btn.resize(optW, 22);
+                btn.container.position.set(0, 38 + idx * 24);
+            });
+            n.assessCancel.container.position.set(detailW - 80, 8);
+        }
 
         n.rerollBtn.container.position.set(detailW - 82, 44 + 18);
         n.recruitStatus.style.wordWrap = true;

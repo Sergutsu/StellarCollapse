@@ -72,6 +72,32 @@ const SHIP_COLORS = Object.freeze({
     hostile: 0xf87171,
 });
 
+const STAR_NAMES = [
+    'Solaria Prime', 'Hyperion', 'Astraea', 'Vespera', 'Kaelis Nova', 'Celestia',
+    'Ignis Corona', 'Altair Major', 'Aldebaran Reach', 'Cygnus Prime', 'Helios Apex',
+    'Zephyros', 'Polaris Prime', 'Elysium Flare', 'Antares Gate', 'Proxima Veil',
+];
+
+const PLANET_NAMES_BY_TYPE = {
+    Terrestrial: ['Veridia', 'Aethelgard', 'Terra Nova', 'Cimmeria', 'Khoralis', 'Valerius', 'Alba Prime'],
+    Desert: ['Duneholm', 'Solis Prime', 'Tarkus IV', 'Raptor Ridge', 'Kharak', 'Saharis', 'Oasis Waste'],
+    Ocean: ['Aquaris', 'Talassa', 'Pelagia', 'Oceana Prime', 'Nautilus', 'Leviathan Deep', 'Meridian'],
+    'Ice Giant': ['Glacies', 'Boreas Prime', 'Cryotheum', 'Frostveil', 'Niveus', 'Thule', 'Kallisto Ice'],
+    'Gas Giant': ['Jovian Prime', 'Chronos V', 'Zephyrus', 'Typhon VII', 'Aiolos', 'Titanis', 'Gorgon Vast'],
+    Lava: ['Vulcanus', 'Pyros Major', 'Ignis IV', 'Inferno Ridge', 'Tartarus', 'Asphodel', 'Magma Deep'],
+};
+
+const MOON_NAMES = [
+    'Selene', 'Phobos Reach', 'Deimos Veil', 'Io Minor', 'Kallisto Shard', 'Erebus',
+    'Titan Minor', 'Oberon Shard', 'Nix Crest', 'Astra Minor', 'Lunaris', 'Cynthia',
+    'Vesper Shard', 'Proteus', 'Triton Deep', 'Umbriel',
+];
+
+const STATION_NAMES = [
+    'Astraea Anchorage', 'Orion Citadel', 'Nexus Gateway', 'Helios Depot',
+    'Vanguard Terminal', 'Zenith Spire', 'Aegis Watch', 'Prometheus Yard',
+];
+
 /**
  * Generate a complete star system with procedural content.
  * @param {number} seed - Deterministic seed for reproducibility
@@ -83,10 +109,11 @@ export function generateStarSystem(seed) {
     // Generate central star
     const starIndex = Math.floor(rng() * STAR_TYPES.length);
     const starType = STAR_TYPES[starIndex];
+    const starName = STAR_NAMES[Math.floor(rng() * STAR_NAMES.length)];
     
     const star = {
         id: 'central-star',
-        name: `Star-${seed.toString(16).toUpperCase().slice(0, 4)}`,
+        name: starName,
         type: starType.type,
         color: starType.color,
         radius: starType.radius,
@@ -119,9 +146,13 @@ export function generateStarSystem(seed) {
         const size = planetType.sizeRange[0] + rng() * (planetType.sizeRange[1] - planetType.sizeRange[0]);
         const angle = rng() * Math.PI * 2;
         
+        const pool = PLANET_NAMES_BY_TYPE[planetType.type] || PLANET_NAMES_BY_TYPE.Terrestrial;
+        const planetBaseName = pool[i % pool.length];
+        const planetName = i >= pool.length ? `${planetBaseName} ${Math.floor(i / pool.length) + 1}` : planetBaseName;
+
         const planet = {
             id: `planet-${i}`,
-            name: `${star.name}-${String.fromCharCode(65 + i)}`,
+            name: planetName,
             type: planetType.type,
             color: planetType.color,
             radius: size,
@@ -149,10 +180,11 @@ export function generateStarSystem(seed) {
                 const moonOrbit = 0.02 + rng() * 0.04;
                 const moonSize = 1 + rng() * 2;
                 const moonAngle = rng() * Math.PI * 2;
+                const moonName = `${planet.name} — ${MOON_NAMES[m % MOON_NAMES.length]}`;
                 
                 const moon = {
                     id: `moon-${i}-${m}`,
-                    name: `${planet.name}-${m + 1}`,
+                    name: moonName,
                     type: 'Moon',
                     color: 0x888888 + Math.floor(rng() * 0x444444),
                     radius: moonSize,

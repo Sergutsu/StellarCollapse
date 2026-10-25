@@ -131,6 +131,13 @@ const CONTRACT_TEMPLATES = [
 ];
 const CONTRACT_SCALE = { stardust: [5000, 60000, 750000], waves: [3, 8, 20], collapses: [1, 3, 8], clicks: [60, 200, 600] };
 
+export const STATION_SURGES = Object.freeze([
+  { id: 'quantum', name: 'Quantum Core Surge', icon: '⚡', tab: 'research', tabLabel: 'RESEARCH', desc: '3x Research Speed for 45s!', durationSec: 45 },
+  { id: 'market', name: 'Market Speculation', icon: '📈', tab: 'market', tabLabel: 'MARKET', desc: '+50% Ore Sell Prices & Refinery Yield for 60s!', durationSec: 60 },
+  { id: 'solar', name: 'Solar Ion Drift', icon: '🚀', tab: 'missions', tabLabel: 'MISSIONS', desc: '2x Idle Mission Speed for 60s!', durationSec: 60 },
+  { id: 'warp', name: 'Warp Resonance', icon: '🌌', tab: 'star-map', tabLabel: 'STAR MAP', desc: '-1 Warp Jump Cost for 45s!', durationSec: 45 },
+]);
+
 function starter() {
   return {
     v: CLICKER_SAVE_VERSION, stardust: 0, lifetime: 0, runStardust: 0,
@@ -141,6 +148,7 @@ function starter() {
     combo: 0, bestCombo: 0, comboExpiresAt: 0, totalClicks: 0, clicksRun: 0,
     core: 0, collapses: 0, wave: 1, waveHp: 10, waveMaxHp: 10, wavesCleared: 0,
     contracts: [], contractSeq: 0, lastDaily: '', goldenAt: 0,
+    activeSurge: null, nextSurgeAt: 0,
     stats: { bombsUsed: 0, snakesUsed: 0, goldenClicked: 0, supernovas: 0, offlineClaimed: 0 },
     lastSeen: Date.now(), createdAt: Date.now(),
   };
@@ -189,7 +197,18 @@ export class ClickerState {
     return g.rate * count * milestone * (m.gen[g.id] || 1) * m.global;
   }
   productionPerSec() { return GENERATORS.reduce((a, g) => a + this.genRate(g), 0); }
-  orePerSec() { const m = this._mults(); const out = {}; for (const g of GENERATORS) { const c = this.s.gens[g.id] || 0; if (c) out[g.ore] = (out[g.ore] || 0) + g.oreRate * c / 60 * m.ore * (m.gen[g.id] || 1); } return out; }
+  orePerSec() {
+    const m = this._mults();
+    const out = {};
+    for (const g of GENERATORS) {
+      const c = this.s.gens[g.id] || 0;
+      if (c) {
+        const effectiveCount = c <= 15 ? c : 15 + Math.sqrt(c - 15) * 3;
+        out[g.ore] = (out[g.ore] || 0) + (g.oreRate * effectiveCount / 60) * Math.min(2.5, m.ore) * Math.min(3, (m.gen[g.id] || 1));
+      }
+    }
+    return out;
+  }
   dps() { const m = this._mults(); const t = GENERATORS.find(g => g.id === 'turret'); return (this.s.gens.turret || 0) * (t.dps || 0) * (m.gen.turret || 1) * m.dps + this.clickPower() * 0.5 * m.dps; }
   comboMult() { const active = this.now() < this.s.comboExpiresAt; const c = active ? this.s.combo : 0; return 1 + (c / 100) * 0.5 * this._mults().combo; } // up to +50% (or +100%)
   clickTier() { return Math.floor((this.s.totalClicks || 0) / 50); } // Click Mastery: +50% click power per tier
@@ -215,6 +234,10 @@ export class ClickerState {
       burst = this.productionPerSec() * (this.s.combo / 2) + this.clickPower() * this.s.combo;
       this._gain(burst); this.emit('burst', { combo: this.s.combo, burst });
     }
+    // Small chance to trigger a station surge on fever burst or crit
+    if (!this.s.activeSurge && (burst > 0 || (crit && this.rng() < 0.25))) {
+      this.triggerSurge();
+    }
     this.emit('click', { gain, crit, combo: this.s.combo });
     return { gain: gain + burst, crit, burst };
   }
@@ -222,15 +245,22 @@ export class ClickerState {
   _damageWave(dmg) {
     if (dmg <= 0) return;
     this.s.waveHp -= dmg;
-    while (this.s.waveHp <= 0) {
+    let clearsThisTick = 0;
+    while (this.s.waveHp <= 0 && clearsThisTick < 3) {
+      clearsThisTick++;
       const boss = this.s.wave % 10 === 0;
-      const credits = Math.floor((8 + this.s.wave * 2) * (boss ? 10 : 1));
+      const credits = Math.min(60, Math.floor((6 + this.s.wave * 0.75) * (boss ? 4 : 1)));
       this.s.credits += credits; this.s.wavesCleared++;
-      if (boss || this.rng() < 0.08) this.s.warp += Math.max(1, Math.floor(this._mults().warp / 2)) * (boss ? 2 : 1);
-      if (boss) this.s.rep += 5;
+      if (boss) {
+        if (this.s.warp < 20) this.s.warp += 1;
+        if (this.s.rep < 500) this.s.rep += 1;
+      }
       for (const c of this.s.contracts) if (c.need === 'waves') c.progress = Math.min(c.target, (c.progress || 0) + 1);
       this.emit('wave-clear', { wave: this.s.wave, boss, credits });
-      this.s.wave++; this.s.waveMaxHp = Math.floor(10 * Math.pow(1.55, this.s.wave - 1)); this.s.waveHp += this.s.waveMaxHp;
+      this.s.wave++; this.s.waveMaxHp = Math.floor(15 * Math.pow(1.35, Math.min(50, this.s.wave - 1))); this.s.waveHp += this.s.waveMaxHp;
+    }
+    if (this.s.waveHp <= 0) {
+      this.s.waveHp = this.s.waveMaxHp;
     }
   }
   genCost(g, qty = 1) { const owned = this.s.gens[g.id] || 0; let total = 0; for (let i = 0; i < qty; i++) total += Math.ceil(g.cost * Math.pow(1.15, owned + i)); return total; }
@@ -268,12 +298,70 @@ export class ClickerState {
   claimContract(uid) { const i = this.s.contracts.findIndex(c => c.uid === uid); if (i < 0) return null; const c = this.s.contracts[i]; const targetProgress = c.need === 'clicks' ? this.s.clicksRun - (c.baseline || 0) : c.progress; if ((c.need === 'clicks' ? targetProgress : c.progress) < c.target) return null; const r = c.reward; this.s.credits += r.credits || 0; this.s.minerals += r.minerals || 0; this.s.warp += r.warp || 0; this.s.rep += r.rep || 3; this.s.contracts.splice(i, 1); this._rollOne(); this.emit('contract', c); return r; }
   _rollOne() { const pool = CONTRACT_TEMPLATES.filter(t => !t.daily && !this.s.contracts.some(c => c.id === t.id)); if (!pool.length) return; const t = pool[Math.floor(this.rng() * pool.length)]; const c = { uid: ++this.s.contractSeq, ...t, target: CONTRACT_SCALE[t.need][Math.min(2, Math.floor(this.starLevel() / 3))], progress: 0 }; if (t.need === 'clicks') c.baseline = this.s.clicksRun; this.s.contracts.push(c); }
 
-  darkMatterOnSupernova() { return Math.floor(Math.cbrt(this.s.runStardust / 50000)); }
-  supernova() { const dm = this.darkMatterOnSupernova(); if (dm < 1) return 0; const keep = { darkMatter: this.s.darkMatter + dm, prestigeUpgrades: this.s.prestigeUpgrades, stats: { ...this.s.stats, supernovas: this.s.stats.supernovas + 1 }, lifetime: this.s.lifetime, crew: [], ships: [], sectors: this.s.sectors, researchDone: this.s.researchDone, lastDaily: this.s.lastDaily }; const fresh = starter(); Object.assign(fresh, keep); fresh.stardust = fresh.lifetime ? this._mults().start : 0; // computed pre-reset below
+  darkMatterOnSupernova() { return Math.max(0, Math.floor(Math.cbrt((this.s.runStardust || 0) / 50000))); }
+  supernova() {
+    const dm = this.darkMatterOnSupernova();
+    if (dm < 1) return 0;
+    const keep = {
+      darkMatter: this.s.darkMatter + dm,
+      prestigeUpgrades: this.s.prestigeUpgrades,
+      stats: { ...this.s.stats, supernovas: this.s.stats.supernovas + 1 },
+      lifetime: this.s.lifetime,
+      crew: [],
+      ships: [],
+      sectors: this.s.sectors,
+      researchDone: this.s.researchDone,
+      lastDaily: this.s.lastDaily,
+    };
+    const fresh = starter();
+    Object.assign(fresh, keep);
     const startBonus = PRESTIGE_UPGRADES.filter(u => keep.prestigeUpgrades.includes(u.id)).reduce((a, u) => a + (u.mult.start || 0), 0);
-    fresh.stardust = startBonus; fresh.credits = 100; fresh.minerals = 20; fresh.warp = 1;
-    this.s = fresh; this._rollContracts(); return dm; }
+    fresh.stardust = startBonus;
+
+    // BIGGEST RESOURCE GAIN AFTER SUPERNOVA PRESTIGE EVENT:
+    // Millions of players' favorite idle moment: giant prestige windfall directly into station economy!
+    const bountyCredits = 5000 * dm + Math.floor(Math.sqrt(this.s.runStardust || 0) * 8);
+    const bountyMinerals = 1200 * dm + Math.floor(Math.sqrt(this.s.runStardust || 0) * 2);
+    const bountyWarp = 3 * dm;
+    const bountyRep = 15 * dm;
+    fresh.credits = (this.s.credits || 0) + bountyCredits;
+    fresh.minerals = (this.s.minerals || 0) + bountyMinerals;
+    fresh.warp = (this.s.warp || 0) + bountyWarp;
+    fresh.rep = (this.s.rep || 0) + bountyRep;
+
+    this.s = fresh;
+    this._rollContracts();
+    this.emit('supernova', { dm, bounty: { credits: bountyCredits, minerals: bountyMinerals, warp: bountyWarp, rep: bountyRep } });
+    return dm;
+  }
   buyPrestige(id) { const u = PRESTIGE_UPGRADES.find(x => x.id === id); if (!u || this.s.prestigeUpgrades.includes(id) || this.s.darkMatter < u.cost) return false; this.s.darkMatter -= u.cost; this.s.prestigeUpgrades.push(id); return true; }
+
+  triggerSurge(forcedId = null) {
+    const template = forcedId
+      ? STATION_SURGES.find(s => s.id === forcedId)
+      : STATION_SURGES[Math.floor(this.rng() * STATION_SURGES.length)];
+    if (!template) return null;
+    const now = this.now();
+    const surge = {
+      ...template,
+      startedAt: now,
+      expiresAt: now + template.durationSec * 1000,
+    };
+    this.s.activeSurge = surge;
+    this.s.nextSurgeAt = surge.expiresAt + (55 + this.rng() * 45) * 1000;
+    this.emit('surge-start', surge);
+    return surge;
+  }
+
+  getActiveSurge(now = this.now()) {
+    if (!this.s.activeSurge) return null;
+    if (now >= this.s.activeSurge.expiresAt) {
+      this.s.activeSurge = null;
+      return null;
+    }
+    const remainingSec = Math.max(0, Math.ceil((this.s.activeSurge.expiresAt - now) / 1000));
+    return { ...this.s.activeSurge, remainingSec };
+  }
 
   // ---- merged hub wallet (ADR-0014) ----
   // The clicker adopts the station wallet as its own: credits, minerals,
@@ -297,6 +385,18 @@ export class ClickerState {
   }
   tick(dtSec) {
     if (!(dtSec > 0)) return;
+    const now = this.now();
+    // Manage active station surges
+    if (this.s.activeSurge && now >= this.s.activeSurge.expiresAt) {
+      const ended = this.s.activeSurge;
+      this.s.activeSurge = null;
+      this.s.nextSurgeAt = now + (55 + this.rng() * 45) * 1000;
+      this.emit('surge-end', ended);
+    }
+    if (!this.s.activeSurge && (!this.s.nextSurgeAt || now >= this.s.nextSurgeAt)) {
+      this.triggerSurge();
+    }
+
     const pps = this.productionPerSec();
     if (pps) this._gain(pps * dtSec);
     const ore = this.orePerSec(); for (const [k, v] of Object.entries(ore)) this.s.ores[k] += v * dtSec;
@@ -304,10 +404,10 @@ export class ClickerState {
     if (this.s.gens.drone) this.s.core = Math.min(this.coreMax(), this.s.core + (this.s.gens.drone) * dtSec / 20);
     const dps = (this.s.gens.turret || 0) * 6 * (this._mults().gen.turret || 1) * this._mults().dps;
     if (dps) this._damageWave(dps * dtSec);
-    if (this.now() > this.s.comboExpiresAt) this.s.combo = 0;
+    if (now > this.s.comboExpiresAt) this.s.combo = 0;
     const ra = this.s.researchActive;
-    if (ra && this.now() >= ra.endsAt) { this.s.researchDone.push(ra.id); this.s.researchActive = null; this.emit('research-done', ra); }
-    if (!this.s.goldenAt) this.s.goldenAt = this.now() + GOLDEN_STAR_EVERY_SEC * 1000 * (0.7 + this.rng() * 0.6);
+    if (ra && now >= ra.endsAt) { this.s.researchDone.push(ra.id); this.s.researchActive = null; this.emit('research-done', ra); }
+    if (!this.s.goldenAt) this.s.goldenAt = now + GOLDEN_STAR_EVERY_SEC * 1000 * (0.7 + this.rng() * 0.6);
   }
   applyOffline(nowMs = this.now()) {
     const elapsed = clamp((nowMs - (this.s.lastSeen || nowMs)) / 1000, 0, this._mults().offline ? OFFLINE_CAP_SEC * 2 : OFFLINE_CAP_SEC);

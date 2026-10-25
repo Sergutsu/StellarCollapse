@@ -34,8 +34,8 @@ export const NODES = Object.freeze([
         glyph: '[]',
         effect: 'Doubles fleet fuel reserves. Enables longer missions.',
         cost: { minerals: 300, credits: 500 },
-        time: '1h 30m',
-        durationSec: 90 * 60,
+        time: '9m 00s',
+        durationSec: 9 * 60,
     },
     {
         id: 'warp-coils',
@@ -46,8 +46,8 @@ export const NODES = Object.freeze([
         glyph: '~~',
         effect: 'Cut warp-cell consumption for long-range plots by 1.',
         cost: { minerals: 500, credits: 900 },
-        time: '3h 45m',
-        durationSec: (3 * 3600) + (45 * 60),
+        time: '22m 30s',
+        durationSec: Math.floor(((3 * 3600) + (45 * 60)) / 10),
     },
     {
         id: 'ion-thrusters',
@@ -58,8 +58,8 @@ export const NODES = Object.freeze([
         glyph: '>>',
         effect: 'Increase fleet cruise speed. Reduces mission ETA by 8%.',
         cost: { minerals: 600, credits: 1200 },
-        time: '5h 00m',
-        durationSec: 5 * 3600,
+        time: '30m 00s',
+        durationSec: Math.floor((5 * 3600) / 10),
     },
 
     // Resource Extraction
@@ -72,8 +72,8 @@ export const NODES = Object.freeze([
         glyph: '()',
         effect: 'Reveals rare-ore bonus tiles on the mining board.',
         cost: { minerals: 400, credits: 800 },
-        time: '2h 00m',
-        durationSec: 2 * 3600,
+        time: '12m 00s',
+        durationSec: Math.floor((2 * 3600) / 10),
     },
     {
         id: 'refinery',
@@ -84,8 +84,8 @@ export const NODES = Object.freeze([
         glyph: 'Rf',
         effect: 'Refinery converts 15% more ore per hour.',
         cost: { minerals: 700, credits: 1300 },
-        time: '5h 00m',
-        durationSec: 5 * 3600,
+        time: '30m 00s',
+        durationSec: Math.floor((5 * 3600) / 10),
     },
     {
         id: 'mining-laser',
@@ -96,8 +96,8 @@ export const NODES = Object.freeze([
         glyph: '//',
         effect: '+12% ore yield on every run; rare seams bank one extra hazard ore.',
         cost: { minerals: 800, credits: 1500 },
-        time: '6h 30m',
-        durationSec: (6 * 3600) + (30 * 60),
+        time: '39m 00s',
+        durationSec: Math.floor(((6 * 3600) + (30 * 60)) / 10),
     },
 
     // Defense
@@ -110,8 +110,8 @@ export const NODES = Object.freeze([
         glyph: '##',
         effect: 'Fleet hull takes 12% less damage on high-risk missions.',
         cost: { minerals: 650, credits: 1100 },
-        time: '4h 15m',
-        durationSec: (4 * 3600) + (15 * 60),
+        time: '25m 30s',
+        durationSec: Math.floor(((4 * 3600) + (15 * 60)) / 10),
     },
     {
         id: 'shield-array',
@@ -122,8 +122,8 @@ export const NODES = Object.freeze([
         glyph: '()',
         effect: 'Equip shield array on cruiser-class ships. Blocks one hull hit per run.',
         cost: { minerals: 900, credits: 1700 },
-        time: '7h 00m',
-        durationSec: 7 * 3600,
+        time: '42m 00s',
+        durationSec: Math.floor((7 * 3600) / 10),
     },
     {
         id: 'countermeasures',
@@ -134,8 +134,8 @@ export const NODES = Object.freeze([
         glyph: '!!',
         effect: 'One extra paid mission-board reroll each day, plus hardened hulls.',
         cost: { minerals: 1100, credits: 2200 },
-        time: '9h 30m',
-        durationSec: (9 * 3600) + (30 * 60),
+        time: '57m 00s',
+        durationSec: Math.floor(((9 * 3600) + (30 * 60)) / 10),
     },
 
     // Economics
@@ -148,8 +148,8 @@ export const NODES = Object.freeze([
         glyph: '**',
         effect: 'Reputation gain +10% per completed mission.',
         cost: { minerals: 700, credits: 1800 },
-        time: '5h 45m',
-        durationSec: (5 * 3600) + (45 * 60),
+        time: '34m 30s',
+        durationSec: Math.floor(((5 * 3600) + (45 * 60)) / 10),
     },
     {
         id: 'trade-compact',
@@ -160,8 +160,8 @@ export const NODES = Object.freeze([
         glyph: '$$',
         effect: 'MARKET tab prices 6% more favorable on sell orders.',
         cost: { minerals: 450, credits: 1400 },
-        time: '3h 00m',
-        durationSec: 3 * 3600,
+        time: '18m 00s',
+        durationSec: Math.floor((3 * 3600) / 10),
     },
     {
         id: 'habitat-extension',
@@ -172,8 +172,8 @@ export const NODES = Object.freeze([
         glyph: 'Hb',
         effect: '+1 crew slot on NOVA STATION. Unlocks tier-II contracts.',
         cost: { minerals: 550, credits: 1000 },
-        time: '4h 30m',
-        durationSec: (4 * 3600) + (30 * 60),
+        time: '27m 00s',
+        durationSec: Math.floor(((4 * 3600) + (30 * 60)) / 10),
     },
 ]);
 

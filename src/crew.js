@@ -226,3 +226,57 @@ export function shipMatchesType(className, missionType) {
 export function shipFactor(className, missionType) {
     return shipMatchesType(className, missionType) ? SHIP_MATCH_FACTOR : SHIP_MISMATCH_FACTOR;
 }
+
+export const CREW_TRAITS = Object.freeze({
+    lucky_seam: { id: 'lucky_seam', name: 'Lucky Seam', icon: '💎', desc: '+20% rare ore haul on mining/salvage' },
+    voidrunner: { id: 'voidrunner', name: 'Voidrunner', icon: '🚀', desc: '-15% idle contract duration' },
+    ironclad:   { id: 'ironclad',   name: 'Ironclad',   icon: '🛡', desc: '-25% hull wear on missions' },
+    trader:     { id: 'trader',     name: 'Master Trader', icon: '💰', desc: '+15% credits earned on missions' },
+    analyst:    { id: 'analyst',    name: 'Deep Analyst', icon: '🔬', desc: '+30% XP gain on missions' },
+    ace:        { id: 'ace',        name: 'Combat Ace',   icon: '⚔', desc: '+20% combat effectiveness' },
+});
+
+export const INTERVIEW_SCENARIOS = Object.freeze([
+    {
+        id: 'anomaly',
+        prompt: 'Tactical Dilemma: A gravitational anomaly shears nearby asteroid clusters. What directive do you issue?',
+        options: [
+            { id: 'scan', text: 'Launch sensor probes to pinpoint dense mineral fissures.', align: ['Scientist', 'Engineer', 'Quartermaster'], traitId: 'lucky_seam', synergy: 1.25, xpBonus: 150, discount: 0.25, label: 'Analytical Extraction (+Ore Trait & -25% Hire Cost)' },
+            { id: 'navigate', text: 'Burn sub-light thrusters to bypass the shear perimeter quickly.', align: ['Pilot', 'Navigator', 'Captain'], traitId: 'voidrunner', synergy: 1.25, xpBonus: 150, discount: 0.25, label: 'Evasive Precision (+Speed Trait & -25% Hire Cost)' },
+            { id: 'brace', text: 'Angle deflector barriers forward and hold defensive vector.', align: ['Tactician', 'Medic'], traitId: 'ironclad', synergy: 1.20, xpBonus: 120, discount: 0.20, label: 'Protective Posture (+Defense Trait & -20% Hire Cost)' },
+        ],
+    },
+    {
+        id: 'derelict',
+        prompt: 'Tactical Dilemma: An abandoned cargo hulk drifts in the cold dark. How does the candidate approach?',
+        options: [
+            { id: 'salvage', text: 'Deploy cutting drones to strip auxiliary cargo capacitors.', align: ['Engineer', 'Quartermaster', 'Medic'], traitId: 'trader', synergy: 1.25, xpBonus: 150, discount: 0.25, label: 'High-Yield Recovery (+Credits Trait & -25% Hire Cost)' },
+            { id: 'sweep', text: 'Charge point-defense batteries and conduct security breach sweep.', align: ['Tactician', 'Captain', 'Pilot'], traitId: 'ace', synergy: 1.25, xpBonus: 150, discount: 0.25, label: 'Tactical Breach (+Combat Trait & -25% Hire Cost)' },
+            { id: 'decode', text: 'Hack navigation flight blackbox to chart deep-sector data.', align: ['Scientist', 'Navigator'], traitId: 'analyst', synergy: 1.20, xpBonus: 120, discount: 0.20, label: 'Blackbox Decrypt (+XP Trait & -20% Hire Cost)' },
+        ],
+    },
+]);
+
+export function evaluateInterview(candidate = {}, scenarioId = 'anomaly', optionId = null) {
+    const scenario = INTERVIEW_SCENARIOS.find(s => s.id === scenarioId) || INTERVIEW_SCENARIOS[0];
+    const option = scenario.options.find(o => o.id === optionId) || scenario.options[0];
+    const role = candidate?.role || 'Captain';
+    const isMatched = option.align.includes(role);
+    const trait = CREW_TRAITS[option.traitId] || CREW_TRAITS.lucky_seam;
+    const synergy = isMatched ? option.synergy : 1.05;
+    const discount = isMatched ? option.discount : 0.05;
+    const xpBonus = isMatched ? option.xpBonus : 50;
+
+    return {
+        matched: isMatched,
+        synergy,
+        discount,
+        xpBonus,
+        trait,
+        scenarioId: scenario.id,
+        optionId: option.id,
+        summary: isMatched
+            ? `★ EXCEPTIONAL SYNERGY: ${candidate.name || 'Candidate'} aligned with station doctrine! (-${Math.round(discount * 100)}% hire cost, +${xpBonus} XP, Trait: ${trait.name})`
+            : `Compatible: Candidate accepted standard directive (-${Math.round(discount * 100)}% cost, +${xpBonus} XP).`,
+    };
+}
