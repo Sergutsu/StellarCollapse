@@ -76,6 +76,7 @@ import {
 import { BuildUpgradeTab } from './tabs/build-upgrade-tab.js';
 import { CrewTab } from './tabs/crew-tab.js';
 import { MarketTab } from './tabs/market-tab.js';
+import { StellarCoreTab } from './tabs/core-tab.js';
 
 // Panel background + accent tints mirror the ones in pixi-view.js.
 // Duplicated here so the hub scene stays self-contained; a later PR
@@ -124,6 +125,7 @@ const HUB_TABS = Object.freeze([
     { id: 'research',   label: 'RESEARCH',      locked: false, colorKey: 'research' },
     { id: 'crew',       label: 'CREW',          locked: false, colorKey: 'crew' },
     { id: 'market',     label: 'MARKET',        locked: false, colorKey: 'market' },
+    { id: 'core',       label: 'STELLAR CORE',  locked: false, colorKey: 'research' },
 ]);
 
 // Resource strip metadata. Numeric values come from MetaState at
@@ -403,7 +405,8 @@ export class HubScene {
         const researchTab = new ResearchTab({ parent: centerPanel.panel, meta: this.meta });
         const crewTab = new CrewTab({ parent: centerPanel.panel, meta: this.meta });
         const marketTab = new MarketTab({ parent: centerPanel.panel, meta: this.meta, side: sidePanel });
-        const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab, crew: crewTab, market: marketTab };
+        const coreTab = new StellarCoreTab({ parent: centerPanel.panel, meta: this.meta });
+        const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab, crew: crewTab, market: marketTab, core: coreTab };
 
         root.addChild(topBar.container);
         root.addChild(news.container);

@@ -31,7 +31,7 @@ export class StellarCoreTab {
     this.buyQty = 1; this._nodes = null; this._refreshAt = 0; this._saveAt = 0; this._floatT = 0;
     this._status = this._offline ? `Welcome back — the core produced ${fmt(this._offline.stardust)} ✦ while you were away.` : 'Click the star. Generators do the rest — even the old Defense waves.';
   }
-  get visible() { return !!this.root.visible; }
+  get visible() { return !!(this.root && this.root.visible); }
   _adoptWallet() {
     if (!this.meta) return;
     this.game.adoptWallet({ credits: this.meta.credits, minerals: this.meta.getHubResource('minerals'), warp: this.meta.getHubResource('warp'), rep: this.meta.reputation, ores: this.meta.oreCounts() });
@@ -54,7 +54,10 @@ export class StellarCoreTab {
   show() { if (!this._nodes) this._build(); this._adoptWallet(); this._refresh(); this.root.visible = true; }
   hide() { this.root.visible = false; this._save(); }
   layout(screen) { if (!screen) return; const w = screen.width || 0, h = screen.height || 0; if (w > 0 && h > 0) { const s = Math.min(1, w / 780, h / 640); this.root.scale.set(Math.max(0.5, s)); } }
-  destroy() { this._save(); if (this.root) this.root.destroy({ children: true }); this.root = null; this._nodes = null; }
+  // No save here: hide() and the 5s tick already persist, and a MetaState
+  // change emitted mid-teardown would refresh sibling tabs that are
+  // already destroyed.
+  destroy() { if (this.root) this.root.destroy({ children: true }); this.root = null; this._nodes = null; }
   _save() { if (this.meta?.saveClickerState) { this.game.touch(); this.meta.saveClickerState(this.game.snapshot()); } }
 
   tick(deltaMs) {

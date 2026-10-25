@@ -68,18 +68,18 @@ export const GEN_BY_ID = Object.fromEntries(GENERATORS.map(g => [g.id, g]));
 
 const U = (id, name, icon, cost, curr, desc, req, mult) => ({ id, name, icon, cost, curr, desc, req, mult });
 export const UPGRADES = Object.freeze([
-  U('click1', 'Reinforced Glove', '👆', 100, 'stardust', 'Click power ×2', s => s.totalClicks >= 25, { click: 2 }),
-  U('click2', 'Quantum Glove', '✋', 5000, 'stardust', 'Click power ×2', s => s.totalClicks >= 150, { click: 2 }),
-  U('click3', 'Event-Horizon Glove', '🌀', 250000, 'stardust', 'Click power ×3', s => s.totalClicks >= 500, { click: 3 }),
-  U('siphon1', 'Polished Siphons', '✦', 600, 'stardust', 'Stellar Siphons ×2', s => (s.gens.siphon || 0) >= 10, { gen: 'siphon', x: 2 }),
-  U('matcher1', 'Overclocked Matchers', '▦', 6000, 'stardust', 'Auto-Matchers ×2', s => (s.gens.matcher || 0) >= 10, { gen: 'matcher', x: 2 }),
-  U('drone1', 'Titanium Drills', '⛏', 40000, 'stardust', 'Mining Drones ×2', s => (s.gens.drone || 0) >= 10, { gen: 'drone', x: 2 }),
-  U('turret1', 'Railgun Turrets', '♜', 300000, 'stardust', 'Turrets ×2 output & DPS', s => (s.gens.turret || 0) >= 10, { gen: 'turret', x: 2 }),
-  U('global1', 'Efficient Station', '🏭', 50000, 'stardust', 'ALL production ×1.5', s => s.starLevel() >= 3, { global: 1.5 }),
-  U('global2', 'Dyson Logistics', '🛰', 3000000, 'stardust', 'ALL production ×2', s => s.starLevel() >= 5, { global: 2 }),
-  U('click-ore', 'Ore-Tipped Glove', '💎', 2000, 'stardust', 'Clicks also yield +1 ore', s => s.totalClicks >= 75, { clickOre: 1 }),
-  U('combo1', 'Combo Amplifier', '🔥', 15000, 'stardust', 'Combo bonus doubled', s => s.bestCombo >= 40, { combo: 2 }),
-  U('offline1', 'Deep-Space Relays', '📡', 100000, 'stardust', 'Offline cap 8h → 16h, offline rate 50% → 75%', s => s.starLevel() >= 4, { offline: 1 }),
+  U('click1', 'Reinforced Glove', '👆', 100, 'stardust', 'Click power ×2', g => g.s.totalClicks >= 25, { click: 2 }),
+  U('click2', 'Quantum Glove', '✋', 5000, 'stardust', 'Click power ×2', g => g.s.totalClicks >= 150, { click: 2 }),
+  U('click3', 'Event-Horizon Glove', '🌀', 250000, 'stardust', 'Click power ×3', g => g.s.totalClicks >= 500, { click: 3 }),
+  U('siphon1', 'Polished Siphons', '✦', 600, 'stardust', 'Stellar Siphons ×2', g => (g.s.gens.siphon || 0) >= 10, { gen: 'siphon', x: 2 }),
+  U('matcher1', 'Overclocked Matchers', '▦', 6000, 'stardust', 'Auto-Matchers ×2', g => (g.s.gens.matcher || 0) >= 10, { gen: 'matcher', x: 2 }),
+  U('drone1', 'Titanium Drills', '⛏', 40000, 'stardust', 'Mining Drones ×2', g => (g.s.gens.drone || 0) >= 10, { gen: 'drone', x: 2 }),
+  U('turret1', 'Railgun Turrets', '♜', 300000, 'stardust', 'Turrets ×2 output & DPS', g => (g.s.gens.turret || 0) >= 10, { gen: 'turret', x: 2 }),
+  U('global1', 'Efficient Station', '🏭', 50000, 'stardust', 'ALL production ×1.5', g => g.starLevel() >= 3, { global: 1.5 }),
+  U('global2', 'Dyson Logistics', '🛰', 3000000, 'stardust', 'ALL production ×2', g => g.starLevel() >= 5, { global: 2 }),
+  U('click-ore', 'Ore-Tipped Glove', '💎', 2000, 'stardust', 'Clicks also yield +1 ore', g => g.s.totalClicks >= 75, { clickOre: 1 }),
+  U('combo1', 'Combo Amplifier', '🔥', 15000, 'stardust', 'Combo bonus doubled', g => g.s.bestCombo >= 40, { combo: 2 }),
+  U('offline1', 'Deep-Space Relays', '📡', 100000, 'stardust', 'Offline cap 8h → 16h, offline rate 50% → 75%', g => g.starLevel() >= 4, { offline: 1 }),
 ]);
 
 export const RESEARCH = Object.freeze([
