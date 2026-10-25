@@ -113,7 +113,7 @@ export const HELP_PAGES = Object.freeze([
             }),
             Object.freeze({
                 heading: 'HUB HOTKEYS',
-                body: '1 – 7  switch bottom-nav tabs (7 = STELLAR CORE)\nM  open the MISSION BOARD\nESC  close the board or a dialog',
+                body: '1 – 7  switch bottom-nav tabs (1 = STELLAR CORE)\nM  open the MISSION BOARD\nESC  close the board or a dialog',
             }),
             Object.freeze({
                 heading: 'TOUCH',

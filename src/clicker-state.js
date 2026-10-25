@@ -192,7 +192,8 @@ export class ClickerState {
   orePerSec() { const m = this._mults(); const out = {}; for (const g of GENERATORS) { const c = this.s.gens[g.id] || 0; if (c) out[g.ore] = (out[g.ore] || 0) + g.oreRate * c / 60 * m.ore * (m.gen[g.id] || 1); } return out; }
   dps() { const m = this._mults(); const t = GENERATORS.find(g => g.id === 'turret'); return (this.s.gens.turret || 0) * (t.dps || 0) * (m.gen.turret || 1) * m.dps + this.clickPower() * 0.5 * m.dps; }
   comboMult() { const active = this.now() < this.s.comboExpiresAt; const c = active ? this.s.combo : 0; return 1 + (c / 100) * 0.5 * this._mults().combo; } // up to +50% (or +100%)
-  clickPower() { return 1 * this._mults().click * (1 + this.productionPerSec() * 0.002); } // clicks scale a little with your engine
+  clickTier() { return Math.floor((this.s.totalClicks || 0) / 50); } // Click Mastery: +50% click power per tier
+  clickPower() { return 1 * this._mults().click * (1 + this.clickTier() * 0.5) * (1 + this.productionPerSec() * 0.01); } // clicks scale with your engine (1% of /sec)
   coreMax() { return 100; }
 
   // ---- actions ----
@@ -207,8 +208,15 @@ export class ClickerState {
     this.s.ores[ores[Math.floor(this.rng() * 4)]] += 1 + this._mults().clickOre;
     if (this.rng() < 0.04) this.s.ores[this.rng() < 0.5 ? 'bomb' : 'snake'] += 1;
     this._damageWave(this.clickPower() * this._mults().dps);
+    // FEVER BURSTS at combo milestones: 25/50/100 clicks in a streak pay a
+    // chunk of idle production — fast clicking should feel explosive.
+    let burst = 0;
+    if ([25, 50, 100].includes(this.s.combo)) {
+      burst = this.productionPerSec() * (this.s.combo / 2) + this.clickPower() * this.s.combo;
+      this._gain(burst); this.emit('burst', { combo: this.s.combo, burst });
+    }
     this.emit('click', { gain, crit, combo: this.s.combo });
-    return { gain, crit };
+    return { gain: gain + burst, crit, burst };
   }
   _gain(v) { this.s.stardust += v; this.s.lifetime += v; this.s.runStardust += v; for (const c of this.s.contracts) if (c.need === 'stardust') c.progress = Math.min(c.target, (c.progress || 0) + v); }
   _damageWave(dmg) {
@@ -235,6 +243,8 @@ export class ClickerState {
   useBomb() { if (this.s.ores.bomb < 5) return 0; this.s.ores.bomb -= 5; this.s.stats.bombsUsed++; const payout = Math.max(50, this.productionPerSec() * 60 + this.clickPower() * 25); this._gain(payout); this._damageWave(this.s.waveMaxHp * 0.35); return payout; }
   useSnake() { if (this.s.ores.snake < 5) return 0; this.s.ores.snake -= 5; this.s.stats.snakesUsed++; for (const k of Object.keys(this.s.ores)) this.s.ores[k] += 4; const payout = Math.max(40, this.clickPower() * 30); this._gain(payout); return payout; }
   clickGolden() { const payout = Math.max(50, this.productionPerSec() * 90 + this.clickPower() * 40); this._gain(payout); this.s.stats.goldenClicked++; this.s.goldenAt = 0; return payout; }
+  /** Cross-resource exchange with the main game: burn stardust, bank station resources (synced to MetaState by the hub). */
+  convertStardust() { if (this.s.stardust < 500) return null; this.s.stardust -= 500; this.s.credits += 50; this.s.minerals += 20; return { credits: 50, minerals: 20 }; }
 
   // economy: reuse the game's daily market + refinery math
   prices() { return marketPrices({ effects: { marketSellBonus: this._mults().sell - 1 } }); }

@@ -88,7 +88,8 @@ test('tab hotkeys fire only on the hub and map to nav order', () => {
     dom.press('7'); // STELLAR CORE (ADR-0014)
     assert.deepEqual(rec.calls, [['selectTab', 0], ['selectTab', 5], ['selectTab', 6]]);
     assert.equal(HOTKEY_TAB_ORDER.length, 7);
-    assert.equal(HOTKEY_TAB_ORDER[1], 'missions');
+    assert.equal(HOTKEY_TAB_ORDER[0], 'core');
+    assert.equal(HOTKEY_TAB_ORDER[2], 'missions');
 });
 
 test('M opens the board on the hub; P pauses only during a run', () => {

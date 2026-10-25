@@ -119,13 +119,13 @@ const HUB_NEWS_POOL = Object.freeze([
 // Hub bottom-nav tabs. Only MISSIONS is active; the rest render a
 // locked stub panel. `lockRep` is a placeholder gate until rep lands.
 const HUB_TABS = Object.freeze([
+    { id: 'core',       label: 'STELLAR CORE',  locked: false, colorKey: 'research' },
     { id: 'star-map',   label: 'STAR MAP',      locked: false, colorKey: 'starMap' },
     { id: 'missions',   label: 'MISSIONS',      locked: false, colorKey: 'missions' },
     { id: 'build',      label: 'SHIPYARD',      locked: false, colorKey: 'build' },
     { id: 'research',   label: 'RESEARCH',      locked: false, colorKey: 'research' },
     { id: 'crew',       label: 'CREW',          locked: false, colorKey: 'crew' },
     { id: 'market',     label: 'MARKET',        locked: false, colorKey: 'market' },
-    { id: 'core',       label: 'STELLAR CORE',  locked: false, colorKey: 'research' },
 ]);
 
 // Resource strip metadata. Numeric values come from MetaState at
@@ -392,6 +392,7 @@ export class HubScene {
         const sidePanel = this._buildSidePanel();               // shown when a tab owns it
         const centerPanel = this._buildCenter();
         const rightCol = this._buildFleetCrew();
+        const rightPanel = this._buildRightPanel();             // contextual right bay
         const bottomNav = this._buildBottomNav();
         const modal = this._buildMissionBoardModal();
 
@@ -405,7 +406,7 @@ export class HubScene {
         const researchTab = new ResearchTab({ parent: centerPanel.panel, meta: this.meta });
         const crewTab = new CrewTab({ parent: centerPanel.panel, meta: this.meta });
         const marketTab = new MarketTab({ parent: centerPanel.panel, meta: this.meta, side: sidePanel });
-        const coreTab = new StellarCoreTab({ parent: centerPanel.panel, meta: this.meta });
+        const coreTab = new StellarCoreTab({ parent: centerPanel.panel, meta: this.meta, side: sidePanel, right: rightPanel });
         const tabs = { 'star-map': starMapTab, build: buildTab, research: researchTab, crew: crewTab, market: marketTab, core: coreTab };
 
         root.addChild(topBar.container);
@@ -415,6 +416,7 @@ export class HubScene {
         root.addChild(sidePanel.container);        // tab-owned left panel (STAR MAP / BUILD / MARKET)
         root.addChild(centerPanel.container);
         root.addChild(rightCol.container);
+        root.addChild(rightPanel.container);
         root.addChild(bottomNav.container);
         root.addChild(modal.container);
 
@@ -427,6 +429,7 @@ export class HubScene {
             sidePanel,        // tab-owned alternative left column content
             centerPanel,
             rightCol,
+            rightPanel,
             bottomNav,
             modal,
             tabs,
@@ -783,6 +786,58 @@ export class HubScene {
             // hidden tab's stale content is still mounted.
             ownerId: null,
         };
+    }
+
+    /**
+     * Right-hand contextual bay (mirror of the left side panel). Whoever
+     * owns it depends on the tab: STELLAR CORE parks its GENERATORS there,
+     * MISSIONS keeps the old FLEET & CREW column (a separate node), and
+     * every other tab gets a hub-computed relevance summary (contextBox).
+     */
+    _buildRightPanel() {
+        const bay = this._buildSidePanel();
+        bay.panelAccent = 'magenta';
+        bay.rightContext = null;
+        const contextBox = new Container();
+        const body = new Text({
+            text: '',
+            style: new TextStyle({ fontFamily: 'Inter, sans-serif', fontSize: 13, lineHeight: 20, fill: colors.text.secondary, wordWrap: true, wordWrapWidth: HUB_COL_W - 48 }),
+        });
+        contextBox.addChild(body);
+        contextBox.visible = false;
+        bay.list.addChild(contextBox);
+        bay.contextBox = contextBox;
+        bay.contextBody = body;
+        return bay;
+    }
+
+    /** Relevance summary shown in the right bay on tabs that don't own it. */
+    _refreshRightContext(tabId) {
+        const bay = this._nodes?.rightPanel;
+        if (!bay?.contextBody) return;
+        const m = this.meta;
+        const lines = [];
+        if (m) {
+            const effects = m.getEffects?.() || {};
+            if (tabId === 'star-map') {
+                lines.push('🌀 WARP & SECTORS', `Warp cells held: ${m.getHubResource('warp')}`, `Sectors charted: ${(m.discoveredSectorIds?.() || []).length}`, '', 'Charting a sector pays a permanent station bonus — and multiplies STELLAR CORE production (+10% each).');
+            } else if (tabId === 'build') {
+                const fleet = m.fleetSnapshot();
+                lines.push('🚀 FLEET STATUS', ...fleet.map(s => `${s.name} — hull ${s.hull}% · ${s.status}`), '', 'Repair wear here before dispatching. Idle CORE ore feeds the MARKET refinery for minerals.');
+            } else if (tabId === 'research') {
+                lines.push('🔬 RESEARCH DESK', `Completed: ${(m.getResearchState?.().completed || []).length} nodes`, `Minerals: ${m.getHubResource('minerals')}`, '', 'Every completed node also boosts STELLAR CORE production (+5%). Active projects ride in the left bay.');
+            } else if (tabId === 'crew') {
+                const crew = m.crewSnapshot();
+                lines.push('🧑‍🚀 CREW DESK', ...crew.map(c => `${c.name} — ${c.role} Lv ${c.level} · ${c.status}`), '', 'Crew fly dispatches from MISSIONS; their levels raise contract pay.');
+            } else if (tabId === 'market') {
+                const ores = m.oreCounts();
+                lines.push('💱 YOUR HOLD', ...Object.entries(ores).map(([k, v]) => `${k}: ${v}`), `Minerals: ${m.getHubResource('minerals')} · Credits: ${m.credits}`, '', 'STELLAR CORE generators keep this hold filling — sell high, refine the rest.');
+            } else {
+                lines.push('⭐ STATION', `Credits: ${m.credits}`, `Minerals: ${m.getHubResource('minerals')}`, `Warp: ${m.getHubResource('warp')}`);
+            }
+        }
+        bay.contextBody.text = lines.join('\n');
+        bay.header.text = 'CONTEXT';
     }
 
     _buildCenter() {
@@ -1555,6 +1610,44 @@ export class HubScene {
                 n.sidePanel.ownerId = null;
             }
         }
+
+        // Right column is contextual too — FLEET & CREW is no longer a
+        // permanent fixture. MISSIONS (dispatching) keeps it; a tab that
+        // declares usesRightPanel (STELLAR CORE generators) owns the right
+        // bay; every other tab gets the relevance summary.
+        if (n.rightCol && n.rightPanel) {
+            const showFleetRight = tabId === 'missions';
+            const showTabRight = !showFleetRight && !!sideScene?.usesRightPanel;
+            n.rightCol.container.visible = showFleetRight;
+            n.rightPanel.container.visible = showTabRight || !showFleetRight;
+            if (showTabRight) {
+                if (n.rightPanel.ownerId !== tabId) {
+                    n.rightPanel.list.children.forEach((child) => { child.visible = false; });
+                }
+                n.rightPanel.ownerId = tabId;
+                n.rightPanel.header.text = sideScene.rightPanelTitle || 'PANEL';
+                this._layoutRightPanel();
+            } else if (!showFleetRight) {
+                if (n.rightPanel.ownerId !== 'context') {
+                    n.rightPanel.list.children.forEach((child) => { child.visible = false; });
+                    n.rightPanel.ownerId = 'context';
+                }
+                if (n.rightPanel.contextBox) n.rightPanel.contextBox.visible = true;
+                this._refreshRightContext(tabId);
+            } else {
+                n.rightPanel.ownerId = null;
+            }
+        }
+    }
+
+    /** Mirror of _layoutSidePanel for the right bay. */
+    _layoutRightPanel() {
+        const n = this._nodes;
+        const bay = n?.rightPanel;
+        if (!bay || !bay.ownerId || bay.ownerId === 'context') return;
+        const scene = n.tabs[bay.ownerId];
+        if (!scene || typeof scene.layoutRight !== 'function') return;
+        scene.layoutRight({ width: bay._w || HUB_COL_W, height: bay._h || 420 });
     }
 
     /**
@@ -2431,6 +2524,8 @@ export class HubScene {
         // The owning tab re-fits its own content after the frame is sized.
         this._layoutSidePanel();
         this._layoutColumnPanel(n.rightCol, rightX, columnsY, HUB_COL_W, columnsH);
+        this._layoutColumnPanel(n.rightPanel, rightX, columnsY, HUB_COL_W, columnsH);
+        this._layoutRightPanel();
         this._layoutCenterPanel(n.centerPanel, centerX, columnsY, centerW, columnsH);
 
         // --- Bottom nav: aligned to shell width, pinned to bottom.

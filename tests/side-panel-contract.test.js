@@ -36,7 +36,7 @@ describe('tab-owned left panel contract', () => {
         // Every tab that opts in must be constructed with the panel.
         const injected = [...hub.matchAll(/new (\w+Tab)\(\{[^}]*side:\s*sidePanel[^}]*\}\)/g)]
             .map((m) => m[1]);
-        assert.deepEqual(injected.sort(), ['BuildUpgradeTab', 'MarketTab', 'StarMapTab']);
+        assert.deepEqual(injected.sort(), ['BuildUpgradeTab', 'MarketTab', 'StarMapTab', 'StellarCoreTab']);
 
         assert.match(hub, /usesSidePanel/, 'the hub reads the opt-in flag');
         assert.match(hub, /sidePanelTitle/, 'the hub reads the header text');

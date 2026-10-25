@@ -307,6 +307,16 @@ export class MetaState {
         return this._data.clicker ? JSON.parse(JSON.stringify(this._data.clicker)) : null;
     }
 
+    /**
+     * Hard reset to the starter profile (RESET PROFILE). Replaces every
+     * slice — fleet back to 5 Standby ships, crew Available, no active
+     * missions, clicker cleared — and emits one change so listeners repaint.
+     */
+    resetProfile() {
+        this._data = starterProfile();
+        this._changed('reset', {});
+    }
+
     /** Persist the clicker-core state. Emits change so the profile saves. */
     saveClickerState(save) {
         if (!save || typeof save !== 'object') return;

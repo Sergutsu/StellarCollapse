@@ -91,3 +91,31 @@ describe('merged hub wallet (ADR-0014)', () => {
     assert.equal(reloaded.getClickerSave().stardust, 42);
   });
 });
+
+describe('clicking progression & cross-resources', () => {
+  it('Click Mastery tiers raise click power every 50 clicks', () => {
+    const g = make(rich()); const p0 = g.clickPower(); g.s.totalClicks = 50;
+    assert.ok(g.clickTier() === 1 && g.clickPower() > p0);
+  });
+  it('combo 25 triggers a FEVER burst payout', () => {
+    const g = make(rich()); g.buyGenerator('siphon', 10);
+    g.s.combo = 24; g.s.comboExpiresAt = Date.now() + 99999;
+    const before = g.s.stardust; const r = g.clickStar();
+    assert.ok(r.burst > 0 && g.s.stardust > before);
+  });
+  it('convertStardust crosses into the station wallet currencies', () => {
+    const g = make(rich()); const r = g.convertStardust();
+    assert.deepEqual(r, { credits: 50, minerals: 20 }); assert.equal(g.s.stardust, 1e9 - 500);
+  });
+  it('resetProfile restores an available starter fleet and clears the clicker', async () => {
+    const { MetaState } = await import('../src/meta-state.js');
+    const meta = new MetaState();
+    meta.fleetSnapshot(); meta.setShipStatus('ship-1', 'On Mission'); meta.setCrewStatus('crew-1', 'On Mission');
+    meta.saveClickerState({ stardust: 999 }); meta.setCredits(1);
+    meta.resetProfile();
+    assert.equal(meta.credits, 4800); assert.equal(meta.getClickerSave(), null);
+    assert.ok(meta.fleetSnapshot().every(s => s.status === 'Standby'));
+    assert.ok(meta.crewSnapshot().every(c => c.status === 'Available'));
+    assert.equal(meta.activeMissionsSnapshot().length, 0);
+  });
+});
