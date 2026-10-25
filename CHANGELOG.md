@@ -8,6 +8,12 @@ This log starts at the PR #32 release. Earlier history is in the git log.
 
 ## [Unreleased]
 
+### Changed — STELLAR CORE: clicker/idle merged into the hub (ADR-0014, supersedes ADR-0013)
+
+- **The old game is back as the game — with the clicker inside it.** ADR-0013 briefly replaced the Pixi game with a standalone DOM clicker; that replacement is reverted (`index.html` boots `src/main.js` again, DOM front-end deleted) and the clicker is merged into the hub as a seventh bottom-nav tab, **STELLAR CORE** (hotkey `7`, in-game manual updated).
+- Every mechanic keeps its original form *and* gains a clicker/idle form in the tab: click-match → clicking the star (combo, CRIT ×5, golden stars); Auto-Match/falling pieces → generators with ×2 milestones; Miner → Core % + Collapse; Bomb/Snake → consumables + reactors; Defense → idle turret waves with bosses; missions → core contracts; idle/offline → the core ticks on every hub tab and applies capped offline progress.
+- **One wallet:** the clicker adopts MetaState's credits/minerals/warp/ores/reputation — its earnings are spendable in MARKET/SHIPYARD/RESEARCH immediately, and completed research + charted sectors multiply core production. Its private state persists in the same profile (`MetaState` clicker slice); **SUPERNOVA** prestige (Dark Matter, +10% each) included.
+
 ### Added
 
 - **P10 — understandability & navigation.** The game finally explains itself and can't be mis-clicked into a corner:

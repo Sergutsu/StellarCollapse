@@ -1,3 +1,25 @@
+# Gameplay Spec — dispatcher game + STELLAR CORE clicker (ADR-0014)
+
+> **Current shipped game:** the original dispatcher game (spec below),
+> plus the clicker/idle layer merged into the hub as the STELLAR CORE tab
+> (hotkey `7`, `src/scenes/tabs/core-tab.js` on `src/clicker-state.js`).
+> It shares MetaState's wallet and ticks on every hub tab + offline.
+
+## The clicker layer (every mechanic, converted — alongside the originals)
+
+| Mechanic | Clicker / idle form in STELLAR CORE |
+|---|---|
+| Stellar click-match (click a 4+ run) | Click the star: combo multiplier, 7% CRIT x5, ore drops, golden-star events |
+| Auto-Match (clear on lock) | Auto-Matcher generator |
+| Falling pieces, gravity, lines, levels | Generator tiers & output/sec; x2 milestone every 10 owned; Star Level |
+| Miner (edge-falling minerals, 6x6 core) | Mining Drones + Core Extractors fill Core %; **Collapse Core** burst payout |
+| Bomb / Snake specials | Bomb Blast & Snake Chain consumables (rare ore) + Bomb Reactor / Snake Conduit generators |
+| Defense (paddle/invaders/boss) | Idle turret waves; clicks damage the wave; boss every 10 waves; no game over |
+| Missions + daily board | Core contracts (auto-pay into the shared wallet) alongside the mission board |
+| Market / refinery / research / crew / ships / sectors | The original tabs — and research + charted sectors multiply core production |
+| Idle dispatch + offline | The core ticks on every hub tab; capped offline progress on return |
+| — (genre standard, new) | **Supernova** prestige: Dark Matter (+10% production each) |
+
 # Gameplay Spec
 
 > **Canonical source of truth for tunable numbers.** `src/constants.js` mirrors this file. When you tune a number, update both in the same PR.

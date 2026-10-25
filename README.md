@@ -6,6 +6,8 @@
 
 You are the **Chief Dispatcher** of a fringe outpost. Missions come in, you pick which rock is worth the fuel, and the puzzle is the shift: match 4+ runs, stack falling blocks, chain snakes and bombs, bank the ore. Short runs stack into an idle meta-loop (hub, rep tier, upgrades) landing in phases after the core puzzle.
 
+**New — the STELLAR CORE tab (hotkey `7`):** the hub now also runs a clicker/idle core. Click the star (the old click-match, with combo + crits), buy generators that automate Auto-Match / Miner / Defense, collapse the core, idle through Defense waves, and Supernova for Dark Matter. It shares the dispatcher's wallet — its ore, credits, minerals and warp land in the same balances every other tab spends — ticks on every hub tab, and keeps producing offline. See ADR-0014.
+
 ### ▶ [**Play Now**](https://sergutsu.github.io/StellarCollapse/)
 
 *(First-time setup: see [Enabling GitHub Pages](#enabling-github-pages) below — Pages needs to be turned on once in repo settings before the Play link goes live.)*
@@ -70,7 +72,7 @@ Or run it locally (see [Local Development](#local-development) below).
 | `ESC`            | Pause a shift / close any panel    |
 | `H` or `?`       | Open the HOW TO PLAY manual        |
 | `P`              | Pause a shift                      |
-| `1` – `6`        | Switch hub tabs (hub only)         |
+| `1` – `7`        | Switch hub tabs (hub only; 7 = STELLAR CORE clicker) |
 | `M`              | Open the MISSION BOARD (hub only)  |
 | **Mouse click**  | Trigger a color match (Stellar mode only; disabled in Blocks, automated in Auto-Match) |
 

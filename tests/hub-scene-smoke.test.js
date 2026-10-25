@@ -58,7 +58,7 @@ if (HOOK_AVAILABLE) {
 // Viewport sizes the hub must survive: a wide desktop down to the narrowest
 // layout the shell clamps to.
 const VIEWPORTS = [[1920, 1080], [1440, 900], [1280, 800], [1024, 700], [900, 600], [820, 560]];
-const TAB_IDS = ['star-map', 'missions', 'build', 'research', 'crew', 'market'];
+const TAB_IDS = ['star-map', 'missions', 'build', 'research', 'crew', 'market', 'core'];
 
 /** Walk a scene graph collecting every non-finite coordinate or size. */
 function nonFiniteGeometry(node, path = 'root', out = []) {

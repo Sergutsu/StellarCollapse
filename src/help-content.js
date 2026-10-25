@@ -89,8 +89,8 @@ export const HELP_PAGES = Object.freeze([
         accent: 'amber',
         blocks: Object.freeze([
             Object.freeze({
-                heading: 'THE SIX BAYS',
-                body: 'STAR MAP — chart sectors with warp cells for permanent pay bonuses.\nMISSIONS — the board and the dispatch planner (home).\nSHIPYARD — build hulls, repair wear, disassemble.\nRESEARCH — a 12-node tech tree; minerals in, permanent bonuses out.\nCREW — hire, level, and dismiss. Roles fit some contract types better.\nMARKET — seven goods with daily prices, and the refinery that melts ore into minerals.',
+                heading: 'THE SEVEN BAYS',
+                body: 'STELLAR CORE — the clicker/idle core: click the star, buy generators that automate the old minigames, collapse the Miner core, idle through Defense waves, and SUPERNOVA for Dark Matter. It pays into the same credits/ore/minerals wallet and ticks on every tab (and offline).\nSTAR MAP — chart sectors with warp cells for permanent pay bonuses.\nMISSIONS — the board and the dispatch planner (home).\nSHIPYARD — build hulls, repair wear, disassemble.\nRESEARCH — a 12-node tech tree; minerals in, permanent bonuses out.\nCREW — hire, level, and dismiss. Roles fit some contract types better.\nMARKET — seven goods with daily prices, and the refinery that melts ore into minerals.',
             }),
             Object.freeze({
                 heading: 'THE RESOURCES',
@@ -113,7 +113,7 @@ export const HELP_PAGES = Object.freeze([
             }),
             Object.freeze({
                 heading: 'HUB HOTKEYS',
-                body: '1 – 6  switch bottom-nav tabs\nM  open the MISSION BOARD\nESC  close the board or a dialog',
+                body: '1 – 7  switch bottom-nav tabs (7 = STELLAR CORE)\nM  open the MISSION BOARD\nESC  close the board or a dialog',
             }),
             Object.freeze({
                 heading: 'TOUCH',
